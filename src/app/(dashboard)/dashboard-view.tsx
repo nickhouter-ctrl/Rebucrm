@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency } from '@/lib/utils'
-import { Users, UserPlus, Truck, CheckSquare, AlertCircle } from 'lucide-react'
+import { Users, UserPlus, CheckSquare, AlertCircle, FileText, Clock } from 'lucide-react'
 
 interface DashboardData {
   omzet: number
@@ -12,11 +12,20 @@ interface DashboardData {
   openOffertes: number
   openTaken: number
   maandOmzet: { maand: string; bedrag: number }[]
-  organisaties: { klanten: number; leads: number; leveranciers: number }
+  organisaties: { totaal: number; particulier: number; zakelijk: number }
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
   takenPerCollega: { naam: string; aantal: number }[]
   mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string }[]
+  openOffertesList: {
+    id: string
+    offertenummer: string
+    relatie_bedrijfsnaam: string
+    project_naam: string | null
+    totaal: number
+    datum: string
+    dagen_open: number
+  }[]
 }
 
 const statusLabels: Record<string, string> = {
@@ -76,33 +85,33 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </Card>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Organisaties */}
+            {/* Klanten */}
             <Card>
               <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="font-semibold text-gray-900">Organisaties</h2>
+                <h2 className="font-semibold text-gray-900">Klanten</h2>
               </div>
               <CardContent>
                 <div className="space-y-3">
                   <Link href="/relatiebeheer" className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-blue-50 text-blue-600"><Users className="h-5 w-5" /></div>
-                      <span className="text-sm font-medium text-gray-700">Klanten</span>
+                      <span className="text-sm font-medium text-gray-700">Totaal</span>
                     </div>
-                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.klanten}</span>
+                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.totaal}</span>
                   </Link>
                   <Link href="/relatiebeheer" className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-green-50 text-green-600"><UserPlus className="h-5 w-5" /></div>
-                      <span className="text-sm font-medium text-gray-700">Leads</span>
+                      <div className="p-2 rounded-lg bg-blue-50 text-blue-600"><UserPlus className="h-5 w-5" /></div>
+                      <span className="text-sm font-medium text-gray-700">Particulier</span>
                     </div>
-                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.leads}</span>
+                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.particulier}</span>
                   </Link>
                   <Link href="/relatiebeheer" className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors">
                     <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-purple-50 text-purple-600"><Truck className="h-5 w-5" /></div>
-                      <span className="text-sm font-medium text-gray-700">Leveranciers</span>
+                      <div className="p-2 rounded-lg bg-purple-50 text-purple-600"><Users className="h-5 w-5" /></div>
+                      <span className="text-sm font-medium text-gray-700">Zakelijk</span>
                     </div>
-                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.leveranciers}</span>
+                    <span className="text-2xl font-bold text-gray-900">{data.organisaties.zakelijk}</span>
                   </Link>
                 </div>
               </CardContent>
@@ -189,8 +198,67 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </div>
         </div>
 
-        {/* Rechter kolom: 1/3 - Mijn taken */}
-        <div>
+        {/* Rechter kolom: 1/3 */}
+        <div className="space-y-6">
+          {/* Open offertes */}
+          <Card>
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4 text-gray-500" />
+                <h2 className="font-semibold text-gray-900">Open offertes</h2>
+              </div>
+              {data.openOffertesList.length > 0 && (
+                <span className="text-xs font-medium text-gray-500">{data.openOffertesList.length} verzonden</span>
+              )}
+            </div>
+            <CardContent>
+              {data.openOffertesList.length === 0 ? (
+                <div className="py-6 text-center">
+                  <FileText className="h-8 w-8 text-gray-300 mx-auto mb-2" />
+                  <p className="text-sm text-gray-500">Geen openstaande offertes</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {data.openOffertesList.map(o => {
+                    const isUrgent = o.dagen_open > 14
+                    const isWarning = o.dagen_open > 7
+                    return (
+                      <Link
+                        key={o.id}
+                        href={`/offertes/${o.id}`}
+                        className={`block p-3 rounded-lg hover:bg-gray-50 transition-colors border ${
+                          isUrgent ? 'border-red-200 bg-red-50/50' : isWarning ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {o.offertenummer}
+                              {o.project_naam && ` · ${o.project_naam}`}
+                            </p>
+                          </div>
+                          <span className="text-sm font-medium text-gray-900 whitespace-nowrap">{formatCurrency(o.totaal)}</span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1.5">
+                          <Clock className={`h-3 w-3 ${isUrgent ? 'text-red-500' : isWarning ? 'text-orange-500' : 'text-gray-400'}`} />
+                          <span className={`text-xs font-medium ${
+                            isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : 'text-gray-500'
+                          }`}>
+                            {o.dagen_open} dagen open
+                            {isUrgent && ' — Opvolgen!'}
+                            {!isUrgent && isWarning && ' — Herinnering'}
+                          </span>
+                        </div>
+                      </Link>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Mijn taken */}
           <Card>
             <div className="px-6 py-4 border-b border-gray-200">
               <h2 className="font-semibold text-gray-900">Mijn openstaande taken</h2>

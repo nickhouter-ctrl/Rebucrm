@@ -19,6 +19,7 @@ interface Offerte {
   totaal: number
   versie_nummer: number | null
   relatie: { bedrijfsnaam: string } | null
+  project: { naam: string } | null
   onderwerp: string | null
 }
 
@@ -43,6 +44,11 @@ const columns: ColumnDef<Offerte, unknown>[] = [
     id: 'relatie',
     header: 'Relatie',
     accessorFn: (row) => row.relatie?.bedrijfsnaam || '-',
+  },
+  {
+    id: 'project',
+    header: 'Project',
+    accessorFn: (row) => row.project?.naam || '-',
   },
   { accessorKey: 'onderwerp', header: 'Onderwerp' },
   {

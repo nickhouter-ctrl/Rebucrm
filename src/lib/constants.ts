@@ -33,7 +33,7 @@ export const navigationItems: NavItem[] = [
   { label: 'Beheer', href: '/beheer', icon: Settings },
 ]
 
-export const relatieTypes = ['klant', 'leverancier', 'beide', 'lead'] as const
+export const relatieTypes = ['particulier', 'zakelijk'] as const
 export type RelatieType = (typeof relatieTypes)[number]
 
 export const offerteStatussen = ['concept', 'verzonden', 'geaccepteerd', 'afgewezen', 'verlopen'] as const
@@ -78,8 +78,6 @@ export const statusKleuren: Record<string, string> = {
   admin: 'bg-purple-100 text-purple-700',
   gebruiker: 'bg-blue-100 text-blue-700',
   readonly: 'bg-gray-100 text-gray-700',
-  lead: 'bg-green-100 text-green-700',
-  klant: 'bg-blue-100 text-blue-700',
-  leverancier: 'bg-orange-100 text-orange-700',
-  beide: 'bg-purple-100 text-purple-700',
+  particulier: 'bg-blue-100 text-blue-700',
+  zakelijk: 'bg-purple-100 text-purple-700',
 }

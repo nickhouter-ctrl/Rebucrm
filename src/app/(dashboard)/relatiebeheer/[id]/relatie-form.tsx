@@ -80,11 +80,10 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
                 id="type"
                 name="type"
                 label="Type *"
-                defaultValue={relatie?.type || 'klant'}
+                defaultValue={relatie?.type || 'particulier'}
                 options={[
-                  { value: 'klant', label: 'Klant' },
-                  { value: 'leverancier', label: 'Leverancier' },
-                  { value: 'beide', label: 'Beide' },
+                  { value: 'particulier', label: 'Particulier' },
+                  { value: 'zakelijk', label: 'Zakelijk' },
                 ]}
               />
               <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie?.contactpersoon || ''} />

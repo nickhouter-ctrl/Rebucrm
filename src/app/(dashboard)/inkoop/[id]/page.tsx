@@ -7,5 +7,5 @@ export default async function InkoopDetailPage({ params }: { params: Promise<{ i
     id === 'nieuw' ? null : getInkoopfactuur(id),
     getRelaties(),
   ])
-  return <InkoopForm factuur={factuur} relaties={relaties.filter(r => r.type === 'leverancier' || r.type === 'beide')} />
+  return <InkoopForm factuur={factuur} relaties={relaties} />
 }

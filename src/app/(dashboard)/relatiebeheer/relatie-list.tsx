@@ -39,7 +39,7 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
     <div>
       <PageHeader
         title="Relatiebeheer"
-        description="Beheer uw klanten en leveranciers"
+        description="Beheer uw klanten"
         actions={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => router.push('/relatiebeheer/leads')}>

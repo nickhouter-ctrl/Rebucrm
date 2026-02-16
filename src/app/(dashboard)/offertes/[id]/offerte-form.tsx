@@ -2,14 +2,14 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
-import { saveOfferte, deleteOfferte, duplicateOfferte, createRelatieInline, sendOfferteEmail, convertToFactuur } from '@/lib/actions'
+import { saveOfferte, deleteOfferte, duplicateOfferte, createRelatieInline, sendOfferteEmail, convertToFactuur, getProjectenByRelatie, getLastOfferteForProject, createProjectInline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Building2, User, Search, UserPlus, Send, Receipt, Check, Link2 } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Building2, User, Search, UserPlus, Send, Receipt, Link2, FolderKanban, Loader2 } from 'lucide-react'
 
 interface Regel {
   omschrijving: string
@@ -17,6 +17,13 @@ interface Regel {
   prijs: number
   btw_percentage: number
   product_id?: string
+}
+
+interface Project {
+  id: string
+  naam: string
+  status: string
+  omschrijving: string | null
 }
 
 const BEZORGKOSTEN_DREMPEL = 1750
@@ -48,14 +55,23 @@ export function OfferteForm({ offerte, relaties, producten }: {
   const [error, setError] = useState('')
   const isNew = !offerte
 
-  // Wizard state voor nieuwe offertes: 1=klant kiezen, 2=type kiezen, 3=formulier
+  // Wizard state: 1=klant kiezen, 2=project kiezen, 3=formulier
   const [step, setStep] = useState(isNew ? 1 : 3)
   const [selectedRelatieId, setSelectedRelatieId] = useState<string>((offerte?.relatie_id as string) || '')
   const [selectedRelatieName, setSelectedRelatieName] = useState<string>('')
+  const [selectedProjectId, setSelectedProjectId] = useState<string>((offerte?.project_id as string) || '')
+  const [selectedProjectName, setSelectedProjectName] = useState<string>('')
   const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew ? null : 'zakelijk')
   const [showNewRelatie, setShowNewRelatie] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [relatiesList, setRelatiesList] = useState(relaties)
+
+  // Project state
+  const [projecten, setProjecten] = useState<Project[]>([])
+  const [loadingProjecten, setLoadingProjecten] = useState(false)
+  const [showNewProject, setShowNewProject] = useState(false)
+  const [newProjectName, setNewProjectName] = useState('')
+  const [newProjectType, setNewProjectType] = useState<'particulier' | 'zakelijk' | null>(null)
 
   // Email / factuur conversie state
   const [showEmailResult, setShowEmailResult] = useState<{ link?: string; message?: string } | null>(null)
@@ -70,27 +86,80 @@ export function OfferteForm({ offerte, relaties, producten }: {
     (offerte?.regels as Regel[]) || []
   )
 
-  // Set relatie naam voor bestaande offertes
+  // Set relatie/project naam voor bestaande offertes
   useEffect(() => {
     if (offerte?.relatie_id) {
       const rel = relaties.find(r => r.id === offerte.relatie_id)
       if (rel) setSelectedRelatieName(rel.bedrijfsnaam)
+    }
+    if (offerte?.project_id) {
+      const proj = offerte.project as { id: string; naam: string } | null
+      if (proj) setSelectedProjectName(proj.naam)
     }
   }, [offerte, relaties])
 
   function selectRelatie(id: string, naam: string) {
     setSelectedRelatieId(id)
     setSelectedRelatieName(naam)
+    // Laad projecten voor deze klant
+    setLoadingProjecten(true)
+    getProjectenByRelatie(id).then(data => {
+      setProjecten(data)
+      setLoadingProjecten(false)
+    })
     setStep(2)
   }
 
-  function kiesType(type: 'particulier' | 'zakelijk') {
-    setOfferteType(type)
-    if (type === 'particulier') {
+  async function selectProject(project: Project) {
+    setSelectedProjectId(project.id)
+    setSelectedProjectName(project.naam)
+    // Laad laatste offerte voor dit project om regels te pre-fillen
+    setLoading(true)
+    const lastOfferte = await getLastOfferteForProject(project.id)
+    if (lastOfferte && lastOfferte.regels && (lastOfferte.regels as Regel[]).length > 0) {
+      setRegels((lastOfferte.regels as Regel[]).map((r: Record<string, unknown>) => ({
+        omschrijving: r.omschrijving as string,
+        aantal: r.aantal as number,
+        prijs: r.prijs as number,
+        btw_percentage: r.btw_percentage as number,
+        product_id: (r.product_id as string) || undefined,
+      })))
+      // Auto-detect type op basis van regels
+      const hasParticulierRegels = (lastOfferte.regels as Record<string, unknown>[]).some(
+        (r) => (r.omschrijving as string).toLowerCase().includes('slopen') || (r.omschrijving as string).toLowerCase().includes('plaatsen')
+      )
+      setOfferteType(hasParticulierRegels ? 'particulier' : 'zakelijk')
+    } else {
+      // Geen eerdere offerte - laat type kiezen
+      setOfferteType(null)
+    }
+    setLoading(false)
+    setStep(3)
+  }
+
+  async function handleNewProject() {
+    if (!newProjectName || !newProjectType) return
+    setLoading(true)
+    const result = await createProjectInline({
+      naam: newProjectName,
+      relatie_id: selectedRelatieId,
+    })
+    if (result.error) {
+      setError(result.error)
+      setLoading(false)
+      return
+    }
+    setSelectedProjectId(result.id!)
+    setSelectedProjectName(result.naam!)
+    // Stel regels in op basis van gekozen type
+    if (newProjectType === 'particulier') {
       setRegels([...PARTICULIER_REGELS])
     } else {
       setRegels([...ZAKELIJK_REGELS])
     }
+    setOfferteType(newProjectType)
+    setShowNewProject(false)
+    setLoading(false)
     setStep(3)
   }
 
@@ -103,14 +172,11 @@ export function OfferteForm({ offerte, relaties, producten }: {
       setLoading(false)
       return
     }
-    // Voeg toe aan lijst en selecteer
     const newRelatie = { id: result.id!, bedrijfsnaam: result.bedrijfsnaam!, contactpersoon: nieuwRelatieData.contactpersoon || null, email: nieuwRelatieData.email || null, telefoon: nieuwRelatieData.telefoon || null, plaats: nieuwRelatieData.plaats || null }
     setRelatiesList(prev => [...prev, newRelatie])
-    setSelectedRelatieId(result.id!)
-    setSelectedRelatieName(result.bedrijfsnaam!)
     setShowNewRelatie(false)
     setLoading(false)
-    setStep(2)
+    selectRelatie(result.id!, result.bedrijfsnaam!)
   }
 
   // Auto-bezorgkosten logica
@@ -189,6 +255,7 @@ export function OfferteForm({ offerte, relaties, producten }: {
     if (offerte) formData.set('id', offerte.id as string)
     formData.set('relatie_id', selectedRelatieId)
     formData.set('regels', JSON.stringify(regels))
+    if (selectedProjectId) formData.set('project_id', selectedProjectId)
     const result = await saveOfferte(formData)
     if (result.error) {
       setError(result.error)
@@ -377,25 +444,174 @@ export function OfferteForm({ offerte, relaties, producten }: {
     )
   }
 
-  // ===== STAP 2: TYPE KIEZEN =====
+  // ===== STAP 2: PROJECT KIEZEN =====
   if (isNew && step === 2) {
     return (
       <div>
         <PageHeader
           title="Nieuwe offerte"
-          description="Stap 2 van 3 - Kies type offerte"
+          description="Stap 2 van 3 - Selecteer project"
           actions={
-            <Button variant="ghost" onClick={() => setStep(1)}>
+            <Button variant="ghost" onClick={() => { setStep(1); setShowNewProject(false); setNewProjectName(''); setNewProjectType(null) }}>
               <ArrowLeft className="h-4 w-4" />
               Klant wijzigen
             </Button>
           }
         />
 
-        <div className="max-w-2xl mx-auto mt-4">
+        <div className="max-w-3xl mx-auto mt-4">
+          {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
+
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
             <User className="h-4 w-4 text-blue-600" />
             <span className="text-sm text-blue-800">Klant: <strong>{selectedRelatieName}</strong></span>
+          </div>
+
+          {loadingProjecten ? (
+            <div className="flex items-center justify-center py-12 text-gray-500">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              Projecten laden...
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {projecten.length > 0 ? 'Kies een bestaand project of maak een nieuw project' : 'Maak een nieuw project aan'}
+                </h2>
+              </div>
+
+              {/* Nieuw project knop/formulier */}
+              {!showNewProject ? (
+                <button
+                  onClick={() => setShowNewProject(true)}
+                  className="w-full text-left p-4 rounded-lg border-2 border-dashed border-gray-300 hover:border-primary hover:bg-blue-50/50 transition-all flex items-center gap-3 mb-4"
+                >
+                  <div className="p-2 rounded-full bg-blue-50 text-primary">
+                    <Plus className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">Nieuw project</p>
+                    <p className="text-sm text-gray-500">Start een nieuw project voor deze klant</p>
+                  </div>
+                </button>
+              ) : (
+                <Card className="mb-4">
+                  <CardContent className="pt-6 space-y-4">
+                    <h3 className="font-semibold text-gray-900">Nieuw project aanmaken</h3>
+                    <Input
+                      id="project_naam"
+                      label="Projectnaam *"
+                      placeholder="Bijv. Kozijnen achtergevel, Dakkapel slaapkamer..."
+                      value={newProjectName}
+                      onChange={e => setNewProjectName(e.target.value)}
+                      autoFocus
+                    />
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Type offerte</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setNewProjectType('particulier')}
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                            newProjectType === 'particulier'
+                              ? 'border-primary bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <User className={`h-5 w-5 ${newProjectType === 'particulier' ? 'text-primary' : 'text-gray-400'}`} />
+                          <div className="text-left">
+                            <p className="font-medium text-sm">Particulier</p>
+                            <p className="text-xs text-gray-500">Incl. montage & sloop</p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewProjectType('zakelijk')}
+                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
+                            newProjectType === 'zakelijk'
+                              ? 'border-primary bg-blue-50'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <Building2 className={`h-5 w-5 ${newProjectType === 'zakelijk' ? 'text-primary' : 'text-gray-400'}`} />
+                          <div className="text-left">
+                            <p className="font-medium text-sm">Zakelijk</p>
+                            <p className="text-xs text-gray-500">Alleen levering</p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 justify-end pt-2">
+                      <Button variant="ghost" onClick={() => { setShowNewProject(false); setNewProjectName(''); setNewProjectType(null) }}>
+                        Annuleren
+                      </Button>
+                      <Button onClick={handleNewProject} disabled={loading || !newProjectName || !newProjectType}>
+                        {loading ? 'Aanmaken...' : 'Project aanmaken'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Bestaande projecten */}
+              {projecten.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Bestaande projecten</h3>
+                  {projecten.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => selectProject(p)}
+                      disabled={loading}
+                      className="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-full bg-gray-100 text-gray-600 group-hover:bg-blue-50 group-hover:text-primary">
+                          <FolderKanban className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{p.naam}</p>
+                          <p className="text-xs text-gray-500">
+                            Nieuwe versie aanmaken op basis van laatste offerte
+                          </p>
+                        </div>
+                      </div>
+                      <ArrowLeft className="h-4 w-4 text-gray-400 group-hover:text-primary rotate-180" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ===== STAP 3: FORMULIER =====
+  // Als we in stap 3 komen zonder regels en zonder type (bestaand project zonder eerdere offerte)
+  // Laat dan alsnog type kiezen
+  if (isNew && step === 3 && regels.length === 0 && !offerteType) {
+    return (
+      <div>
+        <PageHeader
+          title="Nieuwe offerte"
+          description="Kies type offerte"
+          actions={
+            <Button variant="ghost" onClick={() => setStep(2)}>
+              <ArrowLeft className="h-4 w-4" />
+              Project wijzigen
+            </Button>
+          }
+        />
+
+        <div className="max-w-2xl mx-auto mt-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
+            <FolderKanban className="h-4 w-4 text-blue-600" />
+            <span className="text-sm text-blue-800">
+              Klant: <strong>{selectedRelatieName}</strong> &middot; Project: <strong>{selectedProjectName}</strong>
+            </span>
           </div>
 
           <h2 className="text-lg font-semibold text-gray-900 text-center mb-6">
@@ -403,7 +619,7 @@ export function OfferteForm({ offerte, relaties, producten }: {
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button
-              onClick={() => kiesType('particulier')}
+              onClick={() => { setOfferteType('particulier'); setRegels([...PARTICULIER_REGELS]) }}
               className="flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all group"
             >
               <div className="p-4 rounded-full bg-blue-50 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
@@ -411,14 +627,12 @@ export function OfferteForm({ offerte, relaties, producten }: {
               </div>
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-gray-900">Particulier</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Inclusief montage, sloop, afwerking en bouwbak
-                </p>
+                <p className="text-sm text-gray-500 mt-1">Inclusief montage, sloop, afwerking en bouwbak</p>
               </div>
             </button>
 
             <button
-              onClick={() => kiesType('zakelijk')}
+              onClick={() => { setOfferteType('zakelijk'); setRegels([...ZAKELIJK_REGELS]) }}
               className="flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all group"
             >
               <div className="p-4 rounded-full bg-blue-50 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
@@ -426,9 +640,7 @@ export function OfferteForm({ offerte, relaties, producten }: {
               </div>
               <div className="text-center">
                 <h3 className="text-lg font-semibold text-gray-900">Zakelijk</h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  Alleen levering kunststof kozijnen
-                </p>
+                <p className="text-sm text-gray-500 mt-1">Alleen levering kunststof kozijnen</p>
               </div>
             </button>
           </div>
@@ -437,17 +649,16 @@ export function OfferteForm({ offerte, relaties, producten }: {
     )
   }
 
-  // ===== STAP 3: FORMULIER =====
   return (
     <div>
       <PageHeader
-        title={isNew ? `Nieuwe offerte (${offerteType === 'particulier' ? 'Particulier' : 'Zakelijk'})` : `Offerte ${offerte?.offertenummer} v${versieNummer}`}
+        title={isNew ? `Nieuwe offerte` : `Offerte ${offerte?.offertenummer} v${versieNummer}`}
         actions={
           <div className="flex gap-2 flex-wrap">
             {isNew ? (
               <Button variant="ghost" onClick={() => setStep(2)}>
                 <ArrowLeft className="h-4 w-4" />
-                Type wijzigen
+                Project wijzigen
               </Button>
             ) : null}
             <Button variant="ghost" onClick={() => router.push('/offertes')}>
@@ -547,11 +758,22 @@ export function OfferteForm({ offerte, relaties, producten }: {
         </div>
       )}
 
-      {/* Klant info banner voor nieuwe offertes */}
-      {isNew && selectedRelatieName && (
+      {/* Project info banner */}
+      {isNew && selectedProjectName && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
-          <User className="h-4 w-4 text-blue-600" />
-          <span className="text-sm text-blue-800">Klant: <strong>{selectedRelatieName}</strong></span>
+          <FolderKanban className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-800">
+            Klant: <strong>{selectedRelatieName}</strong> &middot; Project: <strong>{selectedProjectName}</strong>
+            {offerteType && <> &middot; {offerteType === 'particulier' ? 'Particulier' : 'Zakelijk'}</>}
+          </span>
+        </div>
+      )}
+      {!isNew && (offerte?.project as { naam: string } | null)?.naam && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <FolderKanban className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-800">
+            Project: <strong>{(offerte?.project as { naam: string }).naam}</strong>
+          </span>
         </div>
       )}
 

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, LogOut, User } from 'lucide-react'
+import { SearchBar } from './search-bar'
 
 export function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -34,6 +35,8 @@ export function Header() {
           ))}
         </select>
       </div>
+
+      <SearchBar />
 
       <div className="relative">
         <button

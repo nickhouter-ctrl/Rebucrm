@@ -9,7 +9,9 @@ export async function getAdministratieId(): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
-  const { data: profiel } = await supabase
+  // Use admin client to bypass RLS (server actions may have stale JWT for RLS)
+  const supabaseAdmin = createAdminClient()
+  const { data: profiel } = await supabaseAdmin
     .from('profielen')
     .select('administratie_id')
     .eq('id', user.id)
@@ -157,7 +159,7 @@ export async function getOffertes() {
   const supabase = await createClient()
   const { data } = await supabase
     .from('offertes')
-    .select('*, relatie:relaties(bedrijfsnaam)')
+    .select('*, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
     .order('datum', { ascending: false })
   return data || []
 }
@@ -166,7 +168,7 @@ export async function getOfferte(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('offertes')
-    .select('*, relatie:relaties(*), regels:offerte_regels(*, product:producten(naam))')
+    .select('*, relatie:relaties(*), project:projecten(id, naam), regels:offerte_regels(*, product:producten(naam))')
     .eq('id', id)
     .single()
   return data
@@ -202,6 +204,7 @@ export async function saveOfferte(formData: FormData) {
     btw_totaal: btwTotaal,
     totaal: subtotaal + btwTotaal,
     opmerkingen: formData.get('opmerkingen') as string || null,
+    project_id: formData.get('project_id') as string || null,
   }
 
   let offerteId = id
@@ -567,9 +570,18 @@ export async function getProjecten() {
   const supabase = await createClient()
   const { data } = await supabase
     .from('projecten')
-    .select('*, relatie:relaties(bedrijfsnaam)')
+    .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, status, versie_nummer)')
     .order('created_at', { ascending: false })
-  return data || []
+  // Verrijk met offerte stats
+  return (data || []).map(p => {
+    const offertes = (p.offertes || []) as { id: string; status: string; versie_nummer: number }[]
+    const laatsteOfferte = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
+    return {
+      ...p,
+      aantal_offertes: offertes.length,
+      laatste_offerte_status: laatsteOfferte?.status || null,
+    }
+  })
 }
 
 export async function getProject(id: string) {
@@ -796,12 +808,13 @@ export async function getDashboardData() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminId || !user) return null
 
-  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes] = await Promise.all([
+  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes] = await Promise.all([
     supabase.from('facturen').select('totaal, betaald_bedrag, status, datum').eq('administratie_id', adminId),
     supabase.from('offertes').select('totaal, status').eq('administratie_id', adminId),
     supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan').eq('administratie_id', adminId),
     supabase.from('relaties').select('type').eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
   ])
 
   const facturenData = facturenRes.data || []
@@ -840,9 +853,9 @@ export async function getDashboardData() {
 
   // Organisaties
   const organisaties = {
-    klanten: relatiesData.filter(r => r.type === 'klant' || r.type === 'beide').length,
-    leads: relatiesData.filter(r => r.type === 'lead').length,
-    leveranciers: relatiesData.filter(r => r.type === 'leverancier' || r.type === 'beide').length,
+    totaal: relatiesData.length,
+    particulier: relatiesData.filter(r => r.type === 'particulier').length,
+    zakelijk: relatiesData.filter(r => r.type === 'zakelijk').length,
   }
 
   // Offertes per fase
@@ -873,9 +886,25 @@ export async function getDashboardData() {
     .slice(0, 10)
     .map(t => ({ id: t.id, titel: t.titel, deadline: t.deadline, prioriteit: t.prioriteit }))
 
+  // Open offertes (verzonden) met dagen_open
+  const vandaag = new Date()
+  const openOffertesList = (openOffertesRes.data || []).map(o => {
+    const datumDate = new Date(o.datum)
+    const dagenOpen = Math.floor((vandaag.getTime() - datumDate.getTime()) / (1000 * 60 * 60 * 24))
+    return {
+      id: o.id,
+      offertenummer: o.offertenummer,
+      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      project_naam: (o.project as { naam: string } | null)?.naam || null,
+      totaal: o.totaal || 0,
+      datum: o.datum,
+      dagen_open: dagenOpen,
+    }
+  })
+
   return {
     omzet, openstaand, openOffertes, openTaken,
-    maandOmzet, organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken,
+    maandOmzet, organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList,
   }
 }
 
@@ -994,8 +1023,8 @@ export async function duplicateOfferte(id: string) {
 
   const volgendVersie = (versies?.[0]?.versie_nummer || 1) + 1
 
-  // Nieuw offertenummer
-  const nummer = await getVolgendeNummer('offerte')
+  // Behoud zelfde offertenummer (OFF-0001 v1, v2, v3...)
+  const nummer = origineel.offertenummer
 
   // Insert nieuwe offerte
   const { data: nieuw, error: insertError } = await supabase
@@ -1013,6 +1042,7 @@ export async function duplicateOfferte(id: string) {
       btw_totaal: origineel.btw_totaal,
       totaal: origineel.totaal,
       opmerkingen: origineel.opmerkingen,
+      project_id: origineel.project_id || null,
       versie_nummer: volgendVersie,
       groep_id: groepId,
     })
@@ -1050,15 +1080,17 @@ export async function duplicateOfferte(id: string) {
 export async function getRelatieDetail(id: string) {
   const supabase = await createClient()
 
-  const [relatieRes, offertesRes, facturenRes] = await Promise.all([
+  const [relatieRes, offertesRes, facturenRes, projectenRes] = await Promise.all([
     supabase.from('relaties').select('*').eq('id', id).single(),
     supabase.from('offertes').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
     supabase.from('facturen').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
+    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, totaal)').eq('relatie_id', id).order('created_at', { ascending: false }),
   ])
 
   const relatie = relatieRes.data
   const offertes = offertesRes.data || []
   const facturen = facturenRes.data || []
+  const projecten = projectenRes.data || []
 
   const totaleOmzet = facturen
     .filter(f => f.status === 'betaald')
@@ -1075,6 +1107,7 @@ export async function getRelatieDetail(id: string) {
     relatie,
     offertes,
     facturen,
+    projecten,
     stats: {
       totaleOmzet,
       openstaand,
@@ -1114,7 +1147,7 @@ export async function saveLeadAsRelatie(data: {
   const { error } = await supabase.from('relaties').insert({
     administratie_id: adminId,
     bedrijfsnaam: data.name,
-    type: 'lead',
+    type: 'particulier',
     adres: adresParts[0] || null,
     postcode,
     plaats: adresParts.length > 1 ? adresParts[adresParts.length - 2]?.replace(/\d{4}\s?[A-Z]{2}/i, '').trim() || null : null,
@@ -1153,7 +1186,7 @@ export async function createRelatieInline(data: {
       adres: data.adres || null,
       postcode: data.postcode || null,
       plaats: data.plaats || null,
-      type: data.type || 'klant',
+      type: data.type || 'particulier',
     })
     .select('id, bedrijfsnaam')
     .single()
@@ -1179,6 +1212,42 @@ export async function sendOfferteEmail(offerteId: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const link = `${baseUrl}/offerte/${offerte.publiek_token}`
 
+  const klantNaam = offerte.relatie.contactpersoon || offerte.relatie.bedrijfsnaam
+  const projectNaam = offerte.onderwerp || offerte.relatie.bedrijfsnaam
+
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      <p>Beste ${klantNaam},</p>
+      <p>Dank u wel voor uw interesse in onze diensten.</p>
+      <p>Bijgevoegd in deze e-mail treft u de offerte aan betreft aanvraag ${projectNaam}:</p>
+      <ul style="line-height: 1.8;">
+        <li>Onze gedetailleerde offerte PDF voor de door u aangevraagde diensten. (offertenummer ${offerte.offertenummer})</li>
+      </ul>
+      <p>Wanneer u akkoord gaat met ons voorstel, kunt u de offerte eenvoudig online accepteren via deze link:<br>
+      <a href="${link}" style="color: #00a651; font-weight: bold;">Indien u akkoord gaat, kunt u de offerte hier online accepteren</a></p>
+      <p>Indien u aanvullende vragen heeft of wanneer u aanpassingen wilt op de offerte, dan kunt u met ons contact opnemen.</p>
+      <p>Met vriendelijke groet,<br>Jordy</p>
+      <br>
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding-right: 15px; vertical-align: top;">
+            <p style="font-size: 18px; font-weight: bold; margin: 0; line-height: 1.2;">
+              <span style="color: #000;">REBU</span><br>
+              <span style="color: #000;">KOZIJNEN</span>
+            </p>
+            <p style="font-size: 10px; color: #666; margin: 2px 0 0 0;">Maken het verschil.</p>
+          </td>
+        </tr>
+      </table>
+      <p style="font-size: 12px; color: #333; margin-top: 10px;">
+        <a href="tel:0623849067" style="color: #00a651; text-decoration: none;">0623849067</a> |
+        <a href="https://www.rebukozijnen.nl" style="color: #00a651; text-decoration: none;">www.rebukozijnen.nl</a> |
+        <a href="mailto:verkoop@rebukozijnen.nl" style="color: #00a651; text-decoration: none;">verkoop@rebukozijnen.nl</a><br>
+        Samsonweg 26F 1521 RM Wormerveer
+      </p>
+    </div>
+  `
+
   const resendKey = process.env.RESEND_API_KEY
   if (resendKey) {
     const response = await fetch('https://api.resend.com/emails', {
@@ -1188,30 +1257,10 @@ export async function sendOfferteEmail(offerteId: string) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Rebu Kozijnen <noreply@rebukozijnen.nl>',
+        from: 'Rebu Kozijnen <verkoop@rebukozijnen.nl>',
         to: offerte.relatie.email,
         subject: `Offerte ${offerte.offertenummer} - Rebu Kozijnen`,
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background: #000; padding: 30px; text-align: center;">
-              <h1 style="color: #00C9A7; margin: 0; font-size: 28px;">Rebu Kozijnen</h1>
-            </div>
-            <div style="padding: 30px; background: #fff;">
-              <h2 style="color: #333;">Beste ${offerte.relatie.contactpersoon || offerte.relatie.bedrijfsnaam},</h2>
-              <p style="color: #555; line-height: 1.6;">Hierbij ontvangt u onze offerte <strong>${offerte.offertenummer}</strong>.</p>
-              <p style="color: #555; line-height: 1.6;">U kunt de offerte bekijken en accepteren via onderstaande knop:</p>
-              <div style="text-align: center; margin: 30px 0;">
-                <a href="${link}" style="background: #00C9A7; color: #fff; padding: 14px 32px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
-                  Offerte bekijken
-                </a>
-              </div>
-              <p style="color: #555; line-height: 1.6;">Met vriendelijke groet,<br><strong>Rebu Kozijnen B.V.</strong></p>
-            </div>
-            <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 12px; color: #999;">
-              Rebu Kozijnen B.V. | Samsonweg 26F, 1521 RM Wormerveer | +31 6 58 86 60 70
-            </div>
-          </div>
-        `,
+        html: emailHtml,
       }),
     })
 
@@ -1440,4 +1489,95 @@ export async function deleteNotitie(id: string) {
   const { error } = await supabase.from('notities').delete().eq('id', id)
   if (error) return { error: error.message }
   return { success: true }
+}
+
+// === GLOBAL SEARCH ===
+export async function globalSearch(query: string) {
+  if (!query || query.trim().length < 2) return { relaties: [], offertes: [], projecten: [] }
+
+  const supabase = await createClient()
+  const searchTerm = `%${query.trim()}%`
+
+  const [relatiesRes, offertesRes, projectenRes] = await Promise.all([
+    supabase
+      .from('relaties')
+      .select('id, bedrijfsnaam, contactpersoon, plaats')
+      .or(`bedrijfsnaam.ilike.${searchTerm},contactpersoon.ilike.${searchTerm}`)
+      .limit(5),
+    supabase
+      .from('offertes')
+      .select('id, offertenummer, onderwerp, status, relatie:relaties(bedrijfsnaam)')
+      .or(`offertenummer.ilike.${searchTerm},onderwerp.ilike.${searchTerm}`)
+      .limit(5),
+    supabase
+      .from('projecten')
+      .select('id, naam, status, relatie:relaties(bedrijfsnaam)')
+      .ilike('naam', searchTerm)
+      .limit(5),
+  ])
+
+  return {
+    relaties: relatiesRes.data || [],
+    offertes: offertesRes.data || [],
+    projecten: projectenRes.data || [],
+  }
+}
+
+// === PROJECT-OFFERTE INTEGRATIE ===
+export async function getProjectenByRelatie(relatieId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('projecten')
+    .select('id, naam, status, omschrijving')
+    .eq('relatie_id', relatieId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function getLastOfferteForProject(projectId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('offertes')
+    .select('*, regels:offerte_regels(*)')
+    .eq('project_id', projectId)
+    .order('versie_nummer', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
+export async function createProjectInline(data: {
+  naam: string
+  relatie_id: string
+  omschrijving?: string
+}) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: project, error } = await supabase
+    .from('projecten')
+    .insert({
+      administratie_id: adminId,
+      naam: data.naam,
+      relatie_id: data.relatie_id,
+      omschrijving: data.omschrijving || null,
+      status: 'actief',
+    })
+    .select('id, naam')
+    .single()
+
+  if (error) return { error: error.message }
+  revalidatePath('/projecten')
+  return { success: true, id: project.id, naam: project.naam }
+}
+
+export async function getOffertesByProject(projectId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('offertes')
+    .select('id, offertenummer, versie_nummer, datum, status, totaal, relatie:relaties(bedrijfsnaam)')
+    .eq('project_id', projectId)
+    .order('versie_nummer', { ascending: false })
+  return data || []
 }

@@ -10,7 +10,7 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban } from 'lucide-react'
 
 interface RelatieData {
   id: string
@@ -58,11 +58,26 @@ interface Notitie {
   gebruiker: { naam: string } | null
 }
 
+interface ProjectWithOffertes {
+  id: string
+  naam: string
+  status: string
+  offertes: {
+    id: string
+    offertenummer: string
+    versie_nummer: number | null
+    datum: string
+    status: string
+    totaal: number
+  }[]
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
     offertes: Offerte[]
     facturen: Factuur[]
+    projecten: ProjectWithOffertes[]
     stats: {
       totaleOmzet: number
       openstaand: number
@@ -74,9 +89,9 @@ interface Props {
 }
 
 export function RelatieDetail({ detail, notities: initialNotities }: Props) {
-  const { relatie, offertes, facturen, stats } = detail
+  const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  const [tab, setTab] = useState<'overzicht' | 'offertes' | 'facturen' | 'notities' | 'gegevens'>('overzicht')
+  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'notities' | 'gegevens'>('overzicht')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -90,10 +105,10 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
   )
 
   const statCards = [
-    { label: 'Totale omzet', waarde: formatCurrency(stats.totaleOmzet), icon: DollarSign, kleur: 'text-green-600 bg-green-50' },
-    { label: 'Openstaand', waarde: formatCurrency(stats.openstaand), icon: Receipt, kleur: 'text-orange-600 bg-orange-50' },
-    { label: 'Offertes', waarde: String(stats.aantalOffertes), icon: FileText, kleur: 'text-blue-600 bg-blue-50' },
-    { label: 'Conversie', waarde: `${stats.conversiePercentage}%`, icon: TrendingUp, kleur: 'text-purple-600 bg-purple-50' },
+    { label: 'Totale omzet', waarde: formatCurrency(stats.totaleOmzet), icon: DollarSign, kleur: 'text-green-600 bg-green-50', tab: 'facturen' as const },
+    { label: 'Openstaand', waarde: formatCurrency(stats.openstaand), icon: Receipt, kleur: 'text-orange-600 bg-orange-50', tab: 'facturen' as const },
+    { label: 'Offertes', waarde: String(stats.aantalOffertes), icon: FileText, kleur: 'text-blue-600 bg-blue-50', tab: 'offertes' as const },
+    { label: 'Conversie', waarde: `${stats.conversiePercentage}%`, icon: TrendingUp, kleur: 'text-purple-600 bg-purple-50', tab: 'projecten' as const },
   ]
 
   async function handleSave(formData: FormData) {
@@ -143,6 +158,7 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
 
   const tabs = [
     { key: 'overzicht' as const, label: 'Overzicht' },
+    { key: 'projecten' as const, label: `Projecten (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
     { key: 'notities' as const, label: `Notities (${notities.length})` },
@@ -155,10 +171,16 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
         title={relatie.bedrijfsnaam}
         description={`${relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)} ${relatie.plaats ? `- ${relatie.plaats}` : ''}`}
         actions={
-          <Button variant="ghost" onClick={() => router.push('/relatiebeheer')}>
-            <ArrowLeft className="h-4 w-4" />
-            Terug
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => router.push('/relatiebeheer')}>
+              <ArrowLeft className="h-4 w-4" />
+              Terug
+            </Button>
+            <Button variant="secondary" onClick={() => router.push(`/offertes/nieuw?relatie_id=${relatie.id}`)}>
+              <Plus className="h-4 w-4" />
+              Nieuwe offerte
+            </Button>
+          </div>
         }
       />
 
@@ -180,7 +202,7 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
       {tab === 'overzicht' && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {statCards.map(s => (
-            <Card key={s.label}>
+            <Card key={s.label} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setTab(s.tab)}>
               <CardContent className="flex items-center gap-4">
                 <div className={`p-3 rounded-lg ${s.kleur}`}>
                   <s.icon className="h-6 w-6" />
@@ -192,6 +214,63 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {tab === 'projecten' && (
+        <div className="space-y-4">
+          {projecten.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-gray-500 text-sm">
+                <FolderKanban className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                Nog geen projecten voor deze klant
+              </CardContent>
+            </Card>
+          ) : (
+            projecten.map(p => {
+              const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+              return (
+                <Card key={p.id}>
+                  <div
+                    className="px-6 py-4 border-b border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                    onClick={() => router.push(`/projecten/${p.id}`)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <FolderKanban className="h-4 w-4 text-gray-500" />
+                      <h3 className="font-semibold text-gray-900">{p.naam}</h3>
+                      <Badge status={p.status} />
+                    </div>
+                    <span className="text-sm text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  {sortedOffertes.length > 0 && (
+                    <CardContent className="p-0">
+                      <table className="w-full">
+                        <tbody>
+                          {sortedOffertes.map(o => (
+                            <tr
+                              key={o.id}
+                              className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer"
+                              onClick={() => router.push(`/offertes/${o.id}`)}
+                            >
+                              <td className="px-6 py-2.5 text-sm font-medium text-primary">{o.offertenummer}</td>
+                              <td className="px-6 py-2.5">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                                  v{o.versie_nummer || 1}
+                                </span>
+                              </td>
+                              <td className="px-6 py-2.5 text-sm text-gray-600">{formatDateShort(o.datum)}</td>
+                              <td className="px-6 py-2.5"><Badge status={o.status} /></td>
+                              <td className="px-6 py-2.5 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  )}
+                </Card>
+              )
+            })
+          )}
         </div>
       )}
 
@@ -362,10 +441,8 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
                   label="Type *"
                   defaultValue={relatie.type}
                   options={[
-                    { value: 'klant', label: 'Klant' },
-                    { value: 'leverancier', label: 'Leverancier' },
-                    { value: 'beide', label: 'Beide' },
-                    { value: 'lead', label: 'Lead' },
+                    { value: 'particulier', label: 'Particulier' },
+                    { value: 'zakelijk', label: 'Zakelijk' },
                   ]}
                 />
                 <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie.contactpersoon || ''} />
