@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { type ColumnDef } from '@tanstack/react-table'
@@ -9,7 +10,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
+import { orderStatussen, statusKleuren } from '@/lib/constants'
 import { Plus, ShoppingCart } from 'lucide-react'
+
+const statusLabels: Record<string, string> = {
+  nieuw: 'Nieuw', in_behandeling: 'In behandeling', geleverd: 'Geleverd',
+  gefactureerd: 'Gefactureerd', geannuleerd: 'Geannuleerd',
+}
 
 interface Order {
   id: string
@@ -32,6 +39,11 @@ const columns: ColumnDef<Order, unknown>[] = [
 
 export function OrderList({ orders }: { orders: Order[] }) {
   const router = useRouter()
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+
+  const filteredOrders = statusFilter
+    ? orders.filter(o => o.status === statusFilter)
+    : orders
 
   return (
     <div>
@@ -64,12 +76,43 @@ export function OrderList({ orders }: { orders: Order[] }) {
           }
         />
       ) : (
-        <DataTable
-          columns={columns}
-          data={orders}
-          searchPlaceholder="Zoek order..."
-          onRowClick={(row) => router.push(`/offertes/orders/${row.id}`)}
-        />
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setStatusFilter(null)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                statusFilter === null
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Alle ({orders.length})
+            </button>
+            {orderStatussen.map(status => {
+              const count = orders.filter(o => o.status === status).length
+              if (count === 0) return null
+              return (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status === statusFilter ? null : status)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    statusFilter === status
+                      ? statusKleuren[status] + ' ring-2 ring-offset-1 ring-gray-400'
+                      : statusKleuren[status] + ' hover:opacity-80'
+                  }`}
+                >
+                  {statusLabels[status] || status} ({count})
+                </button>
+              )
+            })}
+          </div>
+          <DataTable
+            columns={columns}
+            data={filteredOrders}
+            searchPlaceholder="Zoek order..."
+            onRowClick={(row) => router.push(`/offertes/orders/${row.id}`)}
+          />
+        </>
       )}
     </div>
   )

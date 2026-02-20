@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/ui/data-table'
@@ -7,7 +8,8 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Plus, Users, Search } from 'lucide-react'
+import { Plus, Users, Search, Upload } from 'lucide-react'
+import { ImportRelatiesDialog } from './import-relaties-dialog'
 
 interface Relatie {
   id: string
@@ -34,6 +36,7 @@ const columns: ColumnDef<Relatie, unknown>[] = [
 
 export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const router = useRouter()
+  const [importOpen, setImportOpen] = useState(false)
 
   return (
     <div>
@@ -42,6 +45,10 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
         description="Beheer uw klanten"
         actions={
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" />
+              Importeren
+            </Button>
             <Button variant="secondary" onClick={() => router.push('/relatiebeheer/leads')}>
               <Search className="h-4 w-4" />
               Leads zoeken
@@ -53,6 +60,8 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
           </div>
         }
       />
+
+      <ImportRelatiesDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
       {relaties.length === 0 ? (
         <EmptyState

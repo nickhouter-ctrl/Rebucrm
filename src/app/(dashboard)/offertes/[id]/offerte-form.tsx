@@ -1,15 +1,25 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useCallback } from 'react'
-import { saveOfferte, deleteOfferte, duplicateOfferte, createRelatieInline, sendOfferteEmail, convertToFactuur, getProjectenByRelatie, getLastOfferteForProject, createProjectInline } from '@/lib/actions'
+import { useState, useEffect } from 'react'
+import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { formatCurrency } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Building2, User, Search, UserPlus, Send, Receipt, Link2, FolderKanban, Loader2 } from 'lucide-react'
+import { Dialog } from '@/components/ui/dialog'
+import { formatCurrency, formatDateShort } from '@/lib/utils'
+import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent } from 'lucide-react'
+
+import { WizardStepper } from './wizard-stepper'
+import { StapKlant } from './steps/stap-klant'
+import { StapProject } from './steps/stap-project'
+import { StapType } from './steps/stap-type'
+import { StapTekeningen, ParsedPdfResult, RenderedTekening } from './steps/stap-tekeningen'
+import { StapMarge } from './steps/stap-marge'
+import { StapControleren } from './steps/stap-controleren'
+import { StapVersturen } from './steps/stap-versturen'
 
 interface Regel {
   omschrijving: string
@@ -18,17 +28,6 @@ interface Regel {
   btw_percentage: number
   product_id?: string
 }
-
-interface Project {
-  id: string
-  naam: string
-  status: string
-  omschrijving: string | null
-}
-
-const BEZORGKOSTEN_DREMPEL = 1750
-const BEZORGKOSTEN_BEDRAG = 150
-const BEZORGKOSTEN_LABEL = 'Bezorgkosten'
 
 const PARTICULIER_REGELS: Regel[] = [
   { omschrijving: 'Leveren kunststof kozijnen', aantal: 1, prijs: 0, btw_percentage: 21 },
@@ -45,50 +44,41 @@ const ZAKELIJK_REGELS: Regel[] = [
   { omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: 0, btw_percentage: 21 },
 ]
 
-export function OfferteForm({ offerte, relaties, producten }: {
+export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode }: {
   offerte: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
+  initialRelatieId?: string | null
+  initialRelatieName?: string | null
+  wizardMode?: boolean
 }) {
   const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
   const isNew = !offerte
 
-  // Wizard state: 1=klant kiezen, 2=project kiezen, 3=formulier
-  const [step, setStep] = useState(isNew ? 1 : 3)
-  const [selectedRelatieId, setSelectedRelatieId] = useState<string>((offerte?.relatie_id as string) || '')
-  const [selectedRelatieName, setSelectedRelatieName] = useState<string>('')
-  const [selectedProjectId, setSelectedProjectId] = useState<string>((offerte?.project_id as string) || '')
-  const [selectedProjectName, setSelectedProjectName] = useState<string>('')
-  const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew ? null : 'zakelijk')
-  const [showNewRelatie, setShowNewRelatie] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [relatiesList, setRelatiesList] = useState(relaties)
-
-  // Project state
-  const [projecten, setProjecten] = useState<Project[]>([])
-  const [loadingProjecten, setLoadingProjecten] = useState(false)
-  const [showNewProject, setShowNewProject] = useState(false)
-  const [newProjectName, setNewProjectName] = useState('')
-  const [newProjectType, setNewProjectType] = useState<'particulier' | 'zakelijk' | null>(null)
-
-  // Email / factuur conversie state
-  const [showEmailResult, setShowEmailResult] = useState<{ link?: string; message?: string } | null>(null)
-  const [showFactuurDialog, setShowFactuurDialog] = useState(false)
-
-  // Inline nieuwe relatie
-  const [nieuwRelatieData, setNieuwRelatieData] = useState({
-    bedrijfsnaam: '', contactpersoon: '', email: '', telefoon: '', adres: '', postcode: '', plaats: '',
+  // ========== WIZARD STATE ==========
+  // Steps: 0=klant, 1=project, 2=type, 3=tekeningen, 4=marge, 5=controleren, 6=versturen
+  const [step, setStep] = useState(() => {
+    if (!isNew && wizardMode) return 3 // nieuwe versie: start bij tekeningen
+    if (!isNew) return -1 // edit mode
+    if (initialRelatieId) return 1 // skip klant kiezen
+    return 0
   })
 
-  const [regels, setRegels] = useState<Regel[]>(
-    (offerte?.regels as Regel[]) || []
-  )
+  const [selectedRelatieId, setSelectedRelatieId] = useState<string>(initialRelatieId || (offerte?.relatie_id as string) || '')
+  const [selectedRelatieName, setSelectedRelatieName] = useState<string>(initialRelatieName || '')
+  const [selectedProjectId, setSelectedProjectId] = useState<string>((offerte?.project_id as string) || '')
+  const [selectedProjectName, setSelectedProjectName] = useState<string>('')
+  const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew && !wizardMode ? null : 'zakelijk')
+  const [regels, setRegels] = useState<Regel[]>((offerte?.regels as Regel[]) || [])
+  const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
+  const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
+  const [renderedTekeningen, setRenderedTekeningen] = useState<RenderedTekening[]>([])
+  const [margePercentage, setMargePercentage] = useState(0)
+  const [savedOfferteId, setSavedOfferteId] = useState<string | null>(offerte ? (offerte.id as string) : null)
 
   // Set relatie/project naam voor bestaande offertes
   useEffect(() => {
-    if (offerte?.relatie_id) {
+    if (offerte?.relatie_id && !selectedRelatieName) {
       const rel = relaties.find(r => r.id === offerte.relatie_id)
       if (rel) setSelectedRelatieName(rel.bedrijfsnaam)
     }
@@ -96,598 +86,473 @@ export function OfferteForm({ offerte, relaties, producten }: {
       const proj = offerte.project as { id: string; naam: string } | null
       if (proj) setSelectedProjectName(proj.naam)
     }
-  }, [offerte, relaties])
+  }, [offerte, relaties, selectedRelatieName])
 
-  function selectRelatie(id: string, naam: string) {
+  // ========== WIZARD STEP HANDLERS ==========
+
+  function handleSelectRelatie(id: string, naam: string) {
     setSelectedRelatieId(id)
     setSelectedRelatieName(naam)
-    // Laad projecten voor deze klant
-    setLoadingProjecten(true)
-    getProjectenByRelatie(id).then(data => {
-      setProjecten(data)
-      setLoadingProjecten(false)
-    })
-    setStep(2)
+    setStep(1) // project
   }
 
-  async function selectProject(project: Project) {
+  function handleSelectProject(
+    project: { id: string; naam: string },
+    prefilledRegels: Regel[] | null,
+    detectedType: 'particulier' | 'zakelijk' | null
+  ) {
     setSelectedProjectId(project.id)
     setSelectedProjectName(project.naam)
-    // Laad laatste offerte voor dit project om regels te pre-fillen
-    setLoading(true)
-    const lastOfferte = await getLastOfferteForProject(project.id)
-    if (lastOfferte && lastOfferte.regels && (lastOfferte.regels as Regel[]).length > 0) {
-      setRegels((lastOfferte.regels as Regel[]).map((r: Record<string, unknown>) => ({
-        omschrijving: r.omschrijving as string,
-        aantal: r.aantal as number,
-        prijs: r.prijs as number,
-        btw_percentage: r.btw_percentage as number,
-        product_id: (r.product_id as string) || undefined,
-      })))
-      // Auto-detect type op basis van regels
-      const hasParticulierRegels = (lastOfferte.regels as Record<string, unknown>[]).some(
-        (r) => (r.omschrijving as string).toLowerCase().includes('slopen') || (r.omschrijving as string).toLowerCase().includes('plaatsen')
+    if (prefilledRegels) {
+      setRegels(prefilledRegels)
+      setOfferteType(detectedType)
+      // Auto-skip type step if type was detected
+      if (detectedType) {
+        setStep(3) // tekeningen
+        return
+      }
+    }
+    setStep(2) // type
+  }
+
+  function handleSelectType(type: 'particulier' | 'zakelijk') {
+    setOfferteType(type)
+    if (regels.length === 0) {
+      setRegels(type === 'particulier' ? [...PARTICULIER_REGELS] : [...ZAKELIJK_REGELS])
+    }
+    setStep(3) // tekeningen
+  }
+
+  function handlePdfProcessed(result: ParsedPdfResult, tekeningen: RenderedTekening[]) {
+    setParsedPdfResult(result)
+    setRenderedTekeningen(tekeningen)
+  }
+
+  function handleRemovePdf() {
+    setPendingPdfFile(null)
+    setParsedPdfResult(null)
+    setRenderedTekeningen([])
+    setMargePercentage(0)
+  }
+
+  function handleMargeNext() {
+    // Calculate verkoop totaal with marge and fill kozijnen prijs
+    if (parsedPdfResult) {
+      const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+      const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
+      const verkoopTotaal = inkoopTotaal * (1 + margePercentage / 100)
+      const kozijnRegelIndex = regels.findIndex(r =>
+        r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
+        r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
       )
-      setOfferteType(hasParticulierRegels ? 'particulier' : 'zakelijk')
-    } else {
-      // Geen eerdere offerte - laat type kiezen
-      setOfferteType(null)
+      if (kozijnRegelIndex !== -1) {
+        const updated = [...regels]
+        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(verkoopTotaal * 100) / 100 }
+        setRegels(updated)
+      }
     }
-    setLoading(false)
-    setStep(3)
+    setStep(5) // controleren
   }
 
-  async function handleNewProject() {
-    if (!newProjectName || !newProjectType) return
-    setLoading(true)
-    const result = await createProjectInline({
-      naam: newProjectName,
-      relatie_id: selectedRelatieId,
+  function handleMargeSkip() {
+    // Fill kozijnen prijs without marge
+    if (parsedPdfResult) {
+      const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+      const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
+      const kozijnRegelIndex = regels.findIndex(r =>
+        r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
+        r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
+      )
+      if (kozijnRegelIndex !== -1) {
+        const updated = [...regels]
+        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(inkoopTotaal * 100) / 100 }
+        setRegels(updated)
+      }
+    }
+    setMargePercentage(0)
+    setStep(5) // controleren
+  }
+
+  function handleSaved(offerteId: string) {
+    setSavedOfferteId(offerteId)
+    setStep(6) // versturen
+  }
+
+  // ========== WIZARD RENDERING ==========
+
+  if ((isNew || wizardMode) && step >= 0) {
+    return (
+      <div>
+        <PageHeader
+          title={wizardMode ? `Nieuwe versie ${offerte?.offertenummer || ''}` : 'Nieuwe offerte'}
+          actions={
+            <Button variant="ghost" onClick={() => router.push('/offertes')}>
+              <ArrowLeft className="h-4 w-4" />
+              Annuleren
+            </Button>
+          }
+        />
+        <div className="mt-4">
+          <WizardStepper currentStep={step} />
+
+          {step === 0 && (
+            <StapKlant
+              relaties={relaties}
+              onSelectRelatie={handleSelectRelatie}
+              onBack={() => router.push('/offertes')}
+            />
+          )}
+
+          {step === 1 && (
+            <StapProject
+              relatieId={selectedRelatieId}
+              relatieName={selectedRelatieName}
+              onSelectProject={handleSelectProject}
+              onBack={() => {
+                if (initialRelatieId) {
+                  router.push('/offertes')
+                } else {
+                  setStep(0)
+                }
+              }}
+            />
+          )}
+
+          {step === 2 && (
+            <StapType
+              relatieName={selectedRelatieName}
+              projectName={selectedProjectName}
+              onSelectType={handleSelectType}
+              onBack={() => setStep(1)}
+            />
+          )}
+
+          {step === 3 && (
+            <StapTekeningen
+              pendingPdfFile={pendingPdfFile}
+              parsedPdfResult={parsedPdfResult}
+              renderedTekeningen={renderedTekeningen}
+              onUploadPdf={(file) => setPendingPdfFile(file)}
+              onPdfProcessed={handlePdfProcessed}
+              onRemovePdf={handleRemovePdf}
+              onSkip={() => setStep(5)}
+              onNext={() => setStep(4)}
+              onBack={() => setStep(2)}
+            />
+          )}
+
+          {step === 4 && (
+            parsedPdfResult && parsedPdfResult.elementen.length > 0 ? (
+              <StapMarge
+                parsedPdfResult={parsedPdfResult}
+                margePercentage={margePercentage}
+                onMargeChange={setMargePercentage}
+                onNext={handleMargeNext}
+                onSkip={handleMargeSkip}
+                onBack={() => setStep(3)}
+              />
+            ) : (
+              // Auto-skip marge als er geen PDF elementen zijn
+              <div className="max-w-3xl mx-auto text-center py-16">
+                <p className="text-gray-500 mb-4">Geen leverancier elementen gevonden om marge op toe te passen.</p>
+                <div className="flex justify-center gap-3">
+                  <Button variant="ghost" onClick={() => setStep(3)}>Terug</Button>
+                  <Button onClick={() => setStep(5)}>Volgende</Button>
+                </div>
+              </div>
+            )
+          )}
+
+          {step === 5 && offerteType && (
+            <StapControleren
+              offerte={wizardMode ? offerte : null}
+              isNew={!wizardMode}
+              relatieName={selectedRelatieName}
+              projectName={selectedProjectName}
+              offerteType={offerteType}
+              selectedRelatieId={selectedRelatieId}
+              selectedProjectId={selectedProjectId}
+              regels={regels}
+              onRegelsChange={setRegels}
+              producten={producten}
+              pendingPdfFile={pendingPdfFile}
+              parsedPdfResult={parsedPdfResult}
+              renderedTekeningen={renderedTekeningen}
+              margePercentage={margePercentage}
+              onSaved={handleSaved}
+              onBack={() => setStep(4)}
+            />
+          )}
+
+          {step === 6 && savedOfferteId && (
+            <StapVersturen
+              offerteId={savedOfferteId}
+              offerteType={offerteType}
+              onBack={() => router.push(`/offertes/${savedOfferteId}`)}
+              onDone={() => router.push('/offertes')}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ========== EDIT MODE (bestaande offertes) ==========
+  return (
+    <EditOfferteView
+      offerte={offerte!}
+      relaties={relaties}
+      producten={producten}
+      initialRegels={regels}
+      selectedRelatieId={selectedRelatieId}
+      selectedProjectId={selectedProjectId}
+      selectedRelatieName={selectedRelatieName}
+      selectedProjectName={selectedProjectName}
+    />
+  )
+}
+
+// ========== EDIT MODE COMPONENT ==========
+function EditOfferteView({
+  offerte,
+  relaties,
+  producten,
+  initialRegels,
+  selectedRelatieId: initRelatieId,
+  selectedProjectId: initProjectId,
+  selectedRelatieName,
+  selectedProjectName,
+}: {
+  offerte: Record<string, unknown>
+  relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
+  producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
+  initialRegels: Regel[]
+  selectedRelatieId: string
+  selectedProjectId: string
+  selectedRelatieName: string
+  selectedProjectName: string
+}) {
+  const router = useRouter()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [selectedRelatieIdState, setSelectedRelatieIdState] = useState(initRelatieId)
+  const [regels, setRegels] = useState<Regel[]>(initialRegels)
+
+  // Email state
+  const [showEmailResult, setShowEmailResult] = useState<{ link?: string; message?: string } | null>(null)
+  const [showEmailDialog, setShowEmailDialog] = useState(false)
+  const [emailTo, setEmailTo] = useState('')
+  const [emailSubject, setEmailSubject] = useState('')
+  const [emailBody, setEmailBody] = useState('')
+  const [emailAttachments, setEmailAttachments] = useState<File[]>([])
+  const [sending, setSending] = useState(false)
+  const [showFactuurDialog, setShowFactuurDialog] = useState(false)
+
+  // Chat state
+  const [showChat, setShowChat] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [chatBerichten, setChatBerichten] = useState<any[]>([])
+  const [chatTekst, setChatTekst] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatSending, setChatSending] = useState(false)
+
+  // Leverancier PDF state
+  const [leverancierPdf, setLeverancierPdf] = useState<{ bestandsnaam: string; aantalElementen: number } | null>(null)
+  const [leverancierElementen, setLeverancierElementen] = useState<{ naam: string; hoeveelheid: number; prijs: number }[]>([])
+  const [leverancierTotaal, setLeverancierTotaal] = useState(0)
+  const [pdfUploading, setPdfUploading] = useState(false)
+  const [pdfProgress, setPdfProgress] = useState('')
+  const [margePercentage, setMargePercentage] = useState(0)
+  const [margeSaving, setMargeSaving] = useState(false)
+
+  useEffect(() => {
+    getLeverancierPdfData(offerte.id as string).then(data => {
+      if (data) {
+        setLeverancierPdf({ bestandsnaam: data.bestandsnaam, aantalElementen: data.elementen.length })
+        setMargePercentage(data.margePercentage || 0)
+        if (data.leverancierTotaal) setLeverancierTotaal(data.leverancierTotaal)
+        if (data.parsedElementen && data.parsedElementen.length > 0) {
+          setLeverancierElementen(data.parsedElementen)
+        }
+      }
     })
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-      return
-    }
-    setSelectedProjectId(result.id!)
-    setSelectedProjectName(result.naam!)
-    // Stel regels in op basis van gekozen type
-    if (newProjectType === 'particulier') {
-      setRegels([...PARTICULIER_REGELS])
-    } else {
-      setRegels([...ZAKELIJK_REGELS])
-    }
-    setOfferteType(newProjectType)
-    setShowNewProject(false)
-    setLoading(false)
-    setStep(3)
-  }
+  }, [offerte.id])
 
-  async function handleNieuweRelatie() {
-    if (!nieuwRelatieData.bedrijfsnaam) return
-    setLoading(true)
-    const result = await createRelatieInline(nieuwRelatieData)
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-      return
-    }
-    const newRelatie = { id: result.id!, bedrijfsnaam: result.bedrijfsnaam!, contactpersoon: nieuwRelatieData.contactpersoon || null, email: nieuwRelatieData.email || null, telefoon: nieuwRelatieData.telefoon || null, plaats: nieuwRelatieData.plaats || null }
-    setRelatiesList(prev => [...prev, newRelatie])
-    setShowNewRelatie(false)
-    setLoading(false)
-    selectRelatie(result.id!, result.bedrijfsnaam!)
-  }
-
-  // Auto-bezorgkosten logica
-  const updateBezorgkosten = useCallback((currentRegels: Regel[]) => {
-    const kozijnenRegel = currentRegels.find(r =>
+  // Auto-update kozijnen leveren prijs when marge or elementen change
+  useEffect(() => {
+    if (leverancierElementen.length === 0 && leverancierTotaal === 0) return
+    const elementSum = leverancierElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+    const inkoopTotaal = leverancierTotaal > 0 ? leverancierTotaal : elementSum
+    const verkoopTotaal = inkoopTotaal * (1 + margePercentage / 100)
+    const kozijnRegelIndex = regels.findIndex(r =>
       r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
       r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
     )
-    if (!kozijnenRegel) return currentRegels
-
-    const kozijnenTotaal = kozijnenRegel.aantal * kozijnenRegel.prijs
-    const bezorgIndex = currentRegels.findIndex(r => r.omschrijving === BEZORGKOSTEN_LABEL)
-    const heeftBezorgkosten = bezorgIndex !== -1
-
-    if (kozijnenTotaal < BEZORGKOSTEN_DREMPEL && kozijnenTotaal > 0) {
-      if (!heeftBezorgkosten) {
-        return [...currentRegels, { omschrijving: BEZORGKOSTEN_LABEL, aantal: 1, prijs: BEZORGKOSTEN_BEDRAG, btw_percentage: 21 }]
-      }
-    } else {
-      if (heeftBezorgkosten) {
-        return currentRegels.filter((_, i) => i !== bezorgIndex)
+    if (kozijnRegelIndex !== -1) {
+      const currentPrijs = regels[kozijnRegelIndex].prijs
+      const newPrijs = Math.round(verkoopTotaal * 100) / 100
+      if (currentPrijs !== newPrijs) {
+        const updated = [...regels]
+        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: newPrijs }
+        setRegels(updated)
       }
     }
-    return currentRegels
-  }, [])
-
-  useEffect(() => {
-    if (!offerteType) return
-    const updated = updateBezorgkosten(regels)
-    if (updated !== regels) setRegels(updated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regels.find(r =>
-    r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-    r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-  )?.prijs, regels.find(r =>
-    r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-    r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-  )?.aantal])
+  }, [margePercentage, leverancierElementen, leverancierTotaal])
 
-  function addRegel() {
-    setRegels([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
+  async function handleSaveMarge() {
+    setMargeSaving(true)
+    const result = await updateMargePercentage(offerte.id as string, margePercentage)
+    if (result.error) setError(result.error)
+    setMargeSaving(false)
   }
 
-  function removeRegel(index: number) {
-    setRegels(regels.filter((_, i) => i !== index))
-  }
+  const versieNummer = (offerte.versie_nummer as number) || 1
+  const offerteStatus = (offerte.status as string) || 'concept'
+  const isReadOnly = offerteStatus !== 'concept'
 
-  function updateRegel(index: number, field: keyof Regel, value: string | number) {
-    const updated = [...regels]
-    updated[index] = { ...updated[index], [field]: value }
-    setRegels(updated)
-  }
-
-  function selectProduct(index: number, productId: string) {
-    const product = producten.find(p => p.id === productId)
-    if (product) {
-      const updated = [...regels]
-      updated[index] = {
-        ...updated[index],
-        product_id: productId,
-        omschrijving: product.naam,
-        prijs: product.prijs,
-        btw_percentage: product.btw_percentage,
-      }
-      setRegels(updated)
-    }
-  }
-
-  const subtotaal = regels.reduce((sum, r) => sum + r.aantal * r.prijs, 0)
-  const btwTotaal = regels.reduce((sum, r) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
-  const totaal = subtotaal + btwTotaal
-
-  async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError('')
-    if (offerte) formData.set('id', offerte.id as string)
-    formData.set('relatie_id', selectedRelatieId)
-    formData.set('regels', JSON.stringify(regels))
-    if (selectedProjectId) formData.set('project_id', selectedProjectId)
-    const result = await saveOfferte(formData)
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-    } else {
-      router.push('/offertes')
-    }
-  }
-
+  // --- Actions ---
   async function handleDelete() {
-    if (!offerte || !confirm('Weet u zeker dat u deze offerte wilt verwijderen?')) return
+    if (!confirm('Weet u zeker dat u deze offerte wilt verwijderen?')) return
     const result = await deleteOfferte(offerte.id as string)
     if (result.error) setError(result.error)
     else router.push('/offertes')
   }
 
   async function handleNieuweVersie() {
-    if (!offerte) return
     setLoading(true)
     const result = await duplicateOfferte(offerte.id as string)
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-    } else {
-      router.push(`/offertes/${result.id}`)
-    }
+    if (result.error) { setError(result.error); setLoading(false) }
+    else router.push(`/offertes/${result.id}?wizard=true`)
   }
 
-  async function handleSendEmail() {
-    if (!offerte) return
+  async function openEmailDialog() {
     setLoading(true)
-    const result = await sendOfferteEmail(offerte.id as string)
-    if (result.error) {
-      setShowEmailResult({ link: result.link, message: result.error })
-    } else {
-      setShowEmailResult({ link: result.link, message: 'Offerte verstuurd!' })
-    }
+    const defaults = await getOfferteEmailDefaults(offerte.id as string)
+    if (defaults.error) { setError(defaults.error); setLoading(false); return }
+    setEmailTo(defaults.to || '')
+    setEmailSubject(defaults.subject || '')
+    setEmailBody(defaults.body || '')
+    setEmailAttachments([])
+    setShowEmailDialog(true)
     setLoading(false)
   }
 
-  async function handleConvertToFactuur(splitType: 'volledig' | 'split') {
-    if (!offerte) return
-    setLoading(true)
-    const result = await convertToFactuur(offerte.id as string, splitType)
-    if (result.error) {
-      setError(result.error)
-      setLoading(false)
-    } else {
-      setShowFactuurDialog(false)
-      router.push(`/facturatie/${result.factuurIds![0]}`)
+  async function handleSendEmail() {
+    setSending(true)
+    const extraBijlagen: { filename: string; content: string }[] = []
+    for (const file of emailAttachments) {
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1])
+        reader.readAsDataURL(file)
+      })
+      extraBijlagen.push({ filename: file.name, content: base64 })
     }
+    const result = await sendOfferteEmail(offerte.id as string, {
+      to: emailTo, subject: emailSubject, body: emailBody,
+      extraBijlagen: extraBijlagen.length > 0 ? extraBijlagen : undefined,
+    })
+    setSending(false)
+    setShowEmailDialog(false)
+    if (result.error) setShowEmailResult({ link: result.link, message: result.error })
+    else setShowEmailResult({ link: result.link, message: 'Offerte verstuurd!' })
   }
 
-  const versieNummer = (offerte?.versie_nummer as number) || 1
-  const offerteStatus = (offerte?.status as string) || 'concept'
+  const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
 
-  const filteredRelaties = relatiesList.filter(r =>
-    r.bedrijfsnaam.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (r.contactpersoon && r.contactpersoon.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (r.plaats && r.plaats.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
-
-  // ===== STAP 1: KLANT KIEZEN =====
-  if (isNew && step === 1) {
-    return (
-      <div>
-        <PageHeader
-          title="Nieuwe offerte"
-          description="Stap 1 van 3 - Selecteer klant"
-          actions={
-            <Button variant="ghost" onClick={() => router.push('/offertes')}>
-              <ArrowLeft className="h-4 w-4" />
-              Terug
-            </Button>
-          }
-        />
-
-        <div className="max-w-3xl mx-auto mt-4">
-          {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
-
-          <div className="flex items-center gap-3 mb-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Zoek klant op naam, contactpersoon of plaats..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <Button variant="secondary" onClick={() => setShowNewRelatie(true)}>
-              <UserPlus className="h-4 w-4" />
-              Nieuwe klant
-            </Button>
-          </div>
-
-          {showNewRelatie && (
-            <Card className="mb-4">
-              <CardContent className="pt-6 space-y-3">
-                <h3 className="font-semibold text-gray-900 mb-2">Nieuwe klant aanmaken</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Input
-                    id="n_bedrijfsnaam"
-                    label="Naam / Bedrijfsnaam *"
-                    value={nieuwRelatieData.bedrijfsnaam}
-                    onChange={e => setNieuwRelatieData(d => ({ ...d, bedrijfsnaam: e.target.value }))}
-                    required
-                  />
-                  <Input
-                    id="n_contactpersoon"
-                    label="Contactpersoon"
-                    value={nieuwRelatieData.contactpersoon}
-                    onChange={e => setNieuwRelatieData(d => ({ ...d, contactpersoon: e.target.value }))}
-                  />
-                  <Input
-                    id="n_email"
-                    label="E-mail"
-                    type="email"
-                    value={nieuwRelatieData.email}
-                    onChange={e => setNieuwRelatieData(d => ({ ...d, email: e.target.value }))}
-                  />
-                  <Input
-                    id="n_telefoon"
-                    label="Telefoon"
-                    value={nieuwRelatieData.telefoon}
-                    onChange={e => setNieuwRelatieData(d => ({ ...d, telefoon: e.target.value }))}
-                  />
-                  <Input
-                    id="n_adres"
-                    label="Adres"
-                    value={nieuwRelatieData.adres}
-                    onChange={e => setNieuwRelatieData(d => ({ ...d, adres: e.target.value }))}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <Input
-                      id="n_postcode"
-                      label="Postcode"
-                      value={nieuwRelatieData.postcode}
-                      onChange={e => setNieuwRelatieData(d => ({ ...d, postcode: e.target.value }))}
-                    />
-                    <Input
-                      id="n_plaats"
-                      label="Plaats"
-                      value={nieuwRelatieData.plaats}
-                      onChange={e => setNieuwRelatieData(d => ({ ...d, plaats: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-2 justify-end pt-2">
-                  <Button variant="ghost" onClick={() => setShowNewRelatie(false)}>Annuleren</Button>
-                  <Button onClick={handleNieuweRelatie} disabled={loading || !nieuwRelatieData.bedrijfsnaam}>
-                    {loading ? 'Aanmaken...' : 'Aanmaken & selecteren'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <div className="space-y-2">
-            {filteredRelaties.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 text-sm">
-                {searchQuery ? 'Geen klanten gevonden' : 'Nog geen klanten'}
-              </div>
-            ) : (
-              filteredRelaties.map(r => (
-                <button
-                  key={r.id}
-                  onClick={() => selectRelatie(r.id, r.bedrijfsnaam)}
-                  className="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all flex items-center justify-between group"
-                >
-                  <div>
-                    <p className="font-medium text-gray-900">{r.bedrijfsnaam}</p>
-                    <p className="text-sm text-gray-500">
-                      {[r.contactpersoon, r.email, r.plaats].filter(Boolean).join(' · ')}
-                    </p>
-                  </div>
-                  <ArrowLeft className="h-4 w-4 text-gray-400 group-hover:text-primary rotate-180" />
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    )
+  async function handleConvertToFactuur(splitType: 'volledig' | 'split', percentage = 70) {
+    setLoading(true)
+    const result = await convertToFactuur(offerte.id as string, splitType, percentage)
+    if (result.error) { setError(result.error); setLoading(false) }
+    else { setShowFactuurDialog(false); router.push(`/facturatie/${result.factuurIds![0]}`) }
   }
 
-  // ===== STAP 2: PROJECT KIEZEN =====
-  if (isNew && step === 2) {
-    return (
-      <div>
-        <PageHeader
-          title="Nieuwe offerte"
-          description="Stap 2 van 3 - Selecteer project"
-          actions={
-            <Button variant="ghost" onClick={() => { setStep(1); setShowNewProject(false); setNewProjectName(''); setNewProjectType(null) }}>
-              <ArrowLeft className="h-4 w-4" />
-              Klant wijzigen
-            </Button>
-          }
-        />
-
-        <div className="max-w-3xl mx-auto mt-4">
-          {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
-
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
-            <User className="h-4 w-4 text-blue-600" />
-            <span className="text-sm text-blue-800">Klant: <strong>{selectedRelatieName}</strong></span>
-          </div>
-
-          {loadingProjecten ? (
-            <div className="flex items-center justify-center py-12 text-gray-500">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              Projecten laden...
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  {projecten.length > 0 ? 'Kies een bestaand project of maak een nieuw project' : 'Maak een nieuw project aan'}
-                </h2>
-              </div>
-
-              {/* Nieuw project knop/formulier */}
-              {!showNewProject ? (
-                <button
-                  onClick={() => setShowNewProject(true)}
-                  className="w-full text-left p-4 rounded-lg border-2 border-dashed border-gray-300 hover:border-primary hover:bg-blue-50/50 transition-all flex items-center gap-3 mb-4"
-                >
-                  <div className="p-2 rounded-full bg-blue-50 text-primary">
-                    <Plus className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Nieuw project</p>
-                    <p className="text-sm text-gray-500">Start een nieuw project voor deze klant</p>
-                  </div>
-                </button>
-              ) : (
-                <Card className="mb-4">
-                  <CardContent className="pt-6 space-y-4">
-                    <h3 className="font-semibold text-gray-900">Nieuw project aanmaken</h3>
-                    <Input
-                      id="project_naam"
-                      label="Projectnaam *"
-                      placeholder="Bijv. Kozijnen achtergevel, Dakkapel slaapkamer..."
-                      value={newProjectName}
-                      onChange={e => setNewProjectName(e.target.value)}
-                      autoFocus
-                    />
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Type offerte</label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setNewProjectType('particulier')}
-                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                            newProjectType === 'particulier'
-                              ? 'border-primary bg-blue-50'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <User className={`h-5 w-5 ${newProjectType === 'particulier' ? 'text-primary' : 'text-gray-400'}`} />
-                          <div className="text-left">
-                            <p className="font-medium text-sm">Particulier</p>
-                            <p className="text-xs text-gray-500">Incl. montage & sloop</p>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewProjectType('zakelijk')}
-                          className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all ${
-                            newProjectType === 'zakelijk'
-                              ? 'border-primary bg-blue-50'
-                              : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <Building2 className={`h-5 w-5 ${newProjectType === 'zakelijk' ? 'text-primary' : 'text-gray-400'}`} />
-                          <div className="text-left">
-                            <p className="font-medium text-sm">Zakelijk</p>
-                            <p className="text-xs text-gray-500">Alleen levering</p>
-                          </div>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 justify-end pt-2">
-                      <Button variant="ghost" onClick={() => { setShowNewProject(false); setNewProjectName(''); setNewProjectType(null) }}>
-                        Annuleren
-                      </Button>
-                      <Button onClick={handleNewProject} disabled={loading || !newProjectName || !newProjectType}>
-                        {loading ? 'Aanmaken...' : 'Project aanmaken'}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Bestaande projecten */}
-              {projecten.length > 0 && (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wide mb-2">Bestaande projecten</h3>
-                  {projecten.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => selectProject(p)}
-                      disabled={loading}
-                      className="w-full text-left p-4 rounded-lg border border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all flex items-center justify-between group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-full bg-gray-100 text-gray-600 group-hover:bg-blue-50 group-hover:text-primary">
-                          <FolderKanban className="h-4 w-4" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{p.naam}</p>
-                          <p className="text-xs text-gray-500">
-                            Nieuwe versie aanmaken op basis van laatste offerte
-                          </p>
-                        </div>
-                      </div>
-                      <ArrowLeft className="h-4 w-4 text-gray-400 group-hover:text-primary rotate-180" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    )
+  // Chat
+  async function loadBerichten() {
+    setChatLoading(true)
+    const data = await getOfferteBerichten(offerte.id as string)
+    setChatBerichten(data)
+    setChatLoading(false)
   }
 
-  // ===== STAP 3: FORMULIER =====
-  // Als we in stap 3 komen zonder regels en zonder type (bestaand project zonder eerdere offerte)
-  // Laat dan alsnog type kiezen
-  if (isNew && step === 3 && regels.length === 0 && !offerteType) {
-    return (
-      <div>
-        <PageHeader
-          title="Nieuwe offerte"
-          description="Kies type offerte"
-          actions={
-            <Button variant="ghost" onClick={() => setStep(2)}>
-              <ArrowLeft className="h-4 w-4" />
-              Project wijzigen
-            </Button>
-          }
-        />
-
-        <div className="max-w-2xl mx-auto mt-4">
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-6 flex items-center gap-2">
-            <FolderKanban className="h-4 w-4 text-blue-600" />
-            <span className="text-sm text-blue-800">
-              Klant: <strong>{selectedRelatieName}</strong> &middot; Project: <strong>{selectedProjectName}</strong>
-            </span>
-          </div>
-
-          <h2 className="text-lg font-semibold text-gray-900 text-center mb-6">
-            Wat voor type offerte?
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button
-              onClick={() => { setOfferteType('particulier'); setRegels([...PARTICULIER_REGELS]) }}
-              className="flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all group"
-            >
-              <div className="p-4 rounded-full bg-blue-50 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                <User className="h-8 w-8" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-900">Particulier</h3>
-                <p className="text-sm text-gray-500 mt-1">Inclusief montage, sloop, afwerking en bouwbak</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => { setOfferteType('zakelijk'); setRegels([...ZAKELIJK_REGELS]) }}
-              className="flex flex-col items-center gap-4 p-8 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all group"
-            >
-              <div className="p-4 rounded-full bg-blue-50 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                <Building2 className="h-8 w-8" />
-              </div>
-              <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-900">Zakelijk</h3>
-                <p className="text-sm text-gray-500 mt-1">Alleen levering kunststof kozijnen</p>
-              </div>
-            </button>
-          </div>
-        </div>
-      </div>
-    )
+  async function toggleChat() {
+    if (!showChat) await loadBerichten()
+    setShowChat(!showChat)
   }
+
+  async function handleSendChat() {
+    if (!chatTekst.trim() || chatSending) return
+    setChatSending(true)
+    const result = await sendBerichtAdmin(offerte.id as string, chatTekst)
+    if (result.success) { setChatTekst(''); await loadBerichten() }
+    setChatSending(false)
+  }
+
+  useEffect(() => {
+    if (!showChat) return
+    const interval = setInterval(loadBerichten, 15000)
+    return () => clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showChat])
+
+  async function handleDeleteLeverancierPdf() {
+    if (!confirm('Leverancier PDF verwijderen?')) return
+    setPdfUploading(true)
+    await deleteLeverancierPdf(offerte.id as string)
+    setLeverancierPdf(null)
+    setPdfUploading(false)
+  }
+
+  const subtotaal = regels.reduce((sum, r) => sum + r.aantal * r.prijs, 0)
+  const btwTotaal = regels.reduce((sum, r) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
+  const totaal = subtotaal + btwTotaal
 
   return (
     <div>
       <PageHeader
-        title={isNew ? `Nieuwe offerte` : `Offerte ${offerte?.offertenummer} v${versieNummer}`}
+        title={`Offerte ${offerte.offertenummer} v${versieNummer}`}
         actions={
           <div className="flex gap-2 flex-wrap">
-            {isNew ? (
-              <Button variant="ghost" onClick={() => setStep(2)}>
-                <ArrowLeft className="h-4 w-4" />
-                Project wijzigen
-              </Button>
-            ) : null}
             <Button variant="ghost" onClick={() => router.push('/offertes')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>
-            {!isNew && (
-              <>
-                <Button variant="secondary" onClick={handleNieuweVersie} disabled={loading}>
-                  <Copy className="h-4 w-4" />
-                  Nieuwe versie
-                </Button>
-                <a href={`/api/pdf/offerte/${offerte?.id}`} target="_blank" rel="noopener noreferrer">
-                  <Button variant="secondary">
-                    <Download className="h-4 w-4" />
-                    PDF
-                  </Button>
-                </a>
-                <Button variant="secondary" onClick={handleSendEmail} disabled={loading}>
-                  <Send className="h-4 w-4" />
-                  Versturen
-                </Button>
-                {offerteStatus === 'geaccepteerd' && (
-                  <Button onClick={() => setShowFactuurDialog(true)} disabled={loading}>
-                    <Receipt className="h-4 w-4" />
-                    Factureren
-                  </Button>
-                )}
-              </>
+            <Button variant="secondary" onClick={handleNieuweVersie} disabled={loading}>
+              <Copy className="h-4 w-4" />
+              Nieuwe versie
+            </Button>
+            <a href={`/api/pdf/offerte/${offerte.id}`} target="_blank" rel="noopener noreferrer">
+              <Button variant="secondary">
+                <Download className="h-4 w-4" />
+                PDF
+              </Button>
+            </a>
+            <Button variant="secondary" onClick={openEmailDialog} disabled={loading}>
+              <Send className="h-4 w-4" />
+              Versturen
+            </Button>
+            {(offerteStatus === 'verzonden' || offerteStatus === 'concept') && (
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  if (!confirm('Weet u zeker dat u deze offerte wilt accepteren? Er wordt automatisch een order aangemaakt.')) return
+                  setLoading(true)
+                  const result = await acceptOfferte(offerte.id as string)
+                  if (result.error) { setError(result.error); setLoading(false) }
+                  else { router.refresh(); setLoading(false) }
+                }}
+                disabled={loading}
+              >
+                <CheckCircle className="h-4 w-4" />
+                Accepteren
+              </Button>
+            )}
+            {offerteStatus === 'geaccepteerd' && (
+              <Button onClick={() => setShowFactuurDialog(true)} disabled={loading}>
+                <Receipt className="h-4 w-4" />
+                Factureren
+              </Button>
             )}
           </div>
         }
@@ -695,28 +560,28 @@ export function OfferteForm({ offerte, relaties, producten }: {
 
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
 
+      {/* Read-only banner voor verzonden offertes */}
+      {isReadOnly && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 flex items-center justify-between">
+          <p className="text-sm text-amber-800">
+            Deze offerte is <strong>{offerteStatus}</strong> en kan niet meer worden aangepast.
+          </p>
+          <Button variant="secondary" size="sm" onClick={handleNieuweVersie} disabled={loading}>
+            <Copy className="h-3.5 w-3.5" />
+            Nieuwe versie aanmaken
+          </Button>
+        </div>
+      )}
+
       {/* Email resultaat */}
       {showEmailResult && (
         <div className={`${showEmailResult.message === 'Offerte verstuurd!' ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'} border p-4 rounded-lg mb-4`}>
-          <p className={`text-sm font-medium ${showEmailResult.message === 'Offerte verstuurd!' ? 'text-green-800' : 'text-yellow-800'}`}>
-            {showEmailResult.message}
-          </p>
+          <p className={`text-sm font-medium ${showEmailResult.message === 'Offerte verstuurd!' ? 'text-green-800' : 'text-yellow-800'}`}>{showEmailResult.message}</p>
           {showEmailResult.link && (
             <div className="mt-2 flex items-center gap-2">
-              <input
-                readOnly
-                value={showEmailResult.link}
-                className="flex-1 text-xs bg-white border rounded px-2 py-1"
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(showEmailResult.link!)
-                }}
-              >
-                <Link2 className="h-3 w-3" />
-                Kopieer link
+              <input readOnly value={showEmailResult.link} className="flex-1 text-xs bg-white border rounded px-2 py-1" />
+              <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(showEmailResult.link!)}>
+                <Link2 className="h-3 w-3" /> Kopieer link
               </Button>
             </div>
           )}
@@ -731,229 +596,271 @@ export function OfferteForm({ offerte, relaties, producten }: {
             <h3 className="text-lg font-semibold mb-2">Offerte factureren</h3>
             <p className="text-sm text-gray-600 mb-6">Hoe wilt u deze offerte factureren?</p>
             <div className="space-y-3">
-              <button
-                onClick={() => handleConvertToFactuur('volledig')}
-                disabled={loading}
-                className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all"
-              >
-                <p className="font-medium">Volledig factureren</p>
-                <p className="text-sm text-gray-500">1 factuur voor het volledige bedrag van {formatCurrency(totaal || (offerte?.totaal as number) || 0)}</p>
+              <button onClick={() => handleConvertToFactuur('volledig')} disabled={loading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all">
+                <p className="font-medium">100% factureren</p>
+                <p className="text-sm text-gray-500">1 factuur voor het volledige bedrag van {formatCurrency(totaal || (offerte.totaal as number) || 0)}</p>
               </button>
-              <button
-                onClick={() => handleConvertToFactuur('split')}
-                disabled={loading}
-                className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all"
-              >
+              <button onClick={() => handleConvertToFactuur('split', 70)} disabled={loading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-blue-50/50 transition-all">
                 <p className="font-medium">70% / 30% splitsen</p>
-                <p className="text-sm text-gray-500">
-                  Aanbetaling: {formatCurrency(((offerte?.totaal as number) || 0) * 0.7)} &middot;
-                  Restbetaling: {formatCurrency(((offerte?.totaal as number) || 0) * 0.3)}
-                </p>
+                <p className="text-sm text-gray-500">Aanbetaling: {formatCurrency(((offerte.totaal as number) || 0) * 0.7)} &middot; Restbetaling: {formatCurrency(((offerte.totaal as number) || 0) * 0.3)}</p>
               </button>
-            </div>
-            <div className="flex justify-end mt-4">
-              <Button variant="ghost" onClick={() => setShowFactuurDialog(false)}>Annuleren</Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Project info banner */}
-      {isNew && selectedProjectName && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
-          <FolderKanban className="h-4 w-4 text-blue-600" />
-          <span className="text-sm text-blue-800">
-            Klant: <strong>{selectedRelatieName}</strong> &middot; Project: <strong>{selectedProjectName}</strong>
-            {offerteType && <> &middot; {offerteType === 'particulier' ? 'Particulier' : 'Zakelijk'}</>}
-          </span>
-        </div>
-      )}
-      {!isNew && (offerte?.project as { naam: string } | null)?.naam && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
-          <FolderKanban className="h-4 w-4 text-blue-600" />
-          <span className="text-sm text-blue-800">
-            Project: <strong>{(offerte?.project as { naam: string }).naam}</strong>
-          </span>
-        </div>
-      )}
-
-      <form action={handleSubmit} className="space-y-4">
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {isNew ? (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Offertenummer</label>
-                  <div className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-500">
-                    Wordt automatisch gegenereerd
+              <div className="p-4 rounded-lg border-2 border-gray-200">
+                <p className="font-medium mb-3">Eigen percentage splitsen</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 flex-1">
+                    <input
+                      type="number"
+                      min="1"
+                      max="99"
+                      value={customSplitPercentage}
+                      onChange={(e) => setCustomSplitPercentage(Math.min(99, Math.max(1, parseInt(e.target.value) || 50)))}
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    />
+                    <span className="text-sm text-gray-500">% / {100 - customSplitPercentage}%</span>
                   </div>
+                  <Button size="sm" onClick={() => handleConvertToFactuur('split', customSplitPercentage)} disabled={loading}>
+                    Factureren
+                  </Button>
                 </div>
-              ) : (
-                <Input id="offertenummer" name="offertenummer" label="Offertenummer" defaultValue={(offerte?.offertenummer as string) || ''} readOnly />
-              )}
-              <Input id="datum" name="datum" label="Datum *" type="date" defaultValue={(offerte?.datum as string) || new Date().toISOString().split('T')[0]} required />
-              <Input id="geldig_tot" name="geldig_tot" label="Geldig tot" type="date" defaultValue={(offerte?.geldig_tot as string) || ''} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {!isNew && (
-                <Select
-                  id="relatie_id"
-                  name="relatie_id"
-                  label="Relatie"
-                  defaultValue={(offerte?.relatie_id as string) || ''}
-                  placeholder="Selecteer relatie..."
-                  options={relatiesList.map(r => ({ value: r.id, label: r.bedrijfsnaam }))}
-                  onChange={e => setSelectedRelatieId(e.target.value)}
-                />
-              )}
-              <Select
-                id="status"
-                name="status"
-                label="Status"
-                defaultValue={(offerte?.status as string) || 'concept'}
-                options={[
-                  { value: 'concept', label: 'Concept' },
-                  { value: 'verzonden', label: 'Verzonden' },
-                  { value: 'geaccepteerd', label: 'Geaccepteerd' },
-                  { value: 'afgewezen', label: 'Afgewezen' },
-                  { value: 'verlopen', label: 'Verlopen' },
-                ]}
-              />
-            </div>
-            <Input id="onderwerp" name="onderwerp" label="Onderwerp" defaultValue={(offerte?.onderwerp as string) || ''} />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900">Regelitems</h3>
-              {regels.some(r => r.omschrijving === BEZORGKOSTEN_LABEL) && (
-                <p className="text-xs text-orange-600 mt-0.5">
-                  Bezorgkosten automatisch toegevoegd (kozijnen onder {formatCurrency(BEZORGKOSTEN_DREMPEL)})
+                <p className="text-xs text-gray-400 mt-2">
+                  Aanbetaling: {formatCurrency(((offerte.totaal as number) || 0) * customSplitPercentage / 100)} &middot; Rest: {formatCurrency(((offerte.totaal as number) || 0) * (100 - customSplitPercentage) / 100)}
                 </p>
-              )}
-            </div>
-            <Button type="button" variant="secondary" size="sm" onClick={addRegel}>
-              <Plus className="h-3 w-3" />
-              Regel toevoegen
-            </Button>
-          </div>
-          <CardContent>
-            <div className="space-y-3">
-              {regels.map((regel, i) => {
-                const isBezorgkosten = regel.omschrijving === BEZORGKOSTEN_LABEL
-                return (
-                  <div key={i} className={`grid grid-cols-12 gap-2 items-end ${isBezorgkosten ? 'opacity-60 bg-orange-50 -mx-2 px-2 py-1 rounded' : ''}`}>
-                    <div className="col-span-1">
-                      <select
-                        className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs"
-                        value={regel.product_id || ''}
-                        onChange={(e) => selectProduct(i, e.target.value)}
-                        disabled={isBezorgkosten}
-                      >
-                        <option value="">--</option>
-                        {producten.map(p => (
-                          <option key={p.id} value={p.id}>{p.naam}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="col-span-4">
-                      <input
-                        placeholder="Omschrijving"
-                        className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
-                        value={regel.omschrijving}
-                        onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)}
-                        required
-                        readOnly={isBezorgkosten}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        placeholder="Aantal"
-                        step="0.01"
-                        className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
-                        value={regel.aantal}
-                        onChange={(e) => updateRegel(i, 'aantal', parseFloat(e.target.value) || 0)}
-                        readOnly={isBezorgkosten}
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <input
-                        type="number"
-                        placeholder="Prijs"
-                        step="0.01"
-                        className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm"
-                        value={regel.prijs}
-                        onChange={(e) => updateRegel(i, 'prijs', parseFloat(e.target.value) || 0)}
-                        readOnly={isBezorgkosten}
-                      />
-                    </div>
-                    <div className="col-span-1">
-                      <select
-                        className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs"
-                        value={regel.btw_percentage}
-                        onChange={(e) => updateRegel(i, 'btw_percentage', parseInt(e.target.value))}
-                        disabled={isBezorgkosten}
-                      >
-                        <option value={0}>0%</option>
-                        <option value={9}>9%</option>
-                        <option value={21}>21%</option>
-                      </select>
-                    </div>
-                    <div className="col-span-1 text-right text-sm font-medium">
-                      {formatCurrency(regel.aantal * regel.prijs)}
-                    </div>
-                    <div className="col-span-1">
-                      {!isBezorgkosten && (
-                        <button type="button" onClick={() => removeRegel(i)} className="p-1 text-gray-400 hover:text-red-500">
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="mt-6 flex justify-end">
-              <div className="w-64 space-y-1 text-sm">
-                <div className="flex justify-between"><span>Subtotaal:</span><span>{formatCurrency(subtotaal)}</span></div>
-                <div className="flex justify-between"><span>BTW:</span><span>{formatCurrency(btwTotaal)}</span></div>
-                <div className="flex justify-between font-bold text-base border-t pt-1"><span>Totaal:</span><span>{formatCurrency(totaal)}</span></div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+            <div className="flex justify-end mt-4"><Button variant="ghost" onClick={() => setShowFactuurDialog(false)}>Annuleren</Button></div>
+          </div>
+        </div>
+      )}
 
-        <Card>
-          <CardContent className="pt-6">
-            <label htmlFor="opmerkingen" className="block text-sm font-medium text-gray-700 mb-1">Opmerkingen</label>
-            <textarea
-              id="opmerkingen"
-              name="opmerkingen"
-              rows={3}
-              defaultValue={(offerte?.opmerkingen as string) || ''}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
-          </CardContent>
-          <CardFooter className="flex justify-between">
-            <div>
-              {!isNew && (
-                <Button type="button" variant="danger" onClick={handleDelete}>
-                  <Trash2 className="h-4 w-4" />
-                  Verwijderen
-                </Button>
-              )}
+      {/* Email compose dialog */}
+      <Dialog open={showEmailDialog} onClose={() => setShowEmailDialog(false)} title="Offerte versturen" className="max-w-2xl">
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="email_to" className="block text-sm font-medium text-gray-700 mb-1"><Mail className="h-3.5 w-3.5 inline mr-1" />Aan</label>
+            <input id="email_to" type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" placeholder="E-mailadres ontvanger" />
+          </div>
+          <div>
+            <label htmlFor="email_subject" className="block text-sm font-medium text-gray-700 mb-1">Onderwerp</label>
+            <input id="email_subject" type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+          </div>
+          <div>
+            <label htmlFor="email_body" className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
+            <textarea id="email_body" value={emailBody} onChange={e => setEmailBody(e.target.value)} rows={12} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono leading-relaxed" />
+            <p className="text-xs text-gray-400 mt-1">De acceptatielink en handtekening worden automatisch onder het bericht geplaatst.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2"><Paperclip className="h-3.5 w-3.5 inline mr-1" />Bijlagen</label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md text-sm">
+                <Download className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                <span className="text-blue-800 flex-1">Offerte-{String(offerte.offertenummer)}.pdf</span>
+                <span className="text-xs text-blue-500">Automatisch bijgevoegd</span>
+              </div>
+              {emailAttachments.map((file, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm">
+                  <Paperclip className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                  <span className="text-gray-700 flex-1 truncate">{file.name}</span>
+                  <span className="text-xs text-gray-400">{(file.size / 1024).toFixed(0)} KB</span>
+                  <button type="button" onClick={() => setEmailAttachments(prev => prev.filter((_, idx) => idx !== i))} className="text-gray-400 hover:text-red-500"><X className="h-4 w-4" /></button>
+                </div>
+              ))}
+              <label className="flex items-center gap-2 px-3 py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-500 hover:border-primary hover:text-primary cursor-pointer transition-colors">
+                <Plus className="h-4 w-4" /><span>Tekening of document toevoegen (PDF)</span>
+                <input type="file" accept=".pdf,.png,.jpg,.jpeg" multiple onChange={(e) => { setEmailAttachments(prev => [...prev, ...Array.from(e.target.files || [])]); e.target.value = '' }} className="hidden" />
+              </label>
             </div>
-            <Button type="submit" disabled={loading}>
-              <Save className="h-4 w-4" />
-              {loading ? 'Opslaan...' : 'Opslaan'}
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+            <Button variant="ghost" onClick={() => setShowEmailDialog(false)} disabled={sending}>Annuleren</Button>
+            <Button onClick={handleSendEmail} disabled={sending || !emailTo}>
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {sending ? 'Verzenden...' : 'Versturen'}
             </Button>
-          </CardFooter>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* Project info */}
+      {(offerte.project as { naam: string } | null)?.naam && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <FolderKanban className="h-4 w-4 text-blue-600" />
+          <span className="text-sm text-blue-800">Project: <strong>{(offerte.project as { naam: string }).naam}</strong></span>
+        </div>
+      )}
+
+      {/* Leverancier PDF + marge */}
+      {leverancierPdf && (
+        <Card className="mb-4">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FileText className="h-5 w-5 text-gray-500" />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Leverancier tekeningen</p>
+                <p className="text-xs text-gray-500">{leverancierPdf.bestandsnaam} — {leverancierPdf.aantalElementen} elementen</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Marge</label>
+              <div className="relative w-24">
+                <input
+                  type="number"
+                  value={margePercentage || ''}
+                  onChange={e => setMargePercentage(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-full px-3 py-1.5 pr-8 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  step="0.1"
+                  min="0"
+                />
+                <Percent className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              </div>
+              <Button size="sm" variant="secondary" onClick={handleSaveMarge} disabled={margeSaving}>
+                {margeSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+                Marge opslaan
+              </Button>
+            </div>
+          </div>
+          {leverancierElementen.length > 0 && (
+            <CardContent>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-600">Element</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-600 w-16">Hvh</th>
+                      <th className="text-right px-4 py-2.5 font-medium text-gray-600">Inkoop/stuk</th>
+                      {margePercentage > 0 && (
+                        <>
+                          <th className="text-right px-4 py-2.5 font-medium text-gray-600">Marge</th>
+                          <th className="text-right px-4 py-2.5 font-medium text-gray-600">Verkoop/stuk</th>
+                        </>
+                      )}
+                      <th className="text-right px-4 py-2.5 font-medium text-gray-600">Totaal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leverancierElementen.map((element, i) => {
+                      const elementMarge = element.prijs * (margePercentage / 100)
+                      const verkoopPerStuk = element.prijs + elementMarge
+                      const regelTotaal = verkoopPerStuk * element.hoeveelheid
+                      return (
+                        <tr key={i} className="border-b border-gray-100 last:border-0">
+                          <td className="px-4 py-2.5 font-medium text-gray-900">{element.naam}</td>
+                          <td className="text-center px-3 py-2.5 text-gray-600">{element.hoeveelheid}</td>
+                          <td className="text-right px-4 py-2.5 text-gray-600">{formatCurrency(element.prijs)}</td>
+                          {margePercentage > 0 && (
+                            <>
+                              <td className="text-right px-4 py-2.5 text-green-600">+{formatCurrency(elementMarge)}</td>
+                              <td className="text-right px-4 py-2.5 font-medium text-gray-900">{formatCurrency(verkoopPerStuk)}</td>
+                            </>
+                          )}
+                          <td className="text-right px-4 py-2.5 font-medium text-gray-900">{formatCurrency(regelTotaal)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <div className="w-72 space-y-1.5 text-sm">
+                  {(() => {
+                    const elementSum = leverancierElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+                    const inkoopTotaal = leverancierTotaal > 0 ? leverancierTotaal : elementSum
+                    const margeBedrag = inkoopTotaal * (margePercentage / 100)
+                    const verkoopTotaal = inkoopTotaal + margeBedrag
+                    return (
+                      <>
+                        <div className="flex justify-between text-gray-600">
+                          <span>Inkoop totaal:</span>
+                          <span>{formatCurrency(inkoopTotaal)}</span>
+                        </div>
+                        {margePercentage > 0 && (
+                          <div className="flex justify-between text-green-600">
+                            <span>Marge ({margePercentage}%):</span>
+                            <span>+{formatCurrency(margeBedrag)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold text-base border-t border-gray-200 pt-1.5">
+                          <span>Verkoop totaal:</span>
+                          <span>{formatCurrency(verkoopTotaal)}</span>
+                        </div>
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+            </CardContent>
+          )}
         </Card>
-      </form>
+      )}
+
+      {/* Use StapControleren for edit mode */}
+      <StapControleren
+        offerte={offerte}
+        isNew={false}
+        readOnly={isReadOnly}
+        relatieName={selectedRelatieName}
+        projectName={selectedProjectName}
+        offerteType="zakelijk"
+        selectedRelatieId={selectedRelatieIdState}
+        selectedProjectId={initProjectId}
+        regels={regels}
+        onRegelsChange={setRegels}
+        producten={producten}
+        pendingPdfFile={null}
+        onSaved={(id) => router.push('/offertes')}
+        onBack={() => router.push('/offertes')}
+      />
+
+      {/* Chat panel */}
+      <Card className="mt-4">
+        <button type="button" onClick={toggleChat} className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-gray-500" />
+            <h3 className="font-semibold text-gray-900">Klantberichten</h3>
+            {chatBerichten.filter((b: { afzender_type: string; gelezen: boolean }) => b.afzender_type === 'klant' && !b.gelezen).length > 0 && (
+              <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                {chatBerichten.filter((b: { afzender_type: string; gelezen: boolean }) => b.afzender_type === 'klant' && !b.gelezen).length}
+              </span>
+            )}
+          </div>
+          {showChat ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+        </button>
+
+        {showChat && (
+          <CardContent className="pt-0">
+            {chatLoading && chatBerichten.length === 0 ? (
+              <div className="flex items-center justify-center py-8 text-gray-500">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                Berichten laden...
+              </div>
+            ) : (
+              <>
+                <div className="space-y-3 max-h-80 overflow-y-auto mb-4">
+                  {chatBerichten.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-6">Nog geen berichten van klanten.</p>
+                  ) : (
+                    chatBerichten.map((bericht: { id: string; afzender_type: string; afzender_naam: string; tekst: string; created_at: string; afzender?: { naam: string } | null }) => (
+                      <div key={bericht.id} className={`flex ${bericht.afzender_type === 'medewerker' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[75%] rounded-lg px-4 py-2.5 ${bericht.afzender_type === 'medewerker' ? 'bg-blue-100 text-blue-900' : 'bg-gray-100 text-gray-900'}`}>
+                          <p className="text-xs font-medium mb-1 opacity-70">{bericht.afzender_naam || bericht.afzender?.naam || (bericht.afzender_type === 'klant' ? 'Klant' : 'Medewerker')}</p>
+                          <p className="text-sm whitespace-pre-wrap">{bericht.tekst}</p>
+                          <p className="text-[10px] mt-1 opacity-50">{formatDateShort(bericht.created_at)}</p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <textarea value={chatTekst} onChange={(e) => setChatTekst(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat() } }} placeholder="Typ uw antwoord..." rows={2} className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+                  <Button type="button" onClick={handleSendChat} disabled={chatSending || !chatTekst.trim()}>
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        )}
+      </Card>
     </div>
   )
 }

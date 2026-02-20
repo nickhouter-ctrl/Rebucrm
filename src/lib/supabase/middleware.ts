@@ -36,7 +36,8 @@ export async function updateSession(request: NextRequest) {
   const publicPaths = ['/login', '/registreren', '/wachtwoord-vergeten']
   const isPublicPath = publicPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
-  )
+  ) || request.nextUrl.pathname.match(/^\/offerte\/[^/]+$/)
+  const isPortaalPath = request.nextUrl.pathname.startsWith('/portaal')
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
@@ -44,10 +45,37 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  if (user && isPublicPath) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
+  if (user) {
+    // Check of gebruiker een klant is
+    const { data: profiel } = await supabase
+      .from('profielen')
+      .select('rol')
+      .eq('id', user.id)
+      .single()
+
+    const isKlant = profiel?.rol === 'klant'
+
+    if (isKlant) {
+      // Klant mag alleen /portaal/* bezoeken
+      if (!isPortaalPath && !isPublicPath) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/portaal'
+        return NextResponse.redirect(url)
+      }
+    } else {
+      // Admin/medewerker mag niet naar /portaal
+      if (isPortaalPath) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/'
+        return NextResponse.redirect(url)
+      }
+      // Bestaand gedrag: redirect weg van public paths
+      if (isPublicPath) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/'
+        return NextResponse.redirect(url)
+      }
+    }
   }
 
   return supabaseResponse

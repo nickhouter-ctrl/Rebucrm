@@ -19,12 +19,27 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
     if (error) {
       setError('Onjuiste inloggegevens. Probeer het opnieuw.')
       setLoading(false)
       return
+    }
+
+    // Check of het een klant is → redirect naar portaal
+    if (data.user) {
+      const { data: profiel } = await supabase
+        .from('profielen')
+        .select('rol')
+        .eq('id', data.user.id)
+        .single()
+
+      if (profiel?.rol === 'klant') {
+        router.push('/portaal')
+        router.refresh()
+        return
+      }
     }
 
     router.push('/')

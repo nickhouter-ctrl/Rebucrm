@@ -1,6 +1,7 @@
 import React from 'react'
-import { Document, Page, Text, View } from '@react-pdf/renderer'
+import { Document, Page, Text, View, Image } from '@react-pdf/renderer'
 import { sharedStyles as s, COMPANY, COLORS, formatCurrencyPdf, formatDatePdf } from './shared-styles'
+import path from 'path'
 
 interface Regel {
   omschrijving: string
@@ -32,91 +33,129 @@ interface FactuurData {
   regels?: Regel[]
 }
 
+const logoPath = path.join(process.cwd(), 'public', 'images', 'logo-rebu.png')
+
 export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
   const regels = factuur.regels || []
   const relatie = factuur.relatie
 
+  // Bereken BTW groepen
+  const btwGroepen: Record<number, number> = {}
+  regels.forEach(r => {
+    const btwBedrag = (r.aantal * r.prijs * r.btw_percentage) / 100
+    btwGroepen[r.btw_percentage] = (btwGroepen[r.btw_percentage] || 0) + btwBedrag
+  })
+
   return (
     <Document>
-      {/* Pagina 1: Cover */}
+      {/* ====== PAGINA 1: COVER ====== */}
       <Page size="A4" style={[s.page, { padding: 0 }]}>
         <View style={s.coverPage}>
-          <Text style={s.coverMonogram}>RK</Text>
-          <View style={s.coverLine} />
-          <Text style={s.coverTitle}>FACTUUR</Text>
-          {relatie && <Text style={s.coverSubtitle}>{relatie.bedrijfsnaam}</Text>}
-          <Text style={s.coverDate}>{formatDatePdf(factuur.datum)}</Text>
+          {/* Linker helft: zwart met logo tekst */}
+          <View style={s.coverLeft}>
+            <View style={{ alignItems: 'center' }}>
+              <Text style={s.coverRebu}>REBU</Text>
+              <Text style={s.coverKozijnen}>KOZIJNEN</Text>
+              <Text style={s.coverSlogan}>Maken het verschil.</Text>
+            </View>
+          </View>
+
+          {/* Rechter helft: wit met RK icoon */}
+          <View style={s.coverRight}>
+            <Text style={s.coverRkIcon}>RK</Text>
+          </View>
+        </View>
+
+        {/* Groene balk onderaan */}
+        <View style={s.coverBottomBar}>
+          <View style={{ flexDirection: 'row', gap: 40 }}>
+            <View>
+              <Text style={s.coverBottomLabel}>FACTUURNUMMER:</Text>
+              <Text style={s.coverBottomValue}>{factuur.factuurnummer}</Text>
+            </View>
+            <View>
+              <Text style={s.coverBottomLabel}>FACTUURDATUM:</Text>
+              <Text style={s.coverBottomValue}>{formatDatePdf(factuur.datum)}</Text>
+            </View>
+            {factuur.vervaldatum && (
+              <View>
+                <Text style={s.coverBottomLabel}>VERVALDATUM:</Text>
+                <Text style={s.coverBottomValue}>{formatDatePdf(factuur.vervaldatum)}</Text>
+              </View>
+            )}
+          </View>
         </View>
       </Page>
 
-      {/* Pagina 2+: Inhoud */}
+      {/* ====== PAGINA 2: INHOUD ====== */}
       <Page size="A4" style={[s.page, s.contentPage]}>
-        {/* Header */}
-        <View style={s.header}>
-          <View style={s.headerLeft}>
-            <Text style={s.companyName}>{COMPANY.naam}</Text>
-            <Text style={s.companyDetail}>{COMPANY.adres}</Text>
-            <Text style={s.companyDetail}>{COMPANY.postcode} {COMPANY.plaats}</Text>
-            <Text style={s.companyDetail}>{COMPANY.telefoon}</Text>
-          </View>
-          <View style={s.headerRight}>
-            <Text style={s.companyDetail}>{COMPANY.email}</Text>
-            <Text style={s.companyDetail}>{COMPANY.website}</Text>
-            <Text style={s.companyDetail}>KVK: {COMPANY.kvk}</Text>
-            <Text style={s.companyDetail}>BTW: {COMPANY.btw}</Text>
-          </View>
+        {/* Zwarte sidebar rechts */}
+        <View style={s.contentSidebar} />
+
+        {/* Watermark RK */}
+        <Text style={s.watermark}>RK</Text>
+
+        {/* Logo rechts boven */}
+        <View style={s.logoArea}>
+          <Image src={logoPath} style={{ width: 160, height: 'auto' }} />
         </View>
 
-        {/* Klant + Factuur info */}
-        <View style={s.infoSection}>
-          <View style={s.infoBlock}>
-            <Text style={s.infoLabel}>Aan</Text>
-            {relatie ? (
-              <>
-                <Text style={s.infoValueBold}>{relatie.bedrijfsnaam}</Text>
-                {relatie.contactpersoon && <Text style={s.infoValue}>t.a.v. {relatie.contactpersoon}</Text>}
-                {relatie.adres && <Text style={s.infoValue}>{relatie.adres}</Text>}
-                {(relatie.postcode || relatie.plaats) && (
-                  <Text style={s.infoValue}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
-                )}
-              </>
-            ) : (
-              <Text style={s.infoValue}>-</Text>
+        {/* Klantgegevens links boven */}
+        <View style={s.clientSection}>
+          {relatie && (
+            <>
+              <Text style={s.clientName}>{relatie.bedrijfsnaam}</Text>
+              {relatie.contactpersoon && <Text style={s.clientDetail}>t.a.v. {relatie.contactpersoon}</Text>}
+              {relatie.adres && <Text style={s.clientDetail}>{relatie.adres}</Text>}
+              {(relatie.postcode || relatie.plaats) && (
+                <Text style={s.clientDetail}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
+              )}
+            </>
+          )}
+        </View>
+
+        {/* Meta info: factuur details */}
+        <View style={s.metaSection}>
+          <View style={s.metaLeft}>
+            <Text style={s.metaLine}>
+              <Text style={s.metaLabel}>Factuurnummer: </Text>{factuur.factuurnummer}
+            </Text>
+            <Text style={s.metaLine}>
+              <Text style={s.metaLabel}>Factuurdatum: </Text>{formatDatePdf(factuur.datum)}
+            </Text>
+            {factuur.vervaldatum && (
+              <Text style={s.metaLine}>
+                <Text style={s.metaLabel}>Vervaldatum: </Text>{formatDatePdf(factuur.vervaldatum)}
+              </Text>
             )}
           </View>
-          <View style={[s.infoBlock, { alignItems: 'flex-end' }]}>
-            <Text style={s.infoLabel}>Factuur</Text>
-            <Text style={s.infoValueBold}>{factuur.factuurnummer}</Text>
-            <Text style={s.infoValue}>Factuurdatum: {formatDatePdf(factuur.datum)}</Text>
-            {factuur.vervaldatum && <Text style={s.infoValue}>Vervaldatum: {formatDatePdf(factuur.vervaldatum)}</Text>}
+          <View style={s.metaRight}>
+            {factuur.onderwerp && (
+              <Text style={s.metaLine}>
+                <Text style={s.metaLabel}>Referentie: </Text>{factuur.onderwerp}
+              </Text>
+            )}
           </View>
         </View>
-
-        {/* Onderwerp */}
-        {factuur.onderwerp && (
-          <View style={{ marginBottom: 15 }}>
-            <Text style={{ fontSize: 12, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>
-              {factuur.onderwerp}
-            </Text>
-          </View>
-        )}
 
         {/* Regels tabel */}
         <View style={s.table}>
           <View style={s.tableHeader}>
-            <View style={s.tableColDesc}><Text style={s.tableHeaderText}>Omschrijving</Text></View>
             <View style={s.tableColAantal}><Text style={s.tableHeaderText}>Aantal</Text></View>
-            <View style={s.tableColPrijs}><Text style={s.tableHeaderText}>Prijs</Text></View>
-            <View style={s.tableColBtw}><Text style={s.tableHeaderText}>BTW</Text></View>
+            <View style={s.tableColEenheid}><Text style={s.tableHeaderText}>Eenheid</Text></View>
+            <View style={s.tableColDesc}><Text style={s.tableHeaderText}>Omschrijving</Text></View>
+            <View style={s.tableColBedrag}><Text style={s.tableHeaderText}>Bedrag</Text></View>
+            <View style={s.tableColKorting}><Text style={s.tableHeaderText}>Korting</Text></View>
             <View style={s.tableColTotaal}><Text style={s.tableHeaderText}>Totaal</Text></View>
           </View>
           {regels.map((regel, i) => (
             <View key={i} style={s.tableRow}>
-              <View style={s.tableColDesc}><Text style={s.tableCellText}>{regel.omschrijving}</Text></View>
               <View style={s.tableColAantal}><Text style={s.tableCellText}>{regel.aantal}</Text></View>
-              <View style={s.tableColPrijs}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.prijs)}</Text></View>
-              <View style={s.tableColBtw}><Text style={s.tableCellText}>{regel.btw_percentage}%</Text></View>
-              <View style={s.tableColTotaal}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.totaal)}</Text></View>
+              <View style={s.tableColEenheid}><Text style={s.tableCellText}>Stuk</Text></View>
+              <View style={s.tableColDesc}><Text style={s.tableCellText}>{regel.omschrijving}</Text></View>
+              <View style={s.tableColBedrag}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.prijs)}</Text></View>
+              <View style={s.tableColKorting}><Text style={s.tableCellText}>0%</Text></View>
+              <View style={s.tableColTotaal}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.aantal * regel.prijs)}</Text></View>
             </View>
           ))}
         </View>
@@ -128,11 +167,21 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
             <Text style={s.totalsValue}>{formatCurrencyPdf(factuur.subtotaal)}</Text>
           </View>
           <View style={s.totalsRow}>
-            <Text style={s.totalsLabel}>BTW</Text>
-            <Text style={s.totalsValue}>{formatCurrencyPdf(factuur.btw_totaal)}</Text>
+            <Text style={s.totalsLabel}></Text>
+            <Text style={s.totalsValue}>{formatCurrencyPdf(0)}</Text>
           </View>
+          <View style={s.totalsRow}>
+            <Text style={s.totalsLabel}>Totaal excl. BTW</Text>
+            <Text style={s.totalsValue}>{formatCurrencyPdf(factuur.subtotaal)}</Text>
+          </View>
+          {Object.entries(btwGroepen).map(([perc, bedrag]) => (
+            <View key={perc} style={s.totalsRow}>
+              <Text style={s.totalsLabel}>BTW {perc}%</Text>
+              <Text style={s.totalsValue}>{formatCurrencyPdf(bedrag)}</Text>
+            </View>
+          ))}
           <View style={s.totalsFinal}>
-            <Text style={s.totalsFinalLabel}>Totaal</Text>
+            <Text style={s.totalsFinalLabel}>Totaal bedrag incl. BTW</Text>
             <Text style={s.totalsFinalValue}>{formatCurrencyPdf(factuur.totaal)}</Text>
           </View>
         </View>
@@ -161,11 +210,54 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
           </View>
         )}
 
-        {/* Footer */}
+        {/* Footer met bedrijfsgegevens */}
         <View style={s.footer}>
-          <Text style={s.footerText}>KVK: {COMPANY.kvk} | BTW: {COMPANY.btw}</Text>
-          <Text style={s.footerText}>IBAN: {COMPANY.iban}</Text>
-          <Text style={s.footerText}>{COMPANY.email} | {COMPANY.website}</Text>
+          <View style={s.footerCol}>
+            <Text style={s.footerLabel}>{COMPANY.naam}</Text>
+            <Text style={s.footerText}>{COMPANY.adres}</Text>
+            <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
+          </View>
+          <View style={s.footerCol}>
+            <Text style={s.footerText}>{COMPANY.telefoon}</Text>
+            <Text style={s.footerText}>{COMPANY.email}</Text>
+            <Text style={s.footerText}>{COMPANY.website}</Text>
+          </View>
+          <View style={s.footerCol}>
+            <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
+            <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
+            <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
+          </View>
+        </View>
+      </Page>
+
+      {/* ====== PAGINA 3: ACHTERPAGINA MET CONTACTGEGEVENS ====== */}
+      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: COLORS.black }]}>
+        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+          {/* Groene balk onderaan */}
+          <View style={{
+            backgroundColor: COLORS.green,
+            paddingHorizontal: 40,
+            paddingVertical: 25,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+          }}>
+            <View>
+              <Text style={{ fontSize: 14, fontFamily: 'Helvetica-Bold', color: COLORS.white, marginBottom: 4 }}>
+                06 58 86 60 70
+              </Text>
+              <Text style={{ fontSize: 10, color: COLORS.white, marginBottom: 10 }}>
+                info@rebukozijnen.nl
+              </Text>
+              <Text style={{ fontSize: 10, color: COLORS.white }}>Samsonweg 26F</Text>
+              <Text style={{ fontSize: 10, color: COLORS.white }}>1521 RM, Wormerveer</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 2 }}>REBU</Text>
+              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 1 }}>KOZIJNEN</Text>
+              <Text style={{ fontSize: 9, color: COLORS.white }}>Maken het verschil.</Text>
+            </View>
+          </View>
         </View>
       </Page>
     </Document>

@@ -10,7 +10,9 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2 } from 'lucide-react'
+import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
+import { Dialog } from '@/components/ui/dialog'
 
 interface RelatieData {
   id: string
@@ -72,6 +74,12 @@ interface ProjectWithOffertes {
   }[]
 }
 
+interface KlantAccount {
+  id: string
+  profiel: { id: string; naam: string; email: string } | null
+  created_at: string
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
@@ -86,18 +94,27 @@ interface Props {
     }
   }
   notities: Notitie[]
+  klantAccounts: KlantAccount[]
 }
 
-export function RelatieDetail({ detail, notities: initialNotities }: Props) {
+export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'notities' | 'gegevens'>('overzicht')
+  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
   // Notities state
   const [notities, setNotities] = useState(initialNotities)
+
+  // Portaal state
+  const [klantAccounts, setKlantAccounts] = useState(initialKlantAccounts)
+  const [showKlantDialog, setShowKlantDialog] = useState(false)
+  const [klantEmail, setKlantEmail] = useState(relatie.email || '')
+  const [klantNaam, setKlantNaam] = useState(relatie.contactpersoon || relatie.bedrijfsnaam)
+  const [klantWachtwoord, setKlantWachtwoord] = useState('')
+  const [klantLoading, setKlantLoading] = useState(false)
   const [showNotitieForm, setShowNotitieForm] = useState(false)
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
@@ -156,12 +173,42 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
     }
   }
 
+  async function handleCreateKlant() {
+    if (!klantEmail || !klantNaam || !klantWachtwoord) return
+    setKlantLoading(true); setError('')
+    const result = await createKlantToegang({
+      relatie_id: relatie.id,
+      email: klantEmail,
+      naam: klantNaam,
+      wachtwoord: klantWachtwoord,
+    })
+    setKlantLoading(false)
+    if (result.error) {
+      setError(result.error)
+    } else {
+      setShowKlantDialog(false)
+      setKlantWachtwoord('')
+      router.refresh()
+    }
+  }
+
+  async function handleDeleteKlant(id: string) {
+    if (!confirm('Klanttoegang verwijderen? De gebruiker kan dan niet meer inloggen.')) return
+    const result = await deleteKlantToegang(id)
+    if (result.error) setError(result.error)
+    else {
+      setKlantAccounts(prev => prev.filter(k => k.id !== id))
+      router.refresh()
+    }
+  }
+
   const tabs = [
     { key: 'overzicht' as const, label: 'Overzicht' },
     { key: 'projecten' as const, label: `Projecten (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
     { key: 'notities' as const, label: `Notities (${notities.length})` },
+    { key: 'portaal' as const, label: `Portaal (${klantAccounts.length})` },
     { key: 'gegevens' as const, label: 'Gegevens' },
   ]
 
@@ -177,8 +224,8 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
               Terug
             </Button>
             <Button variant="secondary" onClick={() => router.push(`/offertes/nieuw?relatie_id=${relatie.id}`)}>
-              <Plus className="h-4 w-4" />
-              Nieuwe offerte
+              <FileText className="h-4 w-4" />
+              Offerte aanmaken
             </Button>
           </div>
         }
@@ -425,6 +472,86 @@ export function RelatieDetail({ detail, notities: initialNotities }: Props) {
                 </CardContent>
               </Card>
             ))
+          )}
+        </div>
+      )}
+
+      {tab === 'portaal' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="font-semibold text-gray-900">Klanttoegang portaal</h3>
+            <Button variant="secondary" size="sm" onClick={() => setShowKlantDialog(true)}>
+              <UserPlus className="h-3 w-3" />
+              Klanttoegang aanmaken
+            </Button>
+          </div>
+
+          {klantAccounts.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-gray-500 text-sm">
+                <Globe className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                <p>Geen klantaccounts voor deze relatie.</p>
+                <p className="text-xs text-gray-400 mt-1">Maak een account aan zodat de klant offertes, orders en berichten kan bekijken.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            klantAccounts.map(k => (
+              <Card key={k.id}>
+                <CardContent className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{(k.profiel as { naam: string } | null)?.naam || 'Onbekend'}</p>
+                    <p className="text-xs text-gray-500">{(k.profiel as { email: string } | null)?.email || ''}</p>
+                    <p className="text-xs text-gray-400 mt-1">Aangemaakt: {formatDateShort(k.created_at)}</p>
+                  </div>
+                  <Button variant="danger" size="sm" onClick={() => handleDeleteKlant(k.id)}>
+                    <Trash2 className="h-3 w-3" />
+                    Verwijderen
+                  </Button>
+                </CardContent>
+              </Card>
+            ))
+          )}
+
+          {showKlantDialog && (
+            <Dialog open={showKlantDialog} onClose={() => setShowKlantDialog(false)} title="Klanttoegang aanmaken" className="max-w-md">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Naam</label>
+                  <input
+                    type="text"
+                    value={klantNaam}
+                    onChange={e => setKlantNaam(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">E-mailadres</label>
+                  <input
+                    type="email"
+                    value={klantEmail}
+                    onChange={e => setKlantEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Wachtwoord</label>
+                  <input
+                    type="text"
+                    value={klantWachtwoord}
+                    onChange={e => setKlantWachtwoord(e.target.value)}
+                    placeholder="Minimaal 6 tekens"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <Button variant="ghost" onClick={() => setShowKlantDialog(false)}>Annuleren</Button>
+                  <Button onClick={handleCreateKlant} disabled={klantLoading || !klantEmail || !klantNaam || klantWachtwoord.length < 6}>
+                    {klantLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+                    {klantLoading ? 'Aanmaken...' : 'Account aanmaken'}
+                  </Button>
+                </div>
+              </div>
+            </Dialog>
           )}
         </div>
       )}

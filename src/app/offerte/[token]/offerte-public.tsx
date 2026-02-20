@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { acceptOffertePublic } from '@/lib/actions'
 import { Check, FileText } from 'lucide-react'
+import Image from 'next/image'
 
 interface Regel {
   omschrijving: string
@@ -60,16 +61,13 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-black text-white">
-        <div className="max-w-4xl mx-auto px-6 py-8">
+      <div className="bg-black">
+        <div className="max-w-4xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold" style={{ color: '#00C9A7' }}>Rebu Kozijnen</h1>
-              <p className="text-gray-400 text-sm mt-1">Samsonweg 26F, 1521 RM Wormerveer</p>
-            </div>
+            <Image src="/images/logo-rebu.png" alt="Rebu Kozijnen" width={180} height={60} className="h-12 w-auto" />
             <div className="text-right">
               <p className="text-sm text-gray-400">Offerte</p>
-              <p className="text-lg font-semibold">{offerte.offertenummer}</p>
+              <p className="text-lg font-semibold text-white">{offerte.offertenummer}</p>
             </div>
           </div>
         </div>
@@ -179,7 +177,7 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
               onClick={handleAccept}
               disabled={loading}
               className="inline-flex items-center gap-2 px-8 py-4 text-white font-semibold rounded-xl transition-all hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: '#00C9A7' }}
+              style={{ backgroundColor: '#00a651' }}
             >
               <Check className="h-5 w-5" />
               {loading ? 'Bezig...' : 'Offerte accepteren'}
@@ -190,9 +188,22 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
           </div>
         )}
 
+        {/* PDF Download */}
+        <div className="mt-6 text-center">
+          <a
+            href={`/api/pdf/offerte/${offerte.id}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 underline"
+          >
+            <FileText className="h-4 w-4" />
+            Offerte PDF downloaden
+          </a>
+        </div>
+
         {/* Footer */}
         <div className="mt-12 text-center text-xs text-gray-400 pb-8">
-          <p>Rebu Kozijnen B.V. | KVK: 907 204 74 | BTW: NL 865 427 926 B01</p>
+          <p>Rebu kozijnen B.V. | KVK: 907 204 74 | BTW: NL 865 427 926 B01</p>
           <p>Samsonweg 26F, 1521 RM Wormerveer | +31 6 58 86 60 70 | info@rebukozijnen.nl</p>
         </div>
       </div>

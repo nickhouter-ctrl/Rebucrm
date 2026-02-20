@@ -1,8 +1,15 @@
 import { getOfferte, getRelaties, getProducten } from '@/lib/actions'
 import { OfferteForm } from './offerte-form'
 
-export default async function OfferteDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OfferteDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ relatie_id?: string; wizard?: string }>
+}) {
   const { id } = await params
+  const { relatie_id, wizard } = await searchParams
   const [offerte, relaties, producten] = await Promise.all([
     id === 'nieuw' ? null : getOfferte(id),
     getRelaties(),
@@ -18,5 +25,19 @@ export default async function OfferteDetailPage({ params }: { params: Promise<{ 
     plaats: (r.plaats as string) || null,
   }))
 
-  return <OfferteForm offerte={offerte} relaties={relatiesWithDetails} producten={producten} />
+  // Look up relatie name if relatie_id is provided
+  const initialRelatie = relatie_id
+    ? relatiesWithDetails.find(r => r.id === relatie_id) || null
+    : null
+
+  return (
+    <OfferteForm
+      offerte={offerte}
+      relaties={relatiesWithDetails}
+      producten={producten}
+      initialRelatieId={initialRelatie?.id || null}
+      initialRelatieName={initialRelatie?.bedrijfsnaam || null}
+      wizardMode={wizard === 'true'}
+    />
+  )
 }

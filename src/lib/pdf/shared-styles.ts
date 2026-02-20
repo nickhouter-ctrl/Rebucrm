@@ -2,8 +2,7 @@ import { StyleSheet } from '@react-pdf/renderer'
 
 export const COLORS = {
   black: '#000000',
-  green: '#00C9A7',
-  darkGreen: '#00A88A',
+  green: '#00a651',
   white: '#FFFFFF',
   gray: '#6B7280',
   lightGray: '#F3F4F6',
@@ -30,152 +29,202 @@ export const sharedStyles = StyleSheet.create({
     fontSize: 10,
     color: COLORS.text,
   },
-  // Cover page
+
+  // === COVER PAGE ===
   coverPage: {
+    display: 'flex',
+    flexDirection: 'row',
+    height: '100%',
+  },
+  coverLeft: {
+    width: '65%',
     backgroundColor: COLORS.black,
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
     alignItems: 'center',
-    height: '100%',
-    padding: 60,
+    paddingHorizontal: 40,
   },
-  coverMonogram: {
-    fontSize: 120,
+  coverRight: {
+    width: '35%',
+    backgroundColor: COLORS.white,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coverRebu: {
+    fontSize: 42,
     fontFamily: 'Helvetica-Bold',
     color: COLORS.white,
-    letterSpacing: 10,
-    marginBottom: 20,
+    letterSpacing: 4,
   },
-  coverLine: {
-    width: 80,
-    height: 3,
-    backgroundColor: COLORS.green,
-    marginBottom: 30,
-  },
-  coverTitle: {
-    fontSize: 28,
+  coverKozijnen: {
+    fontSize: 42,
     fontFamily: 'Helvetica-Bold',
-    color: COLORS.white,
-    letterSpacing: 8,
-    marginBottom: 20,
-  },
-  coverSubtitle: {
-    fontSize: 14,
     color: COLORS.green,
-    marginBottom: 6,
+    letterSpacing: 2,
   },
-  coverDate: {
-    fontSize: 12,
-    color: '#999999',
-  },
-  // Content page
-  contentPage: {
-    padding: 50,
-    paddingTop: 40,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 30,
-    paddingBottom: 15,
-    borderBottomWidth: 2,
-    borderBottomColor: COLORS.green,
-  },
-  headerLeft: {
-    flex: 1,
-  },
-  headerRight: {
-    textAlign: 'right',
-  },
-  companyName: {
+  coverSlogan: {
     fontSize: 16,
+    color: COLORS.white,
+    marginTop: 4,
+  },
+  coverRkIcon: {
+    fontSize: 160,
     fontFamily: 'Helvetica-Bold',
-    color: COLORS.text,
-    marginBottom: 4,
+    color: COLORS.black,
+    opacity: 0.15,
   },
-  companyDetail: {
+  coverBottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    backgroundColor: COLORS.green,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    paddingHorizontal: 30,
+  },
+  coverBottomLabel: {
     fontSize: 8,
-    color: COLORS.textLight,
-    marginBottom: 2,
-  },
-  // Info section
-  infoSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 25,
-  },
-  infoBlock: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 8,
-    color: COLORS.textLight,
-    marginBottom: 4,
-    textTransform: 'uppercase',
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.white,
     letterSpacing: 1,
   },
-  infoValue: {
+  coverBottomValue: {
+    fontSize: 10,
+    color: COLORS.white,
+  },
+
+  // === CONTENT PAGE ===
+  contentPage: {
+    position: 'relative',
+    paddingTop: 40,
+    paddingBottom: 80,
+    paddingLeft: 50,
+    paddingRight: 50,
+  },
+  contentSidebar: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 45,
+    height: '100%',
+    backgroundColor: COLORS.black,
+  },
+
+  // Logo top-right
+  logoArea: {
+    position: 'absolute',
+    top: 30,
+    right: 60,
+    textAlign: 'right',
+  },
+  logoRebu: {
+    fontSize: 20,
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.black,
+    letterSpacing: 2,
+  },
+  logoKozijnen: {
+    fontSize: 20,
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.green,
+    letterSpacing: 1,
+  },
+  logoSlogan: {
+    fontSize: 8,
+    color: COLORS.textLight,
+    marginTop: 1,
+  },
+
+  // Client info
+  clientSection: {
+    marginBottom: 30,
+    maxWidth: 250,
+  },
+  clientName: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.text,
+    marginBottom: 3,
+  },
+  clientDetail: {
     fontSize: 10,
     color: COLORS.text,
     marginBottom: 2,
   },
-  infoValueBold: {
-    fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.text,
-    marginBottom: 2,
+
+  // Offerte meta info
+  metaSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 40,
+    marginTop: 20,
   },
+  metaLeft: {},
+  metaRight: {},
+  metaLine: {
+    fontSize: 9,
+    color: COLORS.text,
+    marginBottom: 3,
+  },
+  metaLabel: {
+    fontFamily: 'Helvetica-Bold',
+  },
+
   // Table
   table: {
-    marginBottom: 20,
+    marginBottom: 10,
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: COLORS.lightGray,
     borderBottomWidth: 1,
     borderBottomColor: '#D1D5DB',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    paddingBottom: 6,
+    marginBottom: 4,
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E7EB',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
-  tableColDesc: { flex: 4 },
-  tableColAantal: { flex: 1, textAlign: 'right' },
-  tableColPrijs: { flex: 1.5, textAlign: 'right' },
-  tableColBtw: { flex: 1, textAlign: 'right' },
-  tableColTotaal: { flex: 1.5, textAlign: 'right' },
+  tableColAantal: { width: 40 },
+  tableColEenheid: { width: 50 },
+  tableColDesc: { flex: 1 },
+  tableColBedrag: { width: 80, textAlign: 'right' },
+  tableColKorting: { width: 60, textAlign: 'right' },
+  tableColTotaal: { width: 80, textAlign: 'right' },
   tableHeaderText: {
     fontSize: 8,
     fontFamily: 'Helvetica-Bold',
-    color: COLORS.textLight,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    color: COLORS.text,
   },
   tableCellText: {
     fontSize: 9,
     color: COLORS.text,
   },
+
   // Totals
   totalsSection: {
     alignItems: 'flex-end',
-    marginTop: 10,
+    marginTop: 15,
   },
   totalsRow: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    width: 200,
+    width: 220,
     paddingVertical: 3,
   },
   totalsLabel: {
     flex: 1,
     fontSize: 9,
-    color: COLORS.textLight,
+    color: COLORS.text,
+    textAlign: 'right',
+    paddingRight: 15,
+    fontFamily: 'Helvetica-Bold',
   },
   totalsValue: {
     width: 80,
@@ -186,7 +235,7 @@ export const sharedStyles = StyleSheet.create({
   totalsFinal: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    width: 200,
+    width: 220,
     paddingVertical: 6,
     borderTopWidth: 1,
     borderTopColor: COLORS.text,
@@ -194,33 +243,119 @@ export const sharedStyles = StyleSheet.create({
   },
   totalsFinalLabel: {
     flex: 1,
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: 'Helvetica-Bold',
     color: COLORS.text,
+    textAlign: 'right',
+    paddingRight: 15,
   },
   totalsFinalValue: {
     width: 80,
-    fontSize: 11,
+    fontSize: 10,
     fontFamily: 'Helvetica-Bold',
     textAlign: 'right',
     color: COLORS.text,
   },
+
   // Footer
   footer: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 25,
     left: 50,
-    right: 50,
+    right: 60,
     flexDirection: 'row',
     justifyContent: 'space-between',
     borderTopWidth: 0.5,
     borderTopColor: '#D1D5DB',
-    paddingTop: 8,
+    paddingTop: 10,
+  },
+  footerCol: {
+    flex: 1,
+  },
+  footerLabel: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: COLORS.text,
   },
   footerText: {
     fontSize: 7,
     color: COLORS.textLight,
+    marginTop: 1,
   },
+
+  // Watermark
+  watermark: {
+    position: 'absolute',
+    top: '35%',
+    left: '25%',
+    fontSize: 300,
+    fontFamily: 'Helvetica-Bold',
+    color: '#F3F4F6',
+    opacity: 0.3,
+  },
+
+  // Kozijn element pages
+  elementHeaderBar: {
+    backgroundColor: '#00a651',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    marginBottom: 10,
+    maxWidth: 280,
+  },
+  elementHeaderTitle: {
+    fontSize: 13,
+    fontFamily: 'Helvetica-Bold',
+    color: '#FFFFFF',
+    letterSpacing: 1,
+  },
+  elementHeaderSub: {
+    fontSize: 8,
+    color: '#FFFFFF',
+    marginTop: 1,
+  },
+  elementPriceBelow: {
+    fontSize: 13,
+    fontFamily: 'Helvetica-Bold',
+    color: '#00a651',
+  },
+  elementImage: {
+    maxWidth: '100%',
+    maxHeight: 460,
+    objectFit: 'contain' as const,
+    marginBottom: 10,
+  },
+  specsTable: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 4,
+    padding: 12,
+  },
+  specsTitle: {
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    color: '#6B7280',
+    marginBottom: 8,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+  },
+  specsRow: {
+    flexDirection: 'row',
+    paddingVertical: 3,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#D1D5DB',
+  },
+  specsLabel: {
+    width: 100,
+    fontSize: 8,
+    fontFamily: 'Helvetica-Bold',
+    color: '#111827',
+  },
+  specsValue: {
+    flex: 1,
+    fontSize: 8,
+    color: '#111827',
+  },
+
   // Remarks
   remarksSection: {
     marginTop: 20,
@@ -240,6 +375,7 @@ export const sharedStyles = StyleSheet.create({
     color: COLORS.text,
     lineHeight: 1.5,
   },
+
 })
 
 export function formatCurrencyPdf(amount: number): string {
@@ -247,5 +383,5 @@ export function formatCurrencyPdf(amount: number): string {
 }
 
 export function formatDatePdf(date: string): string {
-  return new Date(date).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long', year: 'numeric' })
+  return new Date(date).toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }

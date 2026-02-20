@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
+import { sendEmail } from '@/lib/email'
 
 export async function getAdministratieId(): Promise<string | null> {
   const supabase = await createClient()
@@ -85,6 +86,110 @@ export async function saveRelatie(formData: FormData) {
 
   revalidatePath('/relatiebeheer')
   return { success: true }
+}
+
+export async function importRelaties(rows: {
+  bedrijfsnaam: string
+  type?: string
+  contactpersoon?: string
+  email?: string
+  telefoon?: string
+  adres?: string
+  postcode?: string
+  plaats?: string
+  kvk_nummer?: string
+  btw_nummer?: string
+  iban?: string
+  website?: string
+  opmerkingen?: string
+}[]) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  // Fetch existing relaties for duplicate check
+  const { data: existing } = await supabase
+    .from('relaties')
+    .select('bedrijfsnaam, kvk_nummer')
+    .eq('administratie_id', adminId)
+
+  const existingNames = new Set(
+    (existing || []).map(r => r.bedrijfsnaam.toLowerCase().trim())
+  )
+  const existingKvk = new Set(
+    (existing || []).filter(r => r.kvk_nummer).map(r => r.kvk_nummer!.trim())
+  )
+
+  const toInsert: typeof rows = []
+  const duplicates: string[] = []
+  const invalid: string[] = []
+
+  for (const row of rows) {
+    const name = row.bedrijfsnaam?.trim()
+    if (!name) {
+      invalid.push(row.bedrijfsnaam || '(leeg)')
+      continue
+    }
+
+    if (existingNames.has(name.toLowerCase())) {
+      duplicates.push(name)
+      continue
+    }
+    if (row.kvk_nummer?.trim() && existingKvk.has(row.kvk_nummer.trim())) {
+      duplicates.push(name)
+      continue
+    }
+
+    const type = ['particulier', 'zakelijk'].includes(row.type?.toLowerCase() || '')
+      ? row.type!.toLowerCase()
+      : 'particulier'
+
+    toInsert.push({ ...row, bedrijfsnaam: name, type })
+    existingNames.add(name.toLowerCase())
+    if (row.kvk_nummer?.trim()) existingKvk.add(row.kvk_nummer.trim())
+  }
+
+  let imported = 0
+  const errors: string[] = []
+
+  if (toInsert.length > 0) {
+    const BATCH_SIZE = 100
+    for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+      const batch = toInsert.slice(i, i + BATCH_SIZE).map(row => ({
+        administratie_id: adminId,
+        bedrijfsnaam: row.bedrijfsnaam,
+        type: row.type || 'particulier',
+        contactpersoon: row.contactpersoon || null,
+        email: row.email || null,
+        telefoon: row.telefoon || null,
+        adres: row.adres || null,
+        postcode: row.postcode || null,
+        plaats: row.plaats || null,
+        kvk_nummer: row.kvk_nummer || null,
+        btw_nummer: row.btw_nummer || null,
+        iban: row.iban || null,
+        website: row.website || null,
+        opmerkingen: row.opmerkingen || null,
+      }))
+
+      const { error } = await supabase.from('relaties').insert(batch)
+      if (error) {
+        errors.push(error.message)
+      } else {
+        imported += batch.length
+      }
+    }
+  }
+
+  revalidatePath('/relatiebeheer')
+  return {
+    success: true,
+    imported,
+    duplicates: duplicates.length,
+    duplicateNames: duplicates.slice(0, 10),
+    invalid: invalid.length,
+    errors,
+  }
 }
 
 export async function deleteRelatie(id: string) {
@@ -232,15 +337,106 @@ export async function saveOfferte(formData: FormData) {
     await supabase.from('offerte_regels').insert(regelRecords)
   }
 
+  // Auto-create order als status geaccepteerd wordt
+  if (id && record.status === 'geaccepteerd') {
+    await createOrderFromOfferte(offerteId, supabase, adminId)
+  }
+
   revalidatePath('/offertes')
+  revalidatePath('/')
+  return { success: true, id: offerteId }
+}
+
+async function createOrderFromOfferte(offerteId: string, supabase: Awaited<ReturnType<typeof createClient>>, adminId: string) {
+  // Check of order al bestaat
+  const { data: existingOrder } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('offerte_id', offerteId)
+    .maybeSingle()
+  if (existingOrder) return
+
+  const { data: offerte } = await supabase
+    .from('offertes')
+    .select('*, regels:offerte_regels(*)')
+    .eq('id', offerteId)
+    .single()
+  if (!offerte) return
+
+  const ordernummer = await getVolgendeNummer('order')
+
+  const { data: order } = await supabase
+    .from('orders')
+    .insert({
+      administratie_id: adminId,
+      relatie_id: offerte.relatie_id,
+      offerte_id: offerteId,
+      ordernummer,
+      datum: new Date().toISOString().split('T')[0],
+      leverdatum: null,
+      status: 'nieuw',
+      onderwerp: offerte.onderwerp,
+      subtotaal: offerte.subtotaal,
+      btw_totaal: offerte.btw_totaal,
+      totaal: offerte.totaal,
+    })
+    .select('id')
+    .single()
+
+  if (order && offerte.regels && offerte.regels.length > 0) {
+    await supabase.from('order_regels').insert(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      offerte.regels.map((r: any, i: number) => ({
+        order_id: order.id,
+        product_id: r.product_id || null,
+        omschrijving: r.omschrijving,
+        aantal: r.aantal,
+        prijs: r.prijs,
+        btw_percentage: r.btw_percentage,
+        totaal: r.aantal * r.prijs,
+        volgorde: i,
+      }))
+    )
+  }
+
+  revalidatePath('/offertes/orders')
+  revalidatePath('/')
+}
+
+export async function acceptOfferte(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { error } = await supabase
+    .from('offertes')
+    .update({ status: 'geaccepteerd' })
+    .eq('id', id)
+
+  if (error) return { error: error.message }
+
+  await createOrderFromOfferte(id, supabase, adminId)
+
+  revalidatePath('/offertes')
+  revalidatePath('/')
   return { success: true }
 }
 
 export async function deleteOfferte(id: string) {
   const supabase = await createClient()
+
+  // Verwijder gekoppelde orders (en hun regels) eerst
+  const { data: orders } = await supabase.from('orders').select('id').eq('offerte_id', id)
+  if (orders && orders.length > 0) {
+    const orderIds = orders.map(o => o.id)
+    await supabase.from('order_regels').delete().in('order_id', orderIds)
+    await supabase.from('orders').delete().in('id', orderIds)
+  }
+
   const { error } = await supabase.from('offertes').delete().eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/offertes')
+  revalidatePath('/')
   return { success: true }
 }
 
@@ -411,6 +607,221 @@ export async function deleteFactuur(id: string) {
   if (error) return { error: error.message }
   revalidatePath('/facturatie')
   return { success: true }
+}
+
+export async function getFactuurEmailDefaults(factuurId: string) {
+  const supabase = await createClient()
+
+  const { data: factuur } = await supabase
+    .from('facturen')
+    .select('*, relatie:relaties(*)')
+    .eq('id', factuurId)
+    .single()
+
+  if (!factuur) return { error: 'Factuur niet gevonden' }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  let medewerkerNaam = 'Rebu Kozijnen'
+  if (user) {
+    const adminClient = createAdminClient()
+    const { data: profiel } = await adminClient
+      .from('profielen')
+      .select('naam')
+      .eq('id', user.id)
+      .single()
+    if (profiel?.naam) medewerkerNaam = profiel.naam
+  }
+
+  const klantNaam = factuur.relatie?.contactpersoon || factuur.relatie?.bedrijfsnaam || ''
+  const onderwerp = factuur.onderwerp || factuur.factuurnummer
+  const totaalFormatted = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(factuur.totaal || 0)
+  const vervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum).toLocaleDateString('nl-NL') : 'n.v.t.'
+
+  const betaalLink = factuur.betaal_link
+  const betaalSectie = betaalLink
+    ? `U kunt direct online betalen via de volgende link:
+${betaalLink}
+
+Of maak het bedrag over naar:`
+    : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
+
+  const body = `Beste ${klantNaam},
+
+Bijgevoegd treft u de factuur aan voor ${onderwerp}:
+- Factuurnummer: ${factuur.factuurnummer}
+- Factuurbedrag: ${totaalFormatted}
+- Vervaldatum: ${vervaldatum}
+
+${betaalSectie}
+IBAN: NL80 INGB 0675 6102 73
+T.n.v. Rebu Kozijnen B.V.
+O.v.v. ${factuur.factuurnummer}
+
+Mocht u vragen hebben over deze factuur, neem dan gerust contact met ons op.
+
+Met vriendelijke groet,
+${medewerkerNaam}`
+
+  return {
+    to: factuur.relatie?.email || '',
+    subject: `Factuur ${factuur.factuurnummer} - Rebu Kozijnen`,
+    body,
+  }
+}
+
+export async function sendFactuurEmail(factuurId: string, options: {
+  to: string
+  subject: string
+  body: string
+  extraBijlagen?: { filename: string; content: string }[]
+}) {
+  const supabase = await createClient()
+
+  const { data: factuur } = await supabase
+    .from('facturen')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .eq('id', factuurId)
+    .single()
+
+  if (!factuur) return { error: 'Factuur niet gevonden' }
+  if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
+
+  const logoUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/images/logo-rebu.png`
+
+  const bodyHtml = options.body
+    .split('\n')
+    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
+    .join('\n')
+
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      ${bodyHtml}
+      <br>
+      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
+      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
+        <tr>
+          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
+            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
+          </td>
+          <td style="padding-left:20px; vertical-align:top;">
+            <p style="margin:0; font-size:13px; color:#333;">
+              <strong>Rebu kozijnen B.V.</strong>
+            </p>
+            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
+              Samsonweg 26F<br>
+              1521 RM Wormerveer<br>
+              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
+              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
+              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
+            </p>
+            <p style="margin:8px 0 0; font-size:11px; color:#999;">
+              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
+              IBAN: NL80 INGB 0675 6102 73
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `
+
+  // Genereer factuur PDF als bijlage
+  const attachments: { filename: string; content: string }[] = []
+  try {
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { FactuurDocument } = await import('@/lib/pdf/factuur-template')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfBuffer = await renderToBuffer(FactuurDocument({ factuur }) as any)
+    const pdfBase64 = Buffer.from(pdfBuffer).toString('base64')
+    attachments.push({
+      filename: `Factuur-${factuur.factuurnummer}.pdf`,
+      content: pdfBase64,
+    })
+  } catch (err) {
+    console.error('Factuur PDF generatie voor email mislukt:', err)
+  }
+
+  // Extra bijlagen
+  if (options.extraBijlagen) {
+    attachments.push(...options.extraBijlagen)
+  }
+
+  try {
+    await sendEmail({
+      to: options.to,
+      subject: options.subject,
+      html: emailHtml,
+      attachments: attachments.map(a => ({
+        filename: a.filename,
+        content: Buffer.from(a.content, 'base64'),
+      })),
+    })
+  } catch (err) {
+    console.error('Factuur e-mail verzenden mislukt:', err)
+    return { error: 'E-mail verzenden mislukt' }
+  }
+
+  // Update status naar verzonden
+  await supabase.from('facturen').update({ status: 'verzonden' }).eq('id', factuurId)
+
+  // Log email
+  const { data: { user } } = await supabase.auth.getUser()
+  const bijlagenMeta = attachments.map(a => ({ filename: a.filename }))
+  const supabaseAdmin = createAdminClient()
+  await supabaseAdmin.from('email_log').insert({
+    administratie_id: factuur.administratie_id,
+    factuur_id: factuurId,
+    relatie_id: factuur.relatie_id,
+    aan: options.to,
+    onderwerp: options.subject,
+    body_html: emailHtml,
+    bijlagen: bijlagenMeta,
+    verstuurd_door: user?.id || null,
+  })
+
+  revalidatePath('/facturatie')
+  return { success: true }
+}
+
+export async function generateBetaallink(factuurId: string) {
+  const supabase = await createClient()
+
+  const { data: factuur } = await supabase
+    .from('facturen')
+    .select('id, factuurnummer, totaal, betaald_bedrag, status')
+    .eq('id', factuurId)
+    .single()
+
+  if (!factuur) return { error: 'Factuur niet gevonden' }
+
+  const openstaandBedrag = (factuur.totaal || 0) - (factuur.betaald_bedrag || 0)
+  if (openstaandBedrag <= 0) return { error: 'Factuur is al betaald' }
+
+  try {
+    const { createMolliePayment } = await import('@/lib/mollie')
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
+    const payment = await createMolliePayment({
+      amount: openstaandBedrag,
+      description: `Factuur ${factuur.factuurnummer}`,
+      redirectUrl: `${appUrl}/betaling/succes`,
+      webhookUrl: `${appUrl}/api/mollie/webhook`,
+      metadata: { factuurId },
+    })
+
+    await supabase
+      .from('facturen')
+      .update({
+        mollie_payment_id: payment.id,
+        betaal_link: payment.checkoutUrl,
+      })
+      .eq('id', factuurId)
+
+    revalidatePath('/facturatie')
+    return { success: true, betaalLink: payment.checkoutUrl }
+  } catch (err) {
+    console.error('Mollie payment error:', err)
+    return { error: err instanceof Error ? err.message : 'Betaallink genereren mislukt' }
+  }
 }
 
 // === INKOOP ===
@@ -689,6 +1100,23 @@ export async function getTaken() {
   return data || []
 }
 
+export async function getAgendaLeveringen() {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('orders')
+    .select('id, ordernummer, leverdatum, status, onderwerp, relatie:relaties(bedrijfsnaam)')
+    .not('leverdatum', 'is', null)
+    .order('leverdatum', { ascending: true })
+  return (data || []).map(o => ({
+    id: o.id,
+    ordernummer: o.ordernummer,
+    leverdatum: o.leverdatum,
+    status: o.status,
+    onderwerp: o.onderwerp,
+    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+  }))
+}
+
 export async function getTaak(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
@@ -808,13 +1236,19 @@ export async function getDashboardData() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminId || !user) return null
 
-  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes] = await Promise.all([
+  const supabaseAdmin = createAdminClient()
+  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes] = await Promise.all([
     supabase.from('facturen').select('totaal, betaald_bedrag, status, datum').eq('administratie_id', adminId),
-    supabase.from('offertes').select('totaal, status').eq('administratie_id', adminId),
+    supabase.from('offertes').select('totaal, status, datum').eq('administratie_id', adminId),
     supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan').eq('administratie_id', adminId),
     supabase.from('relaties').select('type').eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw']).order('leverdatum', { ascending: true }),
+    supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').order('datum', { ascending: false }),
+    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).in('status', ['verzonden', 'deels_betaald', 'vervallen']).order('vervaldatum', { ascending: true }),
   ])
 
   const facturenData = facturenRes.data || []
@@ -850,6 +1284,47 @@ export async function getDashboardData() {
       .reduce((sum, f) => sum + (f.totaal || 0), 0)
     maandOmzet.push({ maand: maandStr, bedrag })
   }
+
+  // Gefactureerd per maand (alle facturen behalve concept)
+  const gefactureerdPerMaand: { maand: string; bedrag: number; aantal: number }[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(nu.getFullYear(), nu.getMonth() - i, 1)
+    const maandStr = d.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
+    const jaar = d.getFullYear()
+    const maandNr = d.getMonth() + 1
+    const maandFacturen = facturenData.filter(f => {
+      if (f.status === 'concept' || !f.datum) return false
+      const fd = new Date(f.datum)
+      return fd.getFullYear() === jaar && fd.getMonth() + 1 === maandNr
+    })
+    gefactureerdPerMaand.push({
+      maand: maandStr,
+      bedrag: maandFacturen.reduce((sum, f) => sum + (f.totaal || 0), 0),
+      aantal: maandFacturen.length,
+    })
+  }
+  const totaalGefactureerd = facturenData.filter(f => f.status !== 'concept').reduce((sum, f) => sum + (f.totaal || 0), 0)
+  const totaalFacturen = facturenData.filter(f => f.status !== 'concept').length
+
+  // Aangemaakte offertes per maand
+  const offertesPerMaand: { maand: string; aantal: number; bedrag: number }[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(nu.getFullYear(), nu.getMonth() - i, 1)
+    const maandStr = d.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
+    const jaar = d.getFullYear()
+    const maandNr = d.getMonth() + 1
+    const maandOffertes = offertesData.filter(o => {
+      if (!o.datum) return false
+      const od = new Date(o.datum)
+      return od.getFullYear() === jaar && od.getMonth() + 1 === maandNr
+    })
+    offertesPerMaand.push({
+      maand: maandStr,
+      aantal: maandOffertes.length,
+      bedrag: maandOffertes.reduce((sum, o) => sum + (o.totaal || 0), 0),
+    })
+  }
+  const totaalOffertes = offertesData.length
 
   // Organisaties
   const organisaties = {
@@ -902,9 +1377,58 @@ export async function getDashboardData() {
     }
   })
 
+  // Te plannen leveringen
+  const tePlannenOrders = (tePlannenRes.data || []).map(o => ({
+    id: o.id,
+    ordernummer: o.ordernummer,
+    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+    relatie_contactpersoon: (o.relatie as { contactpersoon: string | null } | null)?.contactpersoon || null,
+    relatie_email: (o.relatie as { email: string | null } | null)?.email || null,
+    offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
+    onderwerp: o.onderwerp,
+    totaal: o.totaal || 0,
+    datum: o.datum,
+  }))
+
+  // Geplande leveringen (orders met leverdatum, nog niet afgeleverd)
+  const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => ({
+    id: o.id,
+    ordernummer: o.ordernummer,
+    leverdatum: o.leverdatum,
+    status: o.status,
+    onderwerp: o.onderwerp,
+    totaal: o.totaal || 0,
+    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+  }))
+
+  // Geaccepteerde offertes (voor factuur aanmaken)
+  const geaccepteerdeOffertes = (geaccepteerdRes.data || []).map(o => ({
+    id: o.id,
+    offertenummer: o.offertenummer,
+    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+    onderwerp: o.onderwerp,
+    totaal: o.totaal || 0,
+    datum: o.datum,
+  }))
+
+  // Openstaande facturen (verzonden, deels_betaald, vervallen)
+  const openstaandeFacturen = (openstaandeFacturenRes.data || []).map(f => ({
+    id: f.id,
+    factuurnummer: f.factuurnummer,
+    relatie_bedrijfsnaam: (f.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+    totaal: f.totaal || 0,
+    betaald_bedrag: f.betaald_bedrag || 0,
+    openstaand_bedrag: (f.totaal || 0) - (f.betaald_bedrag || 0),
+    vervaldatum: f.vervaldatum,
+    status: f.status,
+  }))
+
   return {
     omzet, openstaand, openOffertes, openTaken,
-    maandOmzet, organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList,
+    ongelezenBerichten: ongelezenBerichtenRes.count || 0,
+    maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
+    offertesPerMaand, totaalOffertes,
+    organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
   }
 }
 
@@ -1152,6 +1676,7 @@ export async function saveLeadAsRelatie(data: {
     postcode,
     plaats: adresParts.length > 1 ? adresParts[adresParts.length - 2]?.replace(/\d{4}\s?[A-Z]{2}/i, '').trim() || null : null,
     telefoon: data.phone || null,
+    website: data.website || null,
     google_place_id: data.place_id,
   })
 
@@ -1197,7 +1722,7 @@ export async function createRelatieInline(data: {
 }
 
 // === OFFERTE EMAIL VERSTUREN ===
-export async function sendOfferteEmail(offerteId: string) {
+export async function getOfferteEmailDefaults(offerteId: string) {
   const supabase = await createClient()
 
   const { data: offerte } = await supabase
@@ -1207,70 +1732,263 @@ export async function sendOfferteEmail(offerteId: string) {
     .single()
 
   if (!offerte) return { error: 'Offerte niet gevonden' }
-  if (!offerte.relatie?.email) return { error: 'Relatie heeft geen e-mailadres' }
+
+  // Haal naam van ingelogde gebruiker op
+  const { data: { user } } = await supabase.auth.getUser()
+  let medewerkerNaam = 'Rebu Kozijnen'
+  if (user) {
+    const adminClient = createAdminClient()
+    const { data: profiel } = await adminClient
+      .from('profielen')
+      .select('naam')
+      .eq('id', user.id)
+      .single()
+    if (profiel?.naam) medewerkerNaam = profiel.naam
+  }
+
+  const klantNaam = offerte.relatie?.contactpersoon || offerte.relatie?.bedrijfsnaam || ''
+  const projectNaam = offerte.onderwerp || offerte.relatie?.bedrijfsnaam || ''
+
+  const body = `Beste ${klantNaam},
+
+Dank u wel voor uw interesse in onze diensten.
+
+Bijgevoegd in deze e-mail treft u de offerte aan betreft aanvraag ${projectNaam}:
+- Onze gedetailleerde offerte PDF voor de door u aangevraagde diensten. (offertenummer ${offerte.offertenummer})
+
+Wanneer u akkoord gaat met ons voorstel, kunt u de offerte eenvoudig online accepteren via de link onderaan deze e-mail.
+
+Indien u aanvullende vragen heeft of wanneer u aanpassingen wilt op de offerte, dan kunt u met ons contact opnemen.
+
+Met vriendelijke groet,
+${medewerkerNaam}`
+
+  return {
+    to: offerte.relatie?.email || '',
+    subject: `Offerte ${offerte.offertenummer} - Rebu Kozijnen`,
+    body,
+  }
+}
+
+export async function sendOfferteEmail(offerteId: string, options: {
+  to: string
+  subject: string
+  body: string
+  extraBijlagen?: { filename: string; content: string }[]
+}) {
+  const supabase = await createClient()
+
+  const { data: offerte } = await supabase
+    .from('offertes')
+    .select('*, relatie:relaties(*), regels:offerte_regels(*)')
+    .eq('id', offerteId)
+    .single()
+
+  if (!offerte) return { error: 'Offerte niet gevonden' }
+  if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const link = `${baseUrl}/offerte/${offerte.publiek_token}`
+  const logoUrl = `${baseUrl}/images/logo-rebu.png`
 
-  const klantNaam = offerte.relatie.contactpersoon || offerte.relatie.bedrijfsnaam
-  const projectNaam = offerte.onderwerp || offerte.relatie.bedrijfsnaam
+  // Bouw HTML email van platte tekst body + branding footer
+  const bodyHtml = options.body
+    .split('\n')
+    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
+    .join('\n')
 
   const emailHtml = `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-      <p>Beste ${klantNaam},</p>
-      <p>Dank u wel voor uw interesse in onze diensten.</p>
-      <p>Bijgevoegd in deze e-mail treft u de offerte aan betreft aanvraag ${projectNaam}:</p>
-      <ul style="line-height: 1.8;">
-        <li>Onze gedetailleerde offerte PDF voor de door u aangevraagde diensten. (offertenummer ${offerte.offertenummer})</li>
-      </ul>
-      <p>Wanneer u akkoord gaat met ons voorstel, kunt u de offerte eenvoudig online accepteren via deze link:<br>
-      <a href="${link}" style="color: #00a651; font-weight: bold;">Indien u akkoord gaat, kunt u de offerte hier online accepteren</a></p>
-      <p>Indien u aanvullende vragen heeft of wanneer u aanpassingen wilt op de offerte, dan kunt u met ons contact opnemen.</p>
-      <p>Met vriendelijke groet,<br>Jordy</p>
+      ${bodyHtml}
       <br>
-      <table cellpadding="0" cellspacing="0" border="0">
+      <p><a href="${link}" style="display:inline-block; background-color:#00a651; color:#fff; padding:12px 28px; text-decoration:none; border-radius:6px; font-weight:bold; font-size:14px;">Offerte online bekijken &amp; accepteren</a></p>
+      <br>
+      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
+      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
         <tr>
-          <td style="padding-right: 15px; vertical-align: top;">
-            <p style="font-size: 18px; font-weight: bold; margin: 0; line-height: 1.2;">
-              <span style="color: #000;">REBU</span><br>
-              <span style="color: #000;">KOZIJNEN</span>
+          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
+            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
+          </td>
+          <td style="padding-left:20px; vertical-align:top;">
+            <p style="margin:0; font-size:13px; color:#333;">
+              <strong>Rebu kozijnen B.V.</strong>
             </p>
-            <p style="font-size: 10px; color: #666; margin: 2px 0 0 0;">Maken het verschil.</p>
+            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
+              Samsonweg 26F<br>
+              1521 RM Wormerveer<br>
+              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
+              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
+              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
+            </p>
+            <p style="margin:8px 0 0; font-size:11px; color:#999;">
+              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
+              IBAN: NL80 INGB 0675 6102 73
+            </p>
           </td>
         </tr>
       </table>
-      <p style="font-size: 12px; color: #333; margin-top: 10px;">
-        <a href="tel:0623849067" style="color: #00a651; text-decoration: none;">0623849067</a> |
-        <a href="https://www.rebukozijnen.nl" style="color: #00a651; text-decoration: none;">www.rebukozijnen.nl</a> |
-        <a href="mailto:verkoop@rebukozijnen.nl" style="color: #00a651; text-decoration: none;">verkoop@rebukozijnen.nl</a><br>
-        Samsonweg 26F 1521 RM Wormerveer
-      </p>
     </div>
   `
 
-  const resendKey = process.env.RESEND_API_KEY
-  if (resendKey) {
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Rebu Kozijnen <verkoop@rebukozijnen.nl>',
-        to: offerte.relatie.email,
-        subject: `Offerte ${offerte.offertenummer} - Rebu Kozijnen`,
-        html: emailHtml,
-      }),
-    })
+  // Load kozijn elements for PDF generation
+  const supabaseAdmin = createAdminClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let kozijnElementen: any[] | undefined
 
-    if (!response.ok) {
-      return { error: 'E-mail verzenden mislukt. Gebruik de link om handmatig te delen.', link }
+  try {
+    const { data: leverancierDoc } = await supabaseAdmin
+      .from('documenten')
+      .select('*')
+      .eq('entiteit_type', 'offerte_leverancier')
+      .eq('entiteit_id', offerteId)
+      .maybeSingle()
+
+    if (leverancierDoc) {
+      const { data: metaDoc } = await supabaseAdmin
+        .from('documenten')
+        .select('*')
+        .eq('entiteit_type', 'offerte_leverancier_data')
+        .eq('entiteit_id', offerteId)
+        .maybeSingle()
+
+      if (metaDoc) {
+        // Support both old format (array) and new format (object with tekeningen + margePercentage)
+        const rawMeta = JSON.parse(metaDoc.storage_path)
+        let tekeningData: { naam: string; tekeningPath: string }[]
+        let margePercentage = 0
+        if (Array.isArray(rawMeta)) {
+          tekeningData = rawMeta
+        } else {
+          tekeningData = rawMeta.tekeningen || []
+          margePercentage = rawMeta.margePercentage || 0
+        }
+
+        const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+        const { data: pdfFile } = await supabaseAdmin.storage
+          .from('documenten')
+          .download(leverancierDoc.storage_path)
+
+        if (pdfFile) {
+          const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
+          const parsed = await pdfParse(pdfBuffer)
+          const elementData = parseLeverancierPdfText(parsed.text).elementen
+
+          kozijnElementen = []
+          for (const tekening of tekeningData) {
+            const { data: imgFile } = await supabaseAdmin.storage
+              .from('documenten')
+              .download(tekening.tekeningPath)
+
+            let tekeningUrl = ''
+            if (imgFile) {
+              const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
+              tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
+            }
+
+            const matchingElement = elementData.find(e => e.naam === tekening.naam)
+            const inkoopPrijs = matchingElement?.prijs || 0
+            const verkoopPrijs = margePercentage > 0 ? Math.round(inkoopPrijs * (1 + margePercentage / 100) * 100) / 100 : inkoopPrijs
+
+            kozijnElementen.push({
+              naam: matchingElement?.naam || tekening.naam,
+              hoeveelheid: matchingElement?.hoeveelheid || 1,
+              systeem: matchingElement?.systeem || '',
+              kleur: matchingElement?.kleur || '',
+              afmetingen: matchingElement?.afmetingen || '',
+              type: matchingElement?.type || '',
+              prijs: verkoopPrijs,
+              glasType: matchingElement?.glasType || '',
+              beslag: matchingElement?.beslag || '',
+              uwWaarde: matchingElement?.uwWaarde || '',
+              drapirichting: matchingElement?.drapirichting || '',
+              dorpel: matchingElement?.dorpel || '',
+              sluiting: matchingElement?.sluiting || '',
+              scharnieren: matchingElement?.scharnieren || '',
+              gewicht: matchingElement?.gewicht || '',
+              paneel: matchingElement?.paneel || '',
+              commentaar: matchingElement?.commentaar || '',
+              tekeningUrl,
+            })
+          }
+        }
+      }
     }
+  } catch (err) {
+    console.error('Error loading kozijn elements for email:', err)
+  }
+
+  // Genereer offerte PDF (met kozijn tekeningen)
+  const attachments: { filename: string; content: string }[] = []
+  try {
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { OfferteDocument } = await import('@/lib/pdf/offerte-template')
+    const offerteData = { ...offerte, kozijnElementen }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfBuffer = await renderToBuffer(OfferteDocument({ offerte: offerteData }) as any)
+    const pdfBase64 = Buffer.from(pdfBuffer).toString('base64')
+    attachments.push({
+      filename: `Offerte-${offerte.offertenummer}.pdf`,
+      content: pdfBase64,
+    })
+  } catch (err) {
+    console.error('PDF generatie voor email mislukt:', err)
+  }
+
+  // Genereer tekeningen PDF (zonder prijzen) als er kozijn elementen zijn
+  if (kozijnElementen && kozijnElementen.length > 0) {
+    try {
+      const { renderToBuffer } = await import('@react-pdf/renderer')
+      const { TekeningenDocument } = await import('@/lib/pdf/tekeningen-template')
+      const tekeningenElementen = kozijnElementen.map(e => ({ ...e }))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tekPdfBuffer = await renderToBuffer(TekeningenDocument({ offerte: { offertenummer: offerte.offertenummer, elementen: tekeningenElementen } }) as any)
+      const tekPdfBase64 = Buffer.from(tekPdfBuffer).toString('base64')
+      attachments.push({
+        filename: `Tekeningen-${offerte.offertenummer}.pdf`,
+        content: tekPdfBase64,
+      })
+    } catch (err) {
+      console.error('Tekeningen PDF generatie voor email mislukt:', err)
+    }
+  }
+
+  // Extra bijlagen (tekeningen etc.)
+  if (options.extraBijlagen) {
+    attachments.push(...options.extraBijlagen)
+  }
+
+  try {
+    await sendEmail({
+      to: options.to,
+      subject: options.subject,
+      html: emailHtml,
+      attachments: attachments.map(a => ({
+        filename: a.filename,
+        content: Buffer.from(a.content, 'base64'),
+      })),
+    })
+  } catch (err) {
+    console.error('E-mail verzenden mislukt:', err)
+    return { error: 'E-mail verzenden mislukt. Gebruik de link om handmatig te delen.', link }
   }
 
   // Update status naar verzonden
   await supabase.from('offertes').update({ status: 'verzonden' }).eq('id', offerteId)
+
+  // Log email in email_log
+  const { data: { user } } = await supabase.auth.getUser()
+  const bijlagenMeta = attachments.map(a => ({ filename: a.filename }))
+  await supabaseAdmin.from('email_log').insert({
+    administratie_id: offerte.administratie_id,
+    offerte_id: offerteId,
+    relatie_id: offerte.relatie_id,
+    aan: options.to,
+    onderwerp: options.subject,
+    body_html: emailHtml,
+    bijlagen: bijlagenMeta,
+    verstuurd_door: user?.id || null,
+  })
+
   revalidatePath('/offertes')
   return { success: true, link }
 }
@@ -1291,7 +2009,7 @@ export async function acceptOffertePublic(token: string) {
 
   const { data: offerte, error: fetchError } = await supabaseAdmin
     .from('offertes')
-    .select('id, status')
+    .select('id, status, administratie_id, relatie_id, onderwerp, subtotaal, btw_totaal, totaal')
     .eq('publiek_token', token)
     .single()
 
@@ -1304,11 +2022,169 @@ export async function acceptOffertePublic(token: string) {
     .eq('id', offerte.id)
 
   if (error) return { error: error.message }
+
+  // Auto-create order
+  const { data: existingOrder } = await supabaseAdmin
+    .from('orders')
+    .select('id')
+    .eq('offerte_id', offerte.id)
+    .maybeSingle()
+
+  if (!existingOrder) {
+    const { data: regels } = await supabaseAdmin
+      .from('offerte_regels')
+      .select('*')
+      .eq('offerte_id', offerte.id)
+      .order('volgorde')
+
+    const { data: ordernummer } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: offerte.administratie_id,
+      p_type: 'order',
+    })
+
+    const { data: order } = await supabaseAdmin
+      .from('orders')
+      .insert({
+        administratie_id: offerte.administratie_id,
+        relatie_id: offerte.relatie_id,
+        offerte_id: offerte.id,
+        ordernummer: ordernummer || '',
+        datum: new Date().toISOString().split('T')[0],
+        leverdatum: null,
+        status: 'nieuw',
+        onderwerp: offerte.onderwerp,
+        subtotaal: offerte.subtotaal,
+        btw_totaal: offerte.btw_totaal,
+        totaal: offerte.totaal,
+      })
+      .select('id')
+      .single()
+
+    if (order && regels && regels.length > 0) {
+      await supabaseAdmin.from('order_regels').insert(
+        regels.map((r, i) => ({
+          order_id: order.id,
+          product_id: r.product_id || null,
+          omschrijving: r.omschrijving,
+          aantal: r.aantal,
+          prijs: r.prijs,
+          btw_percentage: r.btw_percentage,
+          totaal: r.aantal * r.prijs,
+          volgorde: i,
+        }))
+      )
+    }
+  }
+
+  return { success: true }
+}
+
+// === LEVERPLANNING ===
+export async function getDeliveryEmailDefaults(orderId: string) {
+  const supabase = await createClient()
+
+  const { data: order } = await supabase
+    .from('orders')
+    .select('*, relatie:relaties(*), offerte:offertes(offertenummer)')
+    .eq('id', orderId)
+    .single()
+
+  if (!order) return { error: 'Order niet gevonden' }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  let medewerkerNaam = 'Rebu Kozijnen'
+  if (user) {
+    const adminClient = createAdminClient()
+    const { data: profiel } = await adminClient
+      .from('profielen')
+      .select('naam')
+      .eq('id', user.id)
+      .single()
+    if (profiel?.naam) medewerkerNaam = profiel.naam
+  }
+
+  return {
+    to: (order.relatie as { email?: string } | null)?.email || '',
+    subject: `Leverplanning ${order.ordernummer} - Rebu Kozijnen`,
+    klantNaam: (order.relatie as { contactpersoon?: string; bedrijfsnaam?: string } | null)?.contactpersoon
+      || (order.relatie as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || '',
+    medewerkerNaam,
+  }
+}
+
+export async function planDelivery(orderId: string, options: {
+  leverdatum: string
+  emailTo: string
+  emailSubject: string
+  emailBody: string
+}) {
+  const supabase = await createClient()
+
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({ leverdatum: options.leverdatum, status: 'in_behandeling' })
+    .eq('id', orderId)
+
+  if (updateError) return { error: updateError.message }
+
+  // Send email via SMTP
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const logoUrl = `${baseUrl}/images/logo-rebu.png`
+
+  const bodyHtml = options.emailBody
+    .split('\n')
+    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
+    .join('\n')
+
+  const emailHtml = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      ${bodyHtml}
+      <br>
+      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
+      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
+        <tr>
+          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
+            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
+          </td>
+          <td style="padding-left:20px; vertical-align:top;">
+            <p style="margin:0; font-size:13px; color:#333;">
+              <strong>Rebu kozijnen B.V.</strong>
+            </p>
+            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
+              Samsonweg 26F<br>
+              1521 RM Wormerveer<br>
+              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
+              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
+              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
+            </p>
+            <p style="margin:8px 0 0; font-size:11px; color:#999;">
+              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
+              IBAN: NL80 INGB 0675 6102 73
+            </p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `
+
+  try {
+    await sendEmail({
+      to: options.emailTo,
+      subject: options.emailSubject,
+      html: emailHtml,
+    })
+  } catch (err) {
+    console.error('Levering e-mail verzenden mislukt:', err)
+    return { error: 'E-mail verzenden mislukt' }
+  }
+
+  revalidatePath('/')
+  revalidatePath('/offertes/orders')
   return { success: true }
 }
 
 // === OFFERTE NAAR FACTUUR ===
-export async function convertToFactuur(offerteId: string, splitType: 'volledig' | 'split' = 'volledig') {
+export async function convertToFactuur(offerteId: string, splitType: 'volledig' | 'split' = 'volledig', aanbetalingPercentage = 70) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
@@ -1364,8 +2240,9 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
     const nummer1 = await getVolgendeNummer('factuur')
     const nummer2 = await getVolgendeNummer('factuur')
 
-    const aanbetalingSubtotaal = Math.round(offerte.subtotaal * 0.7 * 100) / 100
-    const aanbetalingBtw = Math.round(offerte.btw_totaal * 0.7 * 100) / 100
+    const factor = aanbetalingPercentage / 100
+    const aanbetalingSubtotaal = Math.round(offerte.subtotaal * factor * 100) / 100
+    const aanbetalingBtw = Math.round(offerte.btw_totaal * factor * 100) / 100
     const aanbetalingTotaal = aanbetalingSubtotaal + aanbetalingBtw
 
     const restSubtotaal = offerte.subtotaal - aanbetalingSubtotaal
@@ -1381,7 +2258,7 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
         datum: new Date().toISOString().split('T')[0],
         vervaldatum: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: 'concept',
-        onderwerp: `Aanbetaling 70% - ${offerte.onderwerp || offerte.offertenummer}`,
+        onderwerp: `Aanbetaling ${aanbetalingPercentage}% - ${offerte.onderwerp || offerte.offertenummer}`,
         subtotaal: aanbetalingSubtotaal,
         btw_totaal: aanbetalingBtw,
         totaal: aanbetalingTotaal,
@@ -1393,7 +2270,7 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 
     await supabase.from('factuur_regels').insert({
       factuur_id: factuur1.id,
-      omschrijving: `Aanbetaling 70% offerte ${offerte.offertenummer}`,
+      omschrijving: `Aanbetaling ${aanbetalingPercentage}% offerte ${offerte.offertenummer}`,
       aantal: 1,
       prijs: aanbetalingSubtotaal,
       btw_percentage: 21,
@@ -1410,7 +2287,7 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
         datum: new Date().toISOString().split('T')[0],
         vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         status: 'concept',
-        onderwerp: `Restbetaling 30% - ${offerte.onderwerp || offerte.offertenummer}`,
+        onderwerp: `Restbetaling ${100 - aanbetalingPercentage}% - ${offerte.onderwerp || offerte.offertenummer}`,
         subtotaal: restSubtotaal,
         btw_totaal: restBtw,
         totaal: restTotaal,
@@ -1422,7 +2299,7 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 
     await supabase.from('factuur_regels').insert({
       factuur_id: factuur2.id,
-      omschrijving: `Restbetaling 30% offerte ${offerte.offertenummer}`,
+      omschrijving: `Restbetaling ${100 - aanbetalingPercentage}% offerte ${offerte.offertenummer}`,
       aantal: 1,
       prijs: restSubtotaal,
       btw_percentage: 21,
@@ -1580,4 +2457,858 @@ export async function getOffertesByProject(projectId: string) {
     .eq('project_id', projectId)
     .order('versie_nummer', { ascending: false })
   return data || []
+}
+
+// === KLANTENPORTAAL ===
+export async function createKlantToegang(data: {
+  relatie_id: string
+  email: string
+  naam: string
+  wachtwoord: string
+}) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: relatie } = await supabase
+    .from('relaties')
+    .select('id')
+    .eq('id', data.relatie_id)
+    .eq('administratie_id', adminId)
+    .single()
+  if (!relatie) return { error: 'Relatie niet gevonden' }
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: userData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email: data.email,
+    password: data.wachtwoord,
+    email_confirm: true,
+    user_metadata: { naam: data.naam },
+  })
+  if (authError) return { error: authError.message }
+  if (!userData.user) return { error: 'Account aanmaken mislukt' }
+
+  await supabaseAdmin
+    .from('profielen')
+    .update({ administratie_id: adminId, rol: 'klant', naam: data.naam })
+    .eq('id', userData.user.id)
+
+  await supabaseAdmin
+    .from('klant_relaties')
+    .insert({ profiel_id: userData.user.id, relatie_id: data.relatie_id })
+
+  // Stuur welkomstmail met inloggegevens
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const logoUrl = `${baseUrl}/images/logo-rebu.png`
+
+  try {
+    await sendEmail({
+      to: data.email,
+      subject: 'Uw klantenportaal account — Rebu Kozijnen',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+          <p>Beste ${data.naam},</p>
+          <br>
+          <p>Er is een klantenportaal account voor u aangemaakt bij Rebu Kozijnen. Via het portaal kunt u uw offertes, orders en berichten bekijken.</p>
+          <br>
+          <p><strong>Uw inloggegevens:</strong></p>
+          <table style="margin: 12px 0; font-size: 14px;">
+            <tr><td style="padding: 4px 16px 4px 0; color: #666;">E-mail:</td><td style="padding: 4px 0;"><strong>${data.email}</strong></td></tr>
+            <tr><td style="padding: 4px 16px 4px 0; color: #666;">Wachtwoord:</td><td style="padding: 4px 0;"><strong>${data.wachtwoord}</strong></td></tr>
+          </table>
+          <br>
+          <p><a href="${baseUrl}/login" style="display:inline-block; background-color:#00a651; color:#fff; padding:12px 28px; text-decoration:none; border-radius:6px; font-weight:bold; font-size:14px;">Inloggen op het portaal</a></p>
+          <br>
+          <p style="font-size: 13px; color: #666;">Wij raden u aan uw wachtwoord na de eerste login te wijzigen via de instellingen in het portaal.</p>
+          <br>
+          <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
+          <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
+            <tr>
+              <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
+                <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
+              </td>
+              <td style="padding-left:20px; vertical-align:top;">
+                <p style="margin:0; font-size:13px; color:#333;"><strong>Rebu kozijnen B.V.</strong></p>
+                <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
+                  Samsonweg 26F<br>1521 RM Wormerveer<br>
+                  <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
+                  <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a>
+                </p>
+              </td>
+            </tr>
+          </table>
+        </div>
+      `,
+    })
+  } catch (err) {
+    console.error('Welkomstmail versturen mislukt:', err)
+  }
+
+  revalidatePath(`/relatiebeheer/${data.relatie_id}`)
+  return { success: true }
+}
+
+export async function getKlantAccounts(relatieId: string) {
+  const supabaseAdmin = createAdminClient()
+  const { data } = await supabaseAdmin
+    .from('klant_relaties')
+    .select('id, profiel:profielen(id, naam, email), created_at')
+    .eq('relatie_id', relatieId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function deleteKlantToegang(klantRelatieId: string) {
+  const supabaseAdmin = createAdminClient()
+  const { data: link } = await supabaseAdmin
+    .from('klant_relaties')
+    .select('profiel_id')
+    .eq('id', klantRelatieId)
+    .single()
+  if (!link) return { error: 'Niet gevonden' }
+
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(link.profiel_id)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+// === ADMIN CHAT ===
+export async function getOfferteBerichten(offerteId: string) {
+  const supabaseAdmin = createAdminClient()
+  const { data } = await supabaseAdmin
+    .from('berichten')
+    .select('*, afzender:profielen(naam)')
+    .eq('offerte_id', offerteId)
+    .order('created_at', { ascending: true })
+  return data || []
+}
+
+export async function sendBerichtAdmin(offerteId: string, tekst: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+  const { data: profiel } = await supabaseAdmin
+    .from('profielen')
+    .select('naam')
+    .eq('id', user.id)
+    .single()
+
+  const { error } = await supabaseAdmin.from('berichten').insert({
+    administratie_id: adminId,
+    offerte_id: offerteId,
+    afzender_id: user.id,
+    afzender_type: 'medewerker',
+    afzender_naam: profiel?.naam || user.email || 'Medewerker',
+    tekst,
+  })
+  if (error) return { error: error.message }
+
+  await supabaseAdmin
+    .from('berichten')
+    .update({ gelezen: true })
+    .eq('offerte_id', offerteId)
+    .eq('afzender_type', 'klant')
+    .eq('gelezen', false)
+
+  revalidatePath(`/offertes/${offerteId}`)
+  return { success: true }
+}
+
+// === LEVERANCIER PDF ===
+
+interface KozijnElement {
+  naam: string
+  hoeveelheid: number
+  systeem: string
+  kleur: string
+  afmetingen: string
+  type: string
+  prijs: number
+  glasType: string
+  beslag: string
+  uwWaarde: string
+  tekeningPath: string
+  drapirichting: string
+  dorpel: string
+  sluiting: string
+  scharnieren: string
+  gewicht: string
+  omtrek: string
+  paneel: string
+  commentaar: string
+  hoekverbinding: string
+  montageGaten: string
+  afwatering: string
+  scharnierenKleur: string
+  lakKleur: string
+  sluitcilinder: string
+  aantalSleutels: string
+  gelijksluitend: string
+  krukBinnen: string
+  krukBuiten: string
+}
+
+function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
+  const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
+
+  // Detect Eko-Okna format (uses "Hoev. :" instead of "Hoeveelheid:")
+  const isEkoOkna = /Hoev\.\s*:\s*\d+/.test(text)
+
+  // Extract totaal
+  let totaal = 0
+  if (isEkoOkna) {
+    // Eko-Okna prices are always excl. BTW
+    // Try multiple patterns for total extraction from Eko-Okna PDFs:
+    // Pattern 1: "17 519,29 ETotaal" or "17 519,29 E Totaal" or "17 519,29 E\nTotaal"
+    let totaalMatch = text.match(/([\d\s.,]+)\s*E\s*\n?\s*Totaal\b/)
+    // Pattern 2: "Totaal 17 519,29 E" or "Totaal\n17 519,29 E"
+    if (!totaalMatch) totaalMatch = text.match(/Totaal\s*\n?\s*([\d\s.,]+)\s*E(?:UR)?\b/i)
+    // Pattern 3: "Totaal excl" or "Netto" followed by price
+    if (!totaalMatch) totaalMatch = text.match(/(?:Totaal\s*(?:excl|netto)|Netto\s*(?:totaal|prijs))[^\n]*?([\d\s.,]+)\s*(?:E(?:UR)?)\b/i)
+    // Pattern 4: "Totaal" with EUR currency
+    if (!totaalMatch) totaalMatch = text.match(/([\d\s.,]+)\s*EUR\s*\n?\s*Totaal\b/)
+    if (totaalMatch) {
+      totaal = parseFloat(totaalMatch[1].replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
+    }
+  } else {
+    const totaalMatch = text.match(/Prijs\s+TOT\.?\s*\n?€\s*([\d.,]+)/)
+    if (totaalMatch) {
+      totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    }
+  }
+
+  // Find element headers (name, hoeveelheid, systeem, kleur)
+  const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
+  let match
+  if (isEkoOkna) {
+    const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      headers.push({
+        naam: match[1].trim(),
+        hoeveelheid: parseInt(match[2]),
+        systeem: match[4].trim(),
+        kleur: match[3].trim(),
+        idx: match.index,
+        endIdx: match.index + match[0].length,
+      })
+    }
+  } else {
+    const elementPattern = /((?:Deur|Element)\s+\d{3})\nHoeveelheid:\n(\d+)\nSysteem:\s*([\s\S]+?)Kleur:\s*([^\n]+)/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      headers.push({
+        naam: match[1],
+        hoeveelheid: parseInt(match[2]),
+        systeem: match[3].trim(),
+        kleur: match[4].trim(),
+        idx: match.index,
+        endIdx: match.index + match[0].length,
+      })
+    }
+  }
+
+  // Find all Buitenaanzicht positions (only for original format where specs appear BEFORE each header)
+  const allBuitenPositions: number[] = []
+  const specsPositions: number[] = []
+  if (!isEkoOkna) {
+    const buitenPattern = /Buitenaanzicht\n/g
+    while ((match = buitenPattern.exec(text)) !== null) {
+      allBuitenPositions.push(match.index)
+    }
+    for (let i = 0; i < headers.length; i++) {
+      const prevHeaderEnd = i > 0 ? headers[i - 1].endIdx : 0
+      const candidates = allBuitenPositions.filter(pos => pos > prevHeaderEnd && pos < headers[i].idx)
+      specsPositions.push(candidates.length > 0 ? candidates[candidates.length - 1] : -1)
+    }
+  }
+
+  // Extract ALL price lines in order (only for original format; Eko-Okna uses only totaal)
+  const allPrices: number[] = []
+  if (!isEkoOkna) {
+    const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
+    let priceMatch
+    while ((priceMatch = pricePattern.exec(text)) !== null) {
+      const prijsStr = priceMatch[2] || priceMatch[3]
+      allPrices.push(parseFloat(prijsStr.replace(/\./g, '').replace(',', '.')))
+    }
+  }
+
+  const elementen: KozijnElement[] = []
+
+  for (let i = 0; i < headers.length; i++) {
+    const header = headers[i]
+
+    let specsText: string
+    let notesText: string
+    let searchText: string
+
+    if (isEkoOkna) {
+      // In Eko-Okna, all specs come AFTER the header (not before)
+      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
+      searchText = text.substring(header.endIdx, nextIdx)
+      specsText = searchText
+      notesText = searchText
+    } else {
+      // Original format: specs before header, notes after header
+      specsText = specsPositions[i] >= 0
+        ? text.substring(specsPositions[i], header.idx)
+        : ''
+      let notesEnd: number
+      if (i + 1 < headers.length) {
+        notesEnd = specsPositions[i + 1] >= 0 ? specsPositions[i + 1] : headers[i + 1].idx
+      } else {
+        notesEnd = text.length
+      }
+      notesText = text.substring(header.endIdx, notesEnd)
+      searchText = specsText + '\n' + notesText
+    }
+
+    // --- Prijs ---
+    let prijs = 0
+    if (isEkoOkna) {
+      // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
+      let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
+      // Fallback: single price before "E" (no "N x" prefix)
+      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs van het element\s*([\d\s.]+,\d{2})\s*E/i)
+      if (ekoPriceMatch) {
+        const prijsStr = ekoPriceMatch[1].trim()
+        prijs = parseFloat(prijsStr.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
+      }
+    } else {
+      prijs = i < allPrices.length ? allPrices[i] : 0
+    }
+
+    // --- Type & drapirichting from Vleugel description ---
+    let drapirichting = ''
+    let type = header.naam.startsWith('Deur') ? 'Deur' :
+               header.naam.toLowerCase().startsWith('gekoppeld') ? 'Koppelelement' : 'Raam'
+
+    const vleugelMatches = specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g)
+    if (vleugelMatches) {
+      // Check ALL vleugels — door/terras types take priority over Vast raam
+      let allVast = true
+      for (const desc of vleugelMatches) {
+        if (/deur\s+vleugel\s+naar\s+binnen\s+opendraaiend/i.test(desc)) {
+          drapirichting = 'Naar binnen draaiend'
+          type = 'Deur'
+        } else if (/deur\s+vleugel\s+naar\s+buiten\s+opendraaiend/i.test(desc)) {
+          drapirichting = 'Naar buiten draaiend'
+          type = 'Deur'
+        } else if (/terras\s+vleugel\s+naar\s+binnen\s+opendraaiend/i.test(desc)) {
+          drapirichting = 'Naar binnen draaiend'
+          type = 'Terrasraam'
+        } else if (/terras\s+vleugel\s+naar\s+buiten\s+opendraaiend/i.test(desc)) {
+          drapirichting = 'Naar buiten draaiend'
+          type = 'Terrasraam'
+        } else if (/vleugel\s+RECHT/i.test(desc)) {
+          allVast = false
+        } else if (!/Vast\s+raam/i.test(desc)) {
+          allVast = false
+        }
+      }
+      // Only set Vast raam if ALL vleugels are vast and no door/terras was found
+      if (type !== 'Deur' && type !== 'Terrasraam' && allVast) {
+        type = 'Vast raam'
+      }
+    }
+
+    // Refine type with beslag info
+    const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
+    const beslagRaw = beslagMatch ? beslagMatch[1].trim() : ''
+    const beslag = cleanField(beslagRaw)
+
+    if (/Draai-kiep|Draai\s*-\s*kiep|Tilt\s*&\s*Turn/i.test(beslag)) {
+      if (type === 'Raam') type = 'Draai-kiep raam'
+    } else if (/Draai\s*\+\s*Draai\s*-?\s*kiep/i.test(beslag)) {
+      if (type === 'Raam') type = 'Draai + draai-kiep raam'
+    } else if (/Draai\s*\+\s*Draai\s*-?\s*deur/i.test(beslag)) {
+      if (drapirichting) type = 'Dubbele deur'
+    } else if (/deur\s*beslag/i.test(beslag)) {
+      if (!type.includes('Deur') && !type.includes('deur')) type = 'Deur'
+    }
+
+    // Add stulp info from specs text
+    if (/STULP/i.test(specsText) && !type.includes('Dubbele')) {
+      type = type + ' (stulp)'
+    }
+
+    // --- Afmetingen ---
+    const afmMatch = searchText.match(/Afmetingen[\s\S]{0,30}?(\d+\s*mm\s*x\s*\d+\s*mm)/)
+    const afmetingen = afmMatch ? afmMatch[1] : ''
+
+    // Detect HST / schuifpui from system name or combined text
+    if (/HST|hef.*schui|\bschuif/i.test(header.systeem) || /HST|hef.*schui|\bschuif/i.test(searchText)) {
+      type = 'Schuifpui'
+    }
+
+    // --- Glass types from Vullingen section (correct per element) ---
+    // Step 1: Try Vullingen in specsText, fallback to notesText
+    const vulSpec = specsText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/)
+    const vulNotes = !vulSpec ? notesText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/) : null
+    const vullingenMatch = vulSpec || vulNotes
+    let glasType = ''
+    if (vullingenMatch) {
+      const glasTypes: string[] = []
+      const glasPattern = /\d+\.\d+\n([^\n]+\[Ug=[\d.,]+\][^\n]*)/g
+      let glasMatch2
+      while ((glasMatch2 = glasPattern.exec(vullingenMatch[1])) !== null) {
+        let glasStr = glasMatch2[1].trim()
+        const ugIdx = glasStr.indexOf(' Zontoetredingsfactor')
+        if (ugIdx > 0) glasStr = glasStr.substring(0, ugIdx).trim()
+        if (!glasTypes.includes(glasStr)) glasTypes.push(glasStr)
+      }
+      glasType = cleanField(glasTypes.join(' / '))
+    }
+    // Step 2: Fallback — collect ALL Gevraagd glas entries (multiple per element possible)
+    if (!glasType) {
+      const glasTypes: string[] = []
+      const gevPat = /(?:Gevraagd glas|Glazing required)\s*([^\n]+)/g
+      let gm
+      while ((gm = gevPat.exec(searchText)) !== null) {
+        const gs = cleanField(gm[1].trim())
+        if (gs && !glasTypes.includes(gs)) glasTypes.push(gs)
+      }
+      glasType = glasTypes.join(' / ')
+    }
+    // Step 3: Eko-Okna fallback — extract from "Glazing used" glass spec pattern
+    if (!glasType) {
+      const glasTypes: string[] = []
+      const ekoGlasPat = /(\d+[\w. ]*\/\d+\w*\/\d+[\w ]*\[Ug=[\d.,]+\])/g
+      let gm
+      while ((gm = ekoGlasPat.exec(searchText)) !== null) {
+        const gs = cleanField(gm[1].trim())
+        if (gs && !glasTypes.includes(gs)) glasTypes.push(gs)
+      }
+      glasType = glasTypes.join(' / ')
+    }
+
+    // --- Specs fields ---
+    const dorpelMatch = searchText.match(/Deur\s*drempel\s*([^\n]+)/i) || searchText.match(/HST\s*dorpel\s*type\s*([^\n]+)/i) || searchText.match(/Dorpel\s*([^\n]+)/i)
+    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/)
+    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i)
+    const uwMatch = searchText.match(/Uw\s*=\s*([\d,]+\s*W\/m.*?K)/)
+    const gewichtMatch = searchText.match(/Eenheidsgewicht\s*([\d.,]+\s*Kg)/i)
+    const omtrekMatch = searchText.match(/Eenheidsomtrek\s*([\d.,]+\s*mm)/i) || searchText.match(/\bOmtrek\s*([\d.,]+\s*m)\b/i)
+    const paneelMatch = searchText.match(/Paneel\s*([A-Z][^\n]+)/i)
+    const hoekverbindingMatch = searchText.match(/Hoekverbinding\s*([^\n]+)/i)
+    const montageGatenMatch = searchText.match(/Montage\s*gaten\([^)]+\):\s*(\w+)/i) || searchText.match(/Montage\s*gaten\s+(\w[^\n]*)/i)
+    const afwateringMatch = searchText.match(/Afwatering\s*([^\n]+)/i)
+    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
+    const lakKleurMatch = searchText.match(/Lak\s*kleur\s*([^\n]+)/i)
+    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i)
+    const aantalSleutelsMatch = searchText.match(/Aantal\s*sleutels?\s*([^\n]+)/i)
+    const gelijksluitendMatch = searchText.match(/Gelijksluitend[e]?\s*(?:cilinder)?\s*([^\n]+)/i)
+    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i)
+    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i)
+
+    // --- Commentaar ---
+    const commentaarMatch = notesText.match(/Commentaar(?:\s+op het product)?\n([^\n]+)/)
+    const commentaar = commentaarMatch ? cleanField(commentaarMatch[1].trim()) : ''
+
+    elementen.push({
+      naam: header.naam,
+      hoeveelheid: header.hoeveelheid,
+      systeem: cleanField(header.systeem),
+      kleur: cleanField(header.kleur),
+      afmetingen,
+      type,
+      prijs,
+      glasType,
+      beslag,
+      uwWaarde: uwMatch ? cleanField(uwMatch[1].trim()) : '',
+      drapirichting,
+      dorpel: dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '',
+      sluiting: sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '',
+      scharnieren: scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '',
+      gewicht: gewichtMatch ? gewichtMatch[1].trim() : '',
+      omtrek: omtrekMatch ? omtrekMatch[1].trim() : '',
+      paneel: paneelMatch ? cleanField(paneelMatch[1].trim()) : '',
+      commentaar,
+      tekeningPath: '',
+      hoekverbinding: hoekverbindingMatch ? cleanField(hoekverbindingMatch[1].trim()) : '',
+      montageGaten: montageGatenMatch ? cleanField(montageGatenMatch[1].trim()) : '',
+      afwatering: afwateringMatch ? cleanField(afwateringMatch[1].trim()) : '',
+      scharnierenKleur: scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '',
+      lakKleur: lakKleurMatch ? cleanField(lakKleurMatch[1].trim()) : '',
+      sluitcilinder: sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '',
+      aantalSleutels: aantalSleutelsMatch ? cleanField(aantalSleutelsMatch[1].trim()) : '',
+      gelijksluitend: gelijksluitendMatch ? cleanField(gelijksluitendMatch[1].trim()) : '',
+      krukBinnen: krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '',
+      krukBuiten: krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '',
+    })
+  }
+
+  return { totaal, elementen }
+}
+
+export async function processLeverancierPdf(offerteId: string, formData: FormData) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const file = formData.get('pdf') as File
+  if (!file) return { error: 'Geen PDF bestand' }
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+
+  // Import pdf-parse/lib directly to avoid test file loading in dev
+  const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+  let parsed
+  try {
+    parsed = await pdfParse(buffer)
+  } catch {
+    return { error: 'Kan PDF niet lezen' }
+  }
+
+  const { totaal, elementen } = parseLeverancierPdfText(parsed.text)
+
+  // Store original PDF in Supabase Storage
+  const supabaseAdmin = createAdminClient()
+  const timestamp = Date.now()
+  const pdfPath = `leverancier-pdfs/${offerteId}/${timestamp}_${file.name}`
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('documenten')
+    .upload(pdfPath, buffer, { contentType: 'application/pdf' })
+
+  if (uploadError) {
+    return { error: `Upload fout: ${uploadError.message}` }
+  }
+
+  // Delete old leverancier records for this offerte
+  const { data: existing } = await supabaseAdmin
+    .from('documenten')
+    .select('id, storage_path')
+    .eq('entiteit_type', 'offerte_leverancier')
+    .eq('entiteit_id', offerteId)
+
+  if (existing && existing.length > 0) {
+    // Delete old files from storage
+    for (const doc of existing) {
+      await supabaseAdmin.storage.from('documenten').remove([doc.storage_path])
+    }
+    // Delete old tekening images
+    const { data: oldFiles } = await supabaseAdmin.storage
+      .from('documenten')
+      .list(`leverancier-pdfs/${offerteId}`)
+    if (oldFiles) {
+      const oldPaths = oldFiles.map(f => `leverancier-pdfs/${offerteId}/${f.name}`)
+      if (oldPaths.length > 0) {
+        await supabaseAdmin.storage.from('documenten').remove(oldPaths)
+      }
+    }
+    // Delete old records
+    await supabaseAdmin
+      .from('documenten')
+      .delete()
+      .eq('entiteit_type', 'offerte_leverancier')
+      .eq('entiteit_id', offerteId)
+  }
+
+  // Re-upload PDF (may have been deleted above)
+  await supabaseAdmin.storage
+    .from('documenten')
+    .upload(pdfPath, buffer, { contentType: 'application/pdf', upsert: true })
+
+  // Save metadata to documenten table
+  const { error: insertError } = await supabaseAdmin
+    .from('documenten')
+    .insert({
+      administratie_id: adminId,
+      naam: `Leverancier PDF - ${file.name}`,
+      bestandsnaam: file.name,
+      bestandstype: 'application/pdf',
+      bestandsgrootte: file.size,
+      storage_path: pdfPath,
+      entiteit_type: 'offerte_leverancier',
+      entiteit_id: offerteId,
+    })
+
+  if (insertError) {
+    return { error: `Database fout: ${insertError.message}` }
+  }
+
+  return {
+    totaal,
+    elementen: elementen.map(e => ({
+      naam: e.naam,
+      hoeveelheid: e.hoeveelheid,
+      systeem: e.systeem,
+      kleur: e.kleur,
+      afmetingen: e.afmetingen,
+      type: e.type,
+      prijs: e.prijs,
+      glasType: e.glasType,
+      beslag: e.beslag,
+      uwWaarde: e.uwWaarde,
+      drapirichting: e.drapirichting,
+      dorpel: e.dorpel,
+      sluiting: e.sluiting,
+      scharnieren: e.scharnieren,
+      gewicht: e.gewicht,
+      paneel: e.paneel,
+      commentaar: e.commentaar,
+    })),
+    aantalElementen: elementen.length,
+    pdfPath,
+  }
+}
+
+export async function uploadLeverancierTekening(offerteId: string, pageNum: number, formData: FormData) {
+  const supabaseAdmin = createAdminClient()
+  const file = formData.get('image') as File
+  if (!file) return { error: 'Geen afbeelding' }
+
+  const buffer = Buffer.from(await file.arrayBuffer())
+  const path = `leverancier-pdfs/${offerteId}/tekening-${pageNum}.png`
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from('documenten')
+    .upload(path, buffer, { contentType: 'image/png', upsert: true })
+
+  if (uploadError) return { error: uploadError.message }
+  return { path }
+}
+
+export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string }[], margePercentage?: number) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  // Get existing document record
+  const { data: doc } = await supabaseAdmin
+    .from('documenten')
+    .select('id, storage_path')
+    .eq('entiteit_type', 'offerte_leverancier')
+    .eq('entiteit_id', offerteId)
+    .maybeSingle()
+
+  if (!doc) return { error: 'Geen leverancier PDF gevonden' }
+
+  // Store tekening data + optional marge as JSON in storage_path field
+  const metadata: { tekeningen: typeof elementen; margePercentage?: number } = { tekeningen: elementen }
+  if (margePercentage && margePercentage > 0) {
+    metadata.margePercentage = margePercentage
+  }
+
+  await supabaseAdmin
+    .from('documenten')
+    .delete()
+    .eq('entiteit_type', 'offerte_leverancier_data')
+    .eq('entiteit_id', offerteId)
+
+  await supabaseAdmin
+    .from('documenten')
+    .insert({
+      administratie_id: adminId,
+      naam: 'Leverancier tekeningen metadata',
+      bestandsnaam: 'metadata.json',
+      bestandstype: 'application/json',
+      bestandsgrootte: 0,
+      storage_path: JSON.stringify(metadata),
+      entiteit_type: 'offerte_leverancier_data',
+      entiteit_id: offerteId,
+    })
+
+  return { success: true }
+}
+
+export async function getLeverancierPdfData(offerteId: string) {
+  const supabaseAdmin = createAdminClient()
+
+  // Get PDF record
+  const { data: pdfDoc } = await supabaseAdmin
+    .from('documenten')
+    .select('*')
+    .eq('entiteit_type', 'offerte_leverancier')
+    .eq('entiteit_id', offerteId)
+    .maybeSingle()
+
+  if (!pdfDoc) return null
+
+  // Get tekeningen metadata
+  const { data: metaDoc } = await supabaseAdmin
+    .from('documenten')
+    .select('*')
+    .eq('entiteit_type', 'offerte_leverancier_data')
+    .eq('entiteit_id', offerteId)
+    .maybeSingle()
+
+  let elementen: { naam: string; tekeningPath: string }[] = []
+  let margePercentage = 0
+  if (metaDoc) {
+    try {
+      const parsed = JSON.parse(metaDoc.storage_path)
+      // Support both old format (array) and new format (object with tekeningen + margePercentage)
+      if (Array.isArray(parsed)) {
+        elementen = parsed
+      } else {
+        elementen = parsed.tekeningen || []
+        margePercentage = parsed.margePercentage || 0
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+
+  // Parse PDF to get element details (prijs, hoeveelheid, etc.)
+  let leverancierTotaal = 0
+  let parsedElementen: { naam: string; hoeveelheid: number; prijs: number }[] = []
+  try {
+    const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+    const { data: pdfFile } = await supabaseAdmin.storage
+      .from('documenten')
+      .download(pdfDoc.storage_path)
+
+    if (pdfFile) {
+      const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
+      const parsed = await pdfParse(pdfBuffer)
+      const { totaal: pdfTotaal, elementen: pdfElementen } = parseLeverancierPdfText(parsed.text)
+      leverancierTotaal = pdfTotaal
+      parsedElementen = pdfElementen.map(e => ({
+        naam: e.naam,
+        hoeveelheid: e.hoeveelheid,
+        prijs: e.prijs,
+      }))
+    }
+  } catch (err) {
+    console.error('Error parsing leverancier PDF for edit mode:', err)
+  }
+
+  return {
+    pdfPath: pdfDoc.storage_path,
+    bestandsnaam: pdfDoc.bestandsnaam,
+    elementen,
+    margePercentage,
+    parsedElementen,
+    leverancierTotaal,
+  }
+}
+
+export async function updateMargePercentage(offerteId: string, margePercentage: number) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: metaDoc } = await supabaseAdmin
+    .from('documenten')
+    .select('id, storage_path')
+    .eq('entiteit_type', 'offerte_leverancier_data')
+    .eq('entiteit_id', offerteId)
+    .maybeSingle()
+
+  if (!metaDoc) return { error: 'Geen leverancier data gevonden' }
+
+  try {
+    const parsed = JSON.parse(metaDoc.storage_path)
+    const metadata = Array.isArray(parsed) ? { tekeningen: parsed } : parsed
+    metadata.margePercentage = margePercentage > 0 ? margePercentage : undefined
+
+    await supabaseAdmin
+      .from('documenten')
+      .update({ storage_path: JSON.stringify(metadata) })
+      .eq('id', metaDoc.id)
+
+    return { success: true }
+  } catch {
+    return { error: 'Fout bij opslaan marge' }
+  }
+}
+
+export async function parseLeverancierPdfOnly(formData: FormData) {
+  try {
+    const adminId = await getAdministratieId()
+    if (!adminId) return { error: 'Niet ingelogd' }
+
+    const file = formData.get('pdf') as File
+    if (!file) return { error: 'Geen PDF bestand' }
+
+    const buffer = Buffer.from(await file.arrayBuffer())
+    // Import pdf-parse/lib directly to avoid test file loading in dev
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+
+    let parsed
+    try {
+      parsed = await pdfParse(buffer)
+    } catch {
+      return { error: 'Kan PDF niet lezen' }
+    }
+
+    const { totaal, elementen } = parseLeverancierPdfText(parsed.text)
+
+    return {
+      totaal,
+      elementen: elementen.map(e => ({
+        naam: e.naam,
+        hoeveelheid: e.hoeveelheid,
+        systeem: e.systeem,
+        kleur: e.kleur,
+        afmetingen: e.afmetingen,
+        type: e.type,
+        prijs: e.prijs,
+        glasType: e.glasType,
+        beslag: e.beslag,
+        uwWaarde: e.uwWaarde,
+        drapirichting: e.drapirichting,
+        dorpel: e.dorpel,
+        sluiting: e.sluiting,
+        scharnieren: e.scharnieren,
+        gewicht: e.gewicht,
+        omtrek: e.omtrek,
+        paneel: e.paneel,
+        commentaar: e.commentaar,
+        hoekverbinding: e.hoekverbinding,
+        montageGaten: e.montageGaten,
+        afwatering: e.afwatering,
+        scharnierenKleur: e.scharnierenKleur,
+        lakKleur: e.lakKleur,
+        sluitcilinder: e.sluitcilinder,
+        aantalSleutels: e.aantalSleutels,
+        gelijksluitend: e.gelijksluitend,
+        krukBinnen: e.krukBinnen,
+        krukBuiten: e.krukBuiten,
+      })),
+      aantalElementen: elementen.length,
+    }
+  } catch (err) {
+    console.error('parseLeverancierPdfOnly error:', err)
+    return { error: `Server fout: ${err instanceof Error ? err.message : String(err)}` }
+  }
+}
+
+export async function deleteLeverancierPdf(offerteId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  // Delete all files in storage for this offerte
+  const { data: files } = await supabaseAdmin.storage
+    .from('documenten')
+    .list(`leverancier-pdfs/${offerteId}`)
+
+  if (files && files.length > 0) {
+    const paths = files.map(f => `leverancier-pdfs/${offerteId}/${f.name}`)
+    await supabaseAdmin.storage.from('documenten').remove(paths)
+  }
+
+  // Delete document records
+  await supabaseAdmin
+    .from('documenten')
+    .delete()
+    .eq('entiteit_type', 'offerte_leverancier')
+    .eq('entiteit_id', offerteId)
+
+  await supabaseAdmin
+    .from('documenten')
+    .delete()
+    .eq('entiteit_type', 'offerte_leverancier_data')
+    .eq('entiteit_id', offerteId)
+
+  return { success: true }
 }

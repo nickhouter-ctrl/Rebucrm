@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { navigationItems } from '@/lib/constants'
 import { cn } from '@/lib/utils'
@@ -11,8 +12,7 @@ export function Sidebar() {
   return (
     <aside className="w-60 bg-sidebar text-white flex flex-col h-screen fixed left-0 top-0">
       <div className="p-4 border-b border-white/10">
-        <h1 className="text-xl font-bold tracking-tight">Rebu</h1>
-        <p className="text-xs text-white/50 mt-0.5">Bedrijfsmanagement</p>
+        <Image src="/images/logo-rebu.png" alt="Rebu Kozijnen" width={140} height={45} className="h-9 w-auto brightness-0 invert" />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">

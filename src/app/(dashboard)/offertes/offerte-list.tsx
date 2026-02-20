@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { type ColumnDef } from '@tanstack/react-table'
@@ -9,7 +10,13 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
+import { offerteStatussen, statusKleuren } from '@/lib/constants'
 import { Plus, FileText } from 'lucide-react'
+
+const statusLabels: Record<string, string> = {
+  concept: 'Concept', verzonden: 'Verzonden', geaccepteerd: 'Geaccepteerd',
+  afgewezen: 'Afgewezen', verlopen: 'Verlopen',
+}
 
 interface Offerte {
   id: string
@@ -65,6 +72,11 @@ const columns: ColumnDef<Offerte, unknown>[] = [
 
 export function OfferteList({ offertes }: { offertes: Offerte[] }) {
   const router = useRouter()
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+
+  const filteredOffertes = statusFilter
+    ? offertes.filter(o => o.status === statusFilter)
+    : offertes
 
   return (
     <div>
@@ -97,12 +109,43 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
           }
         />
       ) : (
-        <DataTable
-          columns={columns}
-          data={offertes}
-          searchPlaceholder="Zoek offerte..."
-          onRowClick={(row) => router.push(`/offertes/${row.id}`)}
-        />
+        <>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setStatusFilter(null)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                statusFilter === null
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Alle ({offertes.length})
+            </button>
+            {offerteStatussen.map(status => {
+              const count = offertes.filter(o => o.status === status).length
+              if (count === 0) return null
+              return (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status === statusFilter ? null : status)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                    statusFilter === status
+                      ? statusKleuren[status] + ' ring-2 ring-offset-1 ring-gray-400'
+                      : statusKleuren[status] + ' hover:opacity-80'
+                  }`}
+                >
+                  {statusLabels[status] || status} ({count})
+                </button>
+              )
+            })}
+          </div>
+          <DataTable
+            columns={columns}
+            data={filteredOffertes}
+            searchPlaceholder="Zoek offerte..."
+            onRowClick={(row) => router.push(`/offertes/${row.id}`)}
+          />
+        </>
       )}
     </div>
   )
