@@ -5,6 +5,81 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { sendEmail } from '@/lib/email'
 
+function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): string {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const logoUrl = `${baseUrl}/images/logo-rebu-white.png`
+  const bodyHtml = body
+    .split('\n')
+    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 6px 0;font-size:14px;line-height:1.6;color:#333333;">${line.replace(/^- /, '&#8226; ')}</p>`)
+    .join('\n')
+
+  const ctaBlock = ctaLink ? `
+        <tr>
+          <td style="padding:8px 32px 32px 32px;text-align:center;">
+            <a href="${ctaLink}" style="display:inline-block;background-color:#00a651;color:#ffffff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;letter-spacing:0.3px;">
+              ${ctaLabel || 'Bekijken'}
+            </a>
+          </td>
+        </tr>` : ''
+
+  return `<!DOCTYPE html>
+<html lang="nl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f4f5;padding:32px 0;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+        <tr>
+          <td style="background-color:#00a651;padding:24px 32px;text-align:center;">
+            <img src="${logoUrl}" alt="Rebu Kozijnen" width="160" style="display:inline-block;" />
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 32px 16px 32px;">
+            ${bodyHtml}
+          </td>
+        </tr>
+        ${ctaBlock}
+        <tr>
+          <td style="padding:0 32px;">
+            <hr style="border:none;border-top:1px solid #e5e7eb;margin:0;" />
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 32px;">
+            <table cellpadding="0" cellspacing="0" border="0" width="100%">
+              <tr>
+                <td style="vertical-align:top;padding-right:24px;border-right:2px solid #00a651;width:50%;">
+                  <p style="margin:0;font-size:14px;font-weight:bold;color:#111827;">Rebu kozijnen B.V.</p>
+                  <p style="margin:6px 0 0;font-size:12px;color:#6b7280;line-height:1.7;">
+                    Samsonweg 26F<br>1521 RM Wormerveer
+                  </p>
+                </td>
+                <td style="vertical-align:top;padding-left:24px;width:50%;">
+                  <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.7;">
+                    <a href="tel:+31658866070" style="color:#00a651;text-decoration:none;">+31 6 58 86 60 70</a><br>
+                    <a href="mailto:info@rebukozijnen.nl" style="color:#00a651;text-decoration:none;">info@rebukozijnen.nl</a><br>
+                    <a href="https://www.rebukozijnen.nl" style="color:#00a651;text-decoration:none;">www.rebukozijnen.nl</a>
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f9fafb;padding:12px 32px;border-top:1px solid #e5e7eb;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">
+              KVK: 907 204 74 &nbsp;|&nbsp; BTW: NL 865 427 926 B01 &nbsp;|&nbsp; IBAN: NL80 INGB 0675 6102 73
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+}
+
 export async function getAdministratieId(): Promise<string | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -764,43 +839,7 @@ export async function sendFactuurEmail(factuurId: string, options: {
   if (!factuur) return { error: 'Factuur niet gevonden' }
   if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
-  const logoUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/images/logo-rebu.png`
-
-  const bodyHtml = options.body
-    .split('\n')
-    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
-    .join('\n')
-
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-      ${bodyHtml}
-      <br>
-      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
-      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
-        <tr>
-          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
-            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
-          </td>
-          <td style="padding-left:20px; vertical-align:top;">
-            <p style="margin:0; font-size:13px; color:#333;">
-              <strong>Rebu kozijnen B.V.</strong>
-            </p>
-            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
-              Samsonweg 26F<br>
-              1521 RM Wormerveer<br>
-              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
-              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
-              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
-            </p>
-            <p style="margin:8px 0 0; font-size:11px; color:#999;">
-              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
-              IBAN: NL80 INGB 0675 6102 73
-            </p>
-          </td>
-        </tr>
-      </table>
-    </div>
-  `
+  const emailHtml = buildRebuEmailHtml(options.body)
 
   // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
@@ -2625,46 +2664,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const link = `${baseUrl}/offerte/${offerte.publiek_token}`
-  const logoUrl = `${baseUrl}/images/logo-rebu.png`
 
-  // Bouw HTML email van platte tekst body + branding footer
-  const bodyHtml = options.body
-    .split('\n')
-    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
-    .join('\n')
-
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-      ${bodyHtml}
-      <br>
-      <p><a href="${link}" style="display:inline-block; background-color:#00a651; color:#fff; padding:12px 28px; text-decoration:none; border-radius:6px; font-weight:bold; font-size:14px;">Offerte online bekijken &amp; accepteren</a></p>
-      <br>
-      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
-      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
-        <tr>
-          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
-            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
-          </td>
-          <td style="padding-left:20px; vertical-align:top;">
-            <p style="margin:0; font-size:13px; color:#333;">
-              <strong>Rebu kozijnen B.V.</strong>
-            </p>
-            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
-              Samsonweg 26F<br>
-              1521 RM Wormerveer<br>
-              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
-              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
-              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
-            </p>
-            <p style="margin:8px 0 0; font-size:11px; color:#999;">
-              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
-              IBAN: NL80 INGB 0675 6102 73
-            </p>
-          </td>
-        </tr>
-      </table>
-    </div>
-  `
+  const emailHtml = buildRebuEmailHtml(options.body, link, 'Offerte bekijken &amp; accepteren')
 
   // Load kozijn elements for PDF generation
   const supabaseAdmin = createAdminClient()
@@ -2692,11 +2693,13 @@ export async function sendOfferteEmail(offerteId: string, options: {
         const rawMeta = JSON.parse(metaDoc.storage_path)
         let tekeningData: { naam: string; tekeningPath: string }[]
         let margePercentage = 0
+        let marges: Record<string, number> = {}
         if (Array.isArray(rawMeta)) {
           tekeningData = rawMeta
         } else {
           tekeningData = rawMeta.tekeningen || []
           margePercentage = rawMeta.margePercentage || 0
+          marges = rawMeta.marges || {}
         }
 
         const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
@@ -2723,7 +2726,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
 
             const matchingElement = elementData.find(e => e.naam === tekening.naam)
             const inkoopPrijs = matchingElement?.prijs || 0
-            const verkoopPrijs = margePercentage > 0 ? Math.round(inkoopPrijs * (1 + margePercentage / 100) * 100) / 100 : inkoopPrijs
+            const margePerc = marges[tekening.naam] ?? margePercentage
+            const verkoopPrijs = margePerc > 0 ? Math.round(inkoopPrijs * (1 + margePerc / 100) * 100) / 100 : inkoopPrijs
 
             kozijnElementen.push({
               naam: matchingElement?.naam || tekening.naam,
@@ -2964,44 +2968,7 @@ export async function planDelivery(orderId: string, options: {
   if (updateError) return { error: updateError.message }
 
   // Send email via SMTP
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  const logoUrl = `${baseUrl}/images/logo-rebu.png`
-
-  const bodyHtml = options.emailBody
-    .split('\n')
-    .map(line => line.trim() === '' ? '<br>' : `<p style="margin:0 0 4px 0;">${line.replace(/^- /, '&bull; ')}</p>`)
-    .join('\n')
-
-  const emailHtml = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-      ${bodyHtml}
-      <br>
-      <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
-      <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
-        <tr>
-          <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
-            <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
-          </td>
-          <td style="padding-left:20px; vertical-align:top;">
-            <p style="margin:0; font-size:13px; color:#333;">
-              <strong>Rebu kozijnen B.V.</strong>
-            </p>
-            <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
-              Samsonweg 26F<br>
-              1521 RM Wormerveer<br>
-              <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
-              <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a><br>
-              <a href="https://www.rebukozijnen.nl" style="color:#00a651; text-decoration:none;">www.rebukozijnen.nl</a>
-            </p>
-            <p style="margin:8px 0 0; font-size:11px; color:#999;">
-              KVK: 907 204 74 | BTW: NL 865 427 926 B01<br>
-              IBAN: NL80 INGB 0675 6102 73
-            </p>
-          </td>
-        </tr>
-      </table>
-    </div>
-  `
+  const emailHtml = buildRebuEmailHtml(options.emailBody)
 
   try {
     await sendEmail({
@@ -3548,46 +3515,22 @@ export async function createKlantToegang(data: {
 
   // Stuur welkomstmail met inloggegevens
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-  const logoUrl = `${baseUrl}/images/logo-rebu.png`
+
+  const welkomBody = `Beste ${data.naam},
+
+Er is een klantenportaal account voor u aangemaakt bij Rebu Kozijnen. Via het portaal kunt u uw offertes, orders en berichten bekijken.
+
+Uw inloggegevens:
+- E-mail: ${data.email}
+- Wachtwoord: ${data.wachtwoord}
+
+Wij raden u aan uw wachtwoord na de eerste login te wijzigen via de instellingen in het portaal.`
 
   try {
     await sendEmail({
       to: data.email,
       subject: 'Uw klantenportaal account — Rebu Kozijnen',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-          <p>Beste ${data.naam},</p>
-          <br>
-          <p>Er is een klantenportaal account voor u aangemaakt bij Rebu Kozijnen. Via het portaal kunt u uw offertes, orders en berichten bekijken.</p>
-          <br>
-          <p><strong>Uw inloggegevens:</strong></p>
-          <table style="margin: 12px 0; font-size: 14px;">
-            <tr><td style="padding: 4px 16px 4px 0; color: #666;">E-mail:</td><td style="padding: 4px 0;"><strong>${data.email}</strong></td></tr>
-            <tr><td style="padding: 4px 16px 4px 0; color: #666;">Wachtwoord:</td><td style="padding: 4px 0;"><strong>${data.wachtwoord}</strong></td></tr>
-          </table>
-          <br>
-          <p><a href="${baseUrl}/login" style="display:inline-block; background-color:#00a651; color:#fff; padding:12px 28px; text-decoration:none; border-radius:6px; font-weight:bold; font-size:14px;">Inloggen op het portaal</a></p>
-          <br>
-          <p style="font-size: 13px; color: #666;">Wij raden u aan uw wachtwoord na de eerste login te wijzigen via de instellingen in het portaal.</p>
-          <br>
-          <hr style="border:none; border-top:1px solid #e0e0e0; margin:20px 0;" />
-          <table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,sans-serif;">
-            <tr>
-              <td style="padding-right:20px; vertical-align:top; border-right:2px solid #00a651;">
-                <img src="${logoUrl}" alt="Rebu Kozijnen" width="140" style="display:block;" />
-              </td>
-              <td style="padding-left:20px; vertical-align:top;">
-                <p style="margin:0; font-size:13px; color:#333;"><strong>Rebu kozijnen B.V.</strong></p>
-                <p style="margin:4px 0 0; font-size:12px; color:#666; line-height:1.6;">
-                  Samsonweg 26F<br>1521 RM Wormerveer<br>
-                  <a href="tel:+31658866070" style="color:#00a651; text-decoration:none;">+31 6 58 86 60 70</a><br>
-                  <a href="mailto:info@rebukozijnen.nl" style="color:#00a651; text-decoration:none;">info@rebukozijnen.nl</a>
-                </p>
-              </td>
-            </tr>
-          </table>
-        </div>
-      `,
+      html: buildRebuEmailHtml(welkomBody, `${baseUrl}/login`, 'Inloggen op het portaal'),
     })
   } catch (err) {
     console.error('Welkomstmail versturen mislukt:', err)
@@ -3702,9 +3645,6 @@ interface KozijnElement {
 
 function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
-
-  // Log first 2000 chars for debugging text extraction format
-  console.log('PDF TEXT EXTRACT (first 2000 chars):', text.substring(0, 2000))
 
   // Detect format - flexible whitespace to handle different PDF text extractors
   const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
@@ -4193,7 +4133,7 @@ export async function uploadLeverancierTekening(offerteId: string, pageNum: numb
   return { path }
 }
 
-export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[], margePercentage?: number) {
+export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[], margePercentage?: number, elementMarges?: Record<string, number>) {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
@@ -4210,9 +4150,12 @@ export async function saveLeverancierTekeningen(offerteId: string, elementen: { 
   if (!doc) return { error: 'Geen leverancier PDF gevonden' }
 
   // Store tekening data + optional marge as JSON in storage_path field
-  const metadata: { tekeningen: typeof elementen; margePercentage?: number } = { tekeningen: elementen }
+  const metadata: { tekeningen: typeof elementen; margePercentage?: number; marges?: Record<string, number> } = { tekeningen: elementen }
   if (margePercentage && margePercentage > 0) {
     metadata.margePercentage = margePercentage
+  }
+  if (elementMarges && Object.keys(elementMarges).length > 0) {
+    metadata.marges = elementMarges
   }
 
   await supabaseAdmin

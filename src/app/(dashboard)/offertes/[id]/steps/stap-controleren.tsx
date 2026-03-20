@@ -38,6 +38,7 @@ export function StapControleren({
   parsedPdfResult,
   renderedTekeningen,
   margePercentage,
+  elementMarges,
   onSaved,
   onBack,
 }: {
@@ -56,6 +57,7 @@ export function StapControleren({
   parsedPdfResult?: ParsedPdfResult | null
   renderedTekeningen?: RenderedTekening[]
   margePercentage?: number
+  elementMarges?: Record<string, number>
   onSaved: (offerteId: string) => void
   onBack: () => void
 }) {
@@ -430,9 +432,9 @@ export function StapControleren({
         tekeningData.push({ naam, tekeningPath: path, pageIndex: pageIndex ?? 0, totalPages: totalPages ?? 1 })
       }
 
-      // Step 3: Save tekening mappings + marge
+      // Step 3: Save tekening mappings + marge (per-element)
       setPdfProgress('Opslaan...')
-      await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage)
+      await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage, elementMarges)
 
       setLeverancierPdf({
         bestandsnaam: file.name,

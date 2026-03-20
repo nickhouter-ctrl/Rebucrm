@@ -77,6 +77,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
   const [renderedTekeningen, setRenderedTekeningen] = useState<RenderedTekening[]>([])
   const [margePercentage, setMargePercentage] = useState(0)
+  const [elementMarges, setElementMarges] = useState<Record<string, number>>({})
   const [savedOfferteId, setSavedOfferteId] = useState<string | null>(offerte ? (offerte.id as string) : null)
 
   // Set relatie/project naam voor bestaande offertes
@@ -139,6 +140,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   }
 
   function handleMargeNext(marges: Record<string, number>) {
+    setElementMarges(marges)
     // Calculate verkoop totaal with per-element marges and fill kozijnen prijs
     if (parsedPdfResult) {
       const verkoopTotaal = parsedPdfResult.elementen.reduce((sum, e) => {
@@ -283,6 +285,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
               parsedPdfResult={parsedPdfResult}
               renderedTekeningen={renderedTekeningen}
               margePercentage={margePercentage}
+              elementMarges={elementMarges}
               onSaved={handleSaved}
               onBack={() => setStep(4)}
             />

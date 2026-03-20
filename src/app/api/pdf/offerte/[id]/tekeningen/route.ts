@@ -331,6 +331,7 @@ export async function GET(
     const rawMeta = JSON.parse(metaDoc.storage_path)
     const tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[] = Array.isArray(rawMeta) ? rawMeta : (rawMeta.tekeningen || [])
     const marges: Record<string, number> = (!Array.isArray(rawMeta) && rawMeta.marges) ? rawMeta.marges : {}
+    const globalMarge: number = (!Array.isArray(rawMeta) && rawMeta.margePercentage) ? rawMeta.margePercentage : 0
 
     // Parse original PDF for element specs (no prices needed)
     const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
@@ -375,7 +376,7 @@ export async function GET(
       const matchingElement = elementData.find(e => e.naam === naam)
 
       const inkoopPrijs = matchingElement?.prijs || 0
-      const margePerc = marges[naam] || 0
+      const margePerc = marges[naam] ?? globalMarge
       const verkoopPrijs = inkoopPrijs * (1 + margePerc / 100)
 
       tekeningenElementen.push({
