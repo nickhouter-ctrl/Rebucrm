@@ -312,9 +312,18 @@ export function StapControleren({
           }
         }
 
-        // Hide "geen garantie" text
+        // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|[\d.,]+\s*EUR?\b)$/i
+        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element)/i
+        const priceAmountPattern = /^[\d\s.,]+$/
+        const priceLabels = txtItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
+
         for (const ti of txtItems) {
-          if (/geen\s*garantie/i.test(ti.str)) {
+          const shouldHide = priceTextPattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)
+          const isNearPriceLabel = priceAmountPattern.test(ti.str) && ti.str.length >= 3 && priceLabels.some(
+            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 100 && Math.abs(pl.cy - ti.cy) < 40
+          )
+          if (shouldHide || isNearPriceLabel) {
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
           }

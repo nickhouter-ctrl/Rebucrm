@@ -2699,7 +2699,7 @@ export async function sendOfferteEmail(offerteId: string, options: {
           margePercentage = rawMeta.margePercentage || 0
         }
 
-        const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+        const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
         const { data: pdfFile } = await supabaseAdmin.storage
           .from('documenten')
           .download(leverancierDoc.storage_path)
@@ -4069,7 +4069,7 @@ export async function processLeverancierPdf(offerteId: string, formData: FormDat
   const buffer = Buffer.from(await file.arrayBuffer())
 
   // Import pdf-parse/lib directly to avoid test file loading in dev
-  const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+  const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
   let parsed
   try {
     parsed = await pdfParse(buffer)
@@ -4273,7 +4273,7 @@ export async function getLeverancierPdfData(offerteId: string) {
   let leverancierTotaal = 0
   let parsedElementen: { naam: string; hoeveelheid: number; prijs: number }[] = []
   try {
-    const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
     const { data: pdfFile } = await supabaseAdmin.storage
       .from('documenten')
       .download(pdfDoc.storage_path)
@@ -4345,7 +4345,7 @@ export async function parseLeverancierPdfOnly(formData: FormData) {
     const buffer = Buffer.from(await file.arrayBuffer())
     // Import pdf-parse/lib directly to avoid test file loading in dev
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = (await import(/* webpackIgnore: true */ 'pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
 
     let parsed
     try {
