@@ -1,7 +1,7 @@
 // Server-side PDF text extraction using pdfjs-dist
 export async function parsePdfBuffer(buffer: Buffer): Promise<{ text: string }> {
-  // Use the main build (not legacy) - works with Node.js 24
-  const pdfjsLib = await import('pdfjs-dist/build/pdf.mjs')
+  // Must use legacy build - main build requires DOMMatrix (browser-only)
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
 
   const data = new Uint8Array(buffer)
   const loadingTask = pdfjsLib.getDocument({
