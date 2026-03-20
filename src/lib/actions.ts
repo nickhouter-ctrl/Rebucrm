@@ -3703,14 +3703,17 @@ interface KozijnElement {
 function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
-  // Detect format
-  const isGealan = /Merk\s+\d+Aantal:\d+/.test(text)
+  // Log first 2000 chars for debugging text extraction format
+  console.log('PDF TEXT EXTRACT (first 2000 chars):', text.substring(0, 2000))
+
+  // Detect format - flexible whitespace to handle different PDF text extractors
+  const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
   const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
   let totaal = 0
   if (isGealan) {
-    const totaalMatch = text.match(/Netto totaal\nTotaal([\d.,]+)/)
+    const totaalMatch = text.match(/Netto\s*totaal[\s\n]*Totaal\s*([\d.,]+)/)
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
@@ -3729,7 +3732,7 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       totaal = parseFloat(totaalMatch[1].replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
     }
   } else {
-    const totaalMatch = text.match(/Prijs\s+TOT\.?\s*\n?€\s*([\d.,]+)/)
+    const totaalMatch = text.match(/Prijs\s+TOT\.?\s*[\n\s]*€\s*([\d.,]+)/)
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
@@ -3739,9 +3742,12 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
   if (isGealan) {
-    const elementPattern = /Merk\s+(\d+)Aantal:(\d+)(?:Verbinding:\w+)?Systeem:\s*([^\n]+(?:\n[^\n]+)?)/g
+    const elementPattern = /Merk\s+(\d+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
     while ((match = elementPattern.exec(text)) !== null) {
-      const nextMerkIdx = text.indexOf('Merk ' + (parseInt(match[1]) + 1) + 'Aantal:', match.index + 1)
+      // Use regex to find next Merk with flexible whitespace
+      const nextMerkPattern = new RegExp('Merk\\s+' + (parseInt(match[1]) + 1) + '\\s*Aantal\\s*:')
+      const nextMerkMatch = nextMerkPattern.exec(text.substring(match.index + 1))
+      const nextMerkIdx = nextMerkMatch ? match.index + 1 + nextMerkMatch.index : -1
       const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader\s+([^\n]+)/)
@@ -3767,7 +3773,7 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       })
     }
   } else {
-    const elementPattern = /((?:Deur|Element)\s+\d{3})\nHoeveelheid:\n(\d+)\nSysteem:\s*([\s\S]+?)Kleur:\s*([^\n]+)/g
+    const elementPattern = /((?:Deur|Element)\s+\d{3})[\s\n]+Hoeveelheid\s*:[\s\n]*(\d+)[\s\n]+Systeem\s*:\s*([\s\S]+?)Kleur\s*:\s*([^\n]+)/g
     while ((match = elementPattern.exec(text)) !== null) {
       headers.push({
         naam: match[1],
@@ -3845,7 +3851,7 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
     // --- Prijs ---
     let prijs = 0
     if (isGealan) {
-      const gealanPriceMatch = searchText.match(/Netto prijs\n\w+?([\d.,]+)\n/)
+      const gealanPriceMatch = searchText.match(/Netto\s*prijs[\s\n]+\w+?\s*([\d.,]+)/)
       if (gealanPriceMatch) {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }
