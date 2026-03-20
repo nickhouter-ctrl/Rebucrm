@@ -57,7 +57,7 @@ export async function GET(
           }
 
           // Parse original PDF for element data
-          const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+          const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-parse')
           const { data: pdfFile } = await supabaseAdmin.storage
             .from('documenten')
             .download(leverancierDoc.storage_path)

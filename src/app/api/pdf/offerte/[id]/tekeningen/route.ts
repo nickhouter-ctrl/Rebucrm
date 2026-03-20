@@ -331,7 +331,7 @@ export async function GET(
     const marges: Record<string, number> = (!Array.isArray(rawMeta) && rawMeta.marges) ? rawMeta.marges : {}
 
     // Parse original PDF for element specs (no prices needed)
-    const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default as (buf: Buffer) => Promise<{ text: string }>
+    const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-parse')
     const { data: pdfFile } = await supabaseAdmin.storage
       .from('documenten')
       .download(leverancierDoc.storage_path)
