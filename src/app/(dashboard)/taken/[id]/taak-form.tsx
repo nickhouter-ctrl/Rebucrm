@@ -10,9 +10,10 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Save, Trash2, ArrowLeft } from 'lucide-react'
 
-export function TaakForm({ taak, projecten }: {
+export function TaakForm({ taak, projecten, medewerkers }: {
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string }[]
+  medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -51,7 +52,10 @@ export function TaakForm({ taak, projecten }: {
               ]} />
               <Input id="deadline" name="deadline" label="Deadline" type="date" defaultValue={(taak?.deadline as string) || ''} />
             </div>
-            <Select id="project_id" name="project_id" label="Project" defaultValue={(taak?.project_id as string) || ''} placeholder="Selecteer project..." options={projecten.map(p => ({ value: p.id, label: p.naam }))} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Select id="project_id" name="project_id" label="Project" defaultValue={(taak?.project_id as string) || ''} placeholder="Selecteer project..." options={projecten.map(p => ({ value: p.id, label: p.naam }))} />
+              <Select id="medewerker_id" name="medewerker_id" label="Toegewezen aan" defaultValue={(taak?.medewerker_id as string) || ''} placeholder="Selecteer medewerker..." options={medewerkers.filter(m => m.actief).map(m => ({ value: m.id, label: `${m.naam} (${m.type})` }))} />
+            </div>
             <div>
               <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
               <textarea id="omschrijving" name="omschrijving" rows={4} defaultValue={(taak?.omschrijving as string) || ''} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />

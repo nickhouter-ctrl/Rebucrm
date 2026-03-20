@@ -1,7 +1,10 @@
-import { getFacturen } from '@/lib/actions'
+import { getFacturen, getOrdersMetFactuurStatus } from '@/lib/actions'
 import { FactuurList } from './factuur-list'
 
 export default async function FacturatiePage() {
-  const facturen = await getFacturen()
-  return <FactuurList facturen={facturen} />
+  const [facturen, ordersMetStatus] = await Promise.all([
+    getFacturen(),
+    getOrdersMetFactuurStatus(),
+  ])
+  return <FactuurList facturen={facturen} ordersMetStatus={ordersMetStatus} />
 }

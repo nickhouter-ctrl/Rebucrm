@@ -190,16 +190,16 @@ export function StapControleren({
       const totalPages = pdf.numPages
 
       // Scan all pages for element names and drawing markers
-      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?/i
+      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
-      for (let pageNum = 2; pageNum < totalPages; pageNum++) {
+      for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
         const page = await pdf.getPage(pageNum)
         const textContent = await page.getTextContent()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
         const headerMatch = pageText.match(elementHeaderPattern)
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/.test(pageText)
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         allPageScans.push({ pageNum, naam: headerMatch ? headerMatch[0] : null, hasDrawing, isStandaloneProduct })
       }
@@ -237,7 +237,97 @@ export function StapControleren({
       }
       for (const pages of elementGroupMap.values()) { pages.sort((a, b) => a - b) }
 
-      const tekeningData: { naam: string; tekeningPath: string }[] = []
+      // Helper: render page with only the top leverancier header cropped away
+      async function renderPageWithHeaderCrop(pn: number) {
+        const pg = await pdf.getPage(pn)
+        const vp = pg.getViewport({ scale: 2 })
+        const cvs = document.createElement('canvas')
+        cvs.width = vp.width; cvs.height = vp.height
+        const ctx = cvs.getContext('2d')!
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await pg.render({ canvasContext: ctx, viewport: vp, canvas: cvs } as any).promise as void
+        const w = Math.floor(vp.width), h = Math.floor(vp.height)
+
+        const tc = await pg.getTextContent()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const txtItems = (tc.items as any[])
+          .filter((it: any) => 'str' in it && it.str.trim())
+          .map((it: any) => ({ str: it.str.trim(), cx: Math.round(it.transform[4] * 2), cy: Math.round(h - it.transform[5] * 2) }))
+
+        const headerMatch = txtItems.find((i: { str: string; cy: number }) =>
+          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+/i.test(i.str)
+        )
+        const isGealanPg = headerMatch && /Merk\s+\d+/i.test(headerMatch.str)
+        let cropTop = Math.floor(h * 0.04)
+        if (headerMatch) cropTop = Math.max(0, headerMatch.cy - 30)
+        if (!isGealanPg) {
+          const sW = Math.floor(w * 0.25), smp = Math.floor(sW / 2)
+          for (let y = cropTop; y < Math.floor(h * 0.25); y += 2) {
+            const rd = ctx.getImageData(0, y, sW, 1).data
+            let dk = 0
+            for (let px = 0; px < sW; px += 2) { if (rd[px*4] < 200 || rd[px*4+1] < 200 || rd[px*4+2] < 200) dk++ }
+            if (dk > smp * 0.80) cropTop = y + 4
+          }
+        }
+
+        // Hide supplier prices on green bars
+        // Detect green bars, paint over text with bar's own green color
+        // Preserves bar as separator (no white stripes), hides price text
+        const imgData = ctx.getImageData(0, 0, w, h)
+        const greenBarRows: boolean[] = new Array(h).fill(false)
+        for (let y = 0; y < h; y++) {
+          let greenCount = 0
+          for (let x = 0; x < w; x += 2) {
+            const idx = (y * w + x) * 4
+            const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+            if (g > 80 && g > r + 20 && g > b + 20) greenCount++
+          }
+          greenBarRows[y] = greenCount > (w / 2) * 0.30
+        }
+        const bars: { start: number; end: number }[] = []
+        let barStart = -1
+        for (let y = 0; y <= h; y++) {
+          if (y < h && greenBarRows[y]) {
+            if (barStart === -1) barStart = y
+          } else if (barStart !== -1) {
+            if (y - barStart >= 12) bars.push({ start: barStart, end: y })
+            barStart = -1
+          }
+        }
+        for (const bar of bars) {
+          for (let y = bar.start; y < bar.end; y++) {
+            let left = w, right = 0
+            for (let x = 0; x < w; x++) {
+              const idx = (y * w + x) * 4
+              const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+              if (g > 80 && g > r + 20 && g > b + 20) {
+                if (x < left) left = x
+                if (x > right) right = x
+              }
+            }
+            if (right > left) {
+              ctx.fillStyle = '#FFFFFF'
+              ctx.fillRect(left, y, right - left + 1, 1)
+            }
+          }
+        }
+
+        // Hide "geen garantie" text
+        for (const ti of txtItems) {
+          if (/geen\s*garantie/i.test(ti.str)) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
+          }
+        }
+
+        const cropBot = Math.floor(h * 0.97), cropH = cropBot - cropTop
+        const cc = document.createElement('canvas'); cc.width = w; cc.height = cropH
+        cc.getContext('2d')!.drawImage(cvs, 0, cropTop, w, cropH, 0, 0, w, cropH)
+        cvs.remove()
+        return cc
+      }
+
+      const tekeningData: { naam: string; tekeningPath: string; pageIndex: number; totalPages: number }[] = []
 
       for (let ei = 0; ei < elementOrder.length; ei++) {
         const naam = elementOrder[ei]
@@ -245,192 +335,19 @@ export function StapControleren({
         if (pageNums.length === 0) continue
         setPdfProgress(`Tekeningen extraheren (${ei + 1}/${elementOrder.length})...`)
 
-        // Helper: render and crop a single page
-        async function cropPage(pn: number) {
-          const pg = await pdf.getPage(pn)
-          const vp = pg.getViewport({ scale: 3 })
-          const fc = document.createElement('canvas')
-          fc.width = vp.width; fc.height = vp.height
-          const fctx = fc.getContext('2d')!
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await pg.render({ canvasContext: fctx, viewport: vp, canvas: fc } as any).promise as void
-          const w = vp.width, h = vp.height
+        for (let pi = 0; pi < pageNums.length; pi++) {
+          const croppedCanvas = await renderPageWithHeaderCrop(pageNums[pi])
+          const blob = await new Promise<Blob>((resolve) => {
+            croppedCanvas.toBlob((b) => resolve(b!), 'image/png', 0.9)
+          })
+          croppedCanvas.remove()
 
-          const ptc = await pg.getTextContent()
-          const hdrPats = [/(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d/i, /Hoeveelheid|Hoev\./, /^Systeem\s*:/, /^Kleur\s*:/]
-          const specKw = /^(Vullingen|Beslag|Sluiting|Scharnieren|Gevraagd|Paneel|Afwatering|Hoekverbinding|Montage|Sluitcilinder|Commentaar|Dorpel|Lak\s*kleur|Buitenkader|Glazing|Muur|Versterking|Berichten|Bijprofiel|Eenheidsgewicht|Omtrek|Total\s+perimeter|Toebehoren|Prijs|Thermische|Kader|Toelaatbare|Stijl|Montage\s*ankers|Samen|Gemiddelde|Rolluikkast|Rolluikblad|Geleiders|Handling)/i
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const txtItems = (ptc.items as any[])
-            .filter((it: any) => 'str' in it && it.str.trim())
-            .map((it: any) => ({ str: it.str.trim(), cy: Math.round(h - it.transform[5] * 3), cx: Math.round(it.transform[4] * 3) }))
-          const hdrCands = txtItems.filter((i: { str: string; cy: number }) => i.cy < h * 0.25 && hdrPats.some(p => p.test(i.str)))
-          let hdrBot = Math.floor(h * 0.06)
-          if (hdrCands.length > 0) {
-            const maxCy = Math.max(...hdrCands.map((i: { cy: number }) => i.cy))
-            const leftIt = txtItems.filter((i: { cx: number; cy: number }) => i.cx < w * 0.45 && i.cy >= maxCy).sort((a: { cy: number }, b: { cy: number }) => a.cy - b.cy)
-            let clBot = maxCy
-            const isDimLabel = (s: string) => /^\d+([.,]\d+)?$/.test(s)
-            for (let idx = 1; idx < leftIt.length; idx++) { if (leftIt[idx].cy - leftIt[idx - 1].cy > 80) break; if (isDimLabel(leftIt[idx].str) && leftIt[idx].cy > maxCy + 50) break; if (specKw.test(leftIt[idx].str)) break; clBot = leftIt[idx].cy }
-            hdrBot = clBot + 20
-          }
-          // Skip colored header bar (solid-color rows below text header)
-          for (let y = hdrBot; y < Math.floor(h * 0.30); y += 2) {
-            const sW = Math.floor(w * 0.60)
-            const rd = fctx.getImageData(0, y, sW, 1).data
-            const smp = Math.floor(sW / 2)
-            let dk = 0
-            for (let px = 0; px < sW; px += 2) { if (rd[px*4] < 200 || rd[px*4+1] < 200 || rd[px*4+2] < 200) dk++ }
-            if (dk < smp * 0.15) { hdrBot = y; break }
-          }
-          // Find right boundary using spec keyword detection
-          //   Find view labels first to distinguish side-column specs from bottom-section specs
-          const viewLabelItemsForBound = txtItems.filter((i: { str: string; cy: number }) =>
-            /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/i.test(i.str) && i.cy > hdrBot
-          )
-          const firstViewLabelCy = viewLabelItemsForBound.length > 0
-            ? Math.min(...viewLabelItemsForBound.map((i: { cy: number }) => i.cy))
-            : Infinity
-          const specItems = txtItems.filter((i: { str: string; cx: number; cy: number }) =>
-            i.cx > w * 0.35 && i.cy > hdrBot && i.cy < h * 0.90 && specKw.test(i.str)
-          )
-          let rBound: number
-          if (specItems.length >= 2) {
-            // Only treat as side-column if spec items exist ABOVE the first view label.
-            // Specs below view labels are bottom sections (e.g. schuifpui buitenaanzicht page),
-            // not side columns, and should not constrain the drawing width.
-            const sideColSpecs = specItems.filter((i: { cy: number }) => i.cy < firstViewLabelCy)
-            if (sideColSpecs.length >= 2) {
-              const specLeftX = Math.min(...sideColSpecs.map((i: { cx: number }) => i.cx))
-              rBound = specLeftX - 30
-              rBound = Math.max(rBound, Math.floor(w * 0.35))
-            } else { rBound = Math.floor(w * 0.92) }
-          } else { rBound = Math.floor(w * 0.92) }
-          // Find "SPECIFICATIES" text — hard boundary to exclude leverancier spec sections
-          const specsHdrItems = txtItems.filter((i: { str: string; cy: number }) =>
-            /^SPECIFICATIES$|^Specificaties$/i.test(i.str) && i.cy > hdrBot
-          )
-          let specsHdrCy = Infinity
-          if (specsHdrItems.length > 0) {
-            specsHdrCy = Math.min(...specsHdrItems.map((i: { cy: number }) => i.cy))
-          }
-          const scanBotStart = specsHdrCy < Infinity ? specsHdrCy - 10 : Math.floor(h * 0.90)
-          let bBot = scanBotStart
-          for (let y = scanBotStart; y > Math.floor(h * 0.30); y -= 3) {
-            const row = fctx.getImageData(0, y, rBound, 1).data
-            let nw = 0
-            for (let px = 0; px < rBound; px += 2) { if (row[px*4] < 230 || row[px*4+1] < 230 || row[px*4+2] < 230) nw++ }
-            if (nw > 5) { bBot = Math.min(y + 30, scanBotStart); break }
-          }
-          // Constrain bottom to just below the last view label
-          if (viewLabelItemsForBound.length > 0) {
-            const lastVLCy = Math.max(...viewLabelItemsForBound.map((i: { cy: number }) => i.cy))
-            bBot = Math.min(bBot, lastVLCy + 60)
-          }
-          // On full-width pages, constrain bottom only if spec keywords appear below the drawing
-          if (rBound > Math.floor(w * 0.70)) {
-            const vLabels = txtItems.filter((i: { str: string; cy: number }) =>
-              /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/i.test(i.str) && i.cy > hdrBot
-            )
-            if (vLabels.length > 0) {
-              const lastCy = Math.max(...vLabels.map((i: { cy: number }) => i.cy))
-              const specsBelowDrawing = txtItems.filter((i: { str: string; cy: number }) =>
-                i.cy > lastCy + 20 && specKw.test(i.str)
-              )
-              if (specsBelowDrawing.length > 0) {
-                const firstSpecCy = Math.min(...specsBelowDrawing.map((i: { cy: number }) => i.cy))
-                bBot = Math.min(bBot, firstSpecCy - 15)
-              }
-              // Detect colored bars (e.g. purple Samenvatting table header) below the drawing
-              for (let y = lastCy + 30; y < bBot; y += 3) {
-                const rd = fctx.getImageData(0, y, rBound, 1).data
-                let colored = 0
-                for (let px = 0; px < rBound; px += 2) {
-                  const r = rd[px*4], g = rd[px*4+1], b = rd[px*4+2]
-                  const mx = Math.max(r, g, b), mn = Math.min(r, g, b)
-                  if (mx - mn > 40 && mx > 50 && r + g + b < 600) colored++
-                }
-                if (colored > Math.floor(rBound / 4) * 0.10) { bBot = Math.min(bBot, y - 15); break }
-              }
-              // Detect summary tables below drawing via white gap after view labels
-              let wgs = -1
-              for (let y = lastCy + 40; y < bBot; y += 3) {
-                const rd = fctx.getImageData(0, y, rBound, 1).data
-                let nw = 0
-                for (let px = 0; px < rBound; px += 2) { if (rd[px*4] < 230 || rd[px*4+1] < 230 || rd[px*4+2] < 230) nw++ }
-                if (nw <= 3) { if (wgs < 0) wgs = y }
-                else { if (wgs >= 0 && y - wgs >= 40) { bBot = Math.min(bBot, wgs); break } wgs = -1 }
-              }
-            }
-          }
-          // 4. Find top of content
-          let cTop = hdrBot
-          let fstCY = hdrBot
-          for (let y = hdrBot; y < Math.floor(h * 0.40); y += 3) {
-            const row = fctx.getImageData(0, y, rBound, 1).data
-            let nw = 0
-            for (let px = 0; px < rBound; px += 2) { if (row[px*4] < 230 || row[px*4+1] < 230 || row[px*4+2] < 230) nw++ }
-            if (nw > 5) { fstCY = y; cTop = Math.max(hdrBot, y - 80); break }
-          }
-          // 4b. Skip remark text between header and drawing (pixel-based gap detection)
-          if (firstViewLabelCy < Infinity) {
-            const maxSY = Math.min(fstCY + Math.floor(h * 0.15), firstViewLabelCy - 150)
-            let cw = 0, lcbg = fstCY
-            for (let y = fstCY + 3; y < maxSY; y += 3) {
-              const row = fctx.getImageData(0, y, rBound, 1).data
-              let nw = 0
-              for (let px = 0; px < rBound; px += 2) { if (row[px*4] < 230 || row[px*4+1] < 230 || row[px*4+2] < 230) nw++ }
-              if (nw > 3) {
-                if (cw >= 60) {
-                  const pgh = lcbg - fstCY
-                  if (pgh >= 10 && pgh < 150) {
-                    const pgt = txtItems.filter((i: { str: string; cy: number; cx: number }) =>
-                      i.cy >= fstCY - 10 && i.cy <= lcbg + 10 && i.cx < rBound && !/^\d+([.,]\d+)?$/.test(i.str)
-                    )
-                    if (pgt.length > 0) { cTop = Math.max(hdrBot, y - 30) }
-                  }
-                  break
-                }
-                cw = 0; lcbg = y
-              } else { cw += 3 }
-            }
-            if (cTop > firstViewLabelCy - 100) { cTop = Math.max(hdrBot, firstViewLabelCy - 100) }
-          }
-          const cW = rBound, cH = bBot - cTop
-          const cc = document.createElement('canvas'); cc.width = cW; cc.height = cH
-          cc.getContext('2d')!.drawImage(fc, 0, cTop, cW, cH, 0, 0, cW, cH)
-          fc.remove()
-          return cc
+          const imgFormData = new FormData()
+          imgFormData.set('image', blob, `tekening-${pageNums[pi]}.png`)
+          const uploadResult = await uploadLeverancierTekening(offerteId, pageNums[pi], imgFormData)
+          const path = ('path' in uploadResult && uploadResult.path) ? uploadResult.path : `leverancier-pdfs/${offerteId}/tekening-${pageNums[pi]}.png`
+          tekeningData.push({ naam, tekeningPath: path, pageIndex: pi, totalPages: pageNums.length })
         }
-
-        // Render and crop all pages, then combine
-        const croppedCanvases: HTMLCanvasElement[] = []
-        for (const pn of pageNums) { croppedCanvases.push(await cropPage(pn)) }
-
-        let blob: Blob
-        if (croppedCanvases.length === 1) {
-          const single = croppedCanvases[0]
-          blob = await new Promise<Blob>((resolve) => { single.toBlob((b) => resolve(b!), 'image/png', 0.9) })
-          single.remove()
-        } else {
-          const maxW = Math.max(...croppedCanvases.map(c => c.width))
-          const totalH = croppedCanvases.reduce((sum, c) => sum + c.height, 0) + (croppedCanvases.length - 1) * 20
-          const combined = document.createElement('canvas')
-          combined.width = maxW; combined.height = totalH
-          const ctx = combined.getContext('2d')!
-          ctx.fillStyle = 'white'; ctx.fillRect(0, 0, maxW, totalH)
-          let yOff = 0
-          for (const c of croppedCanvases) { ctx.drawImage(c, 0, yOff); yOff += c.height + 20; c.remove() }
-          blob = await new Promise<Blob>((resolve) => { combined.toBlob((b) => resolve(b!), 'image/png', 0.9) })
-          combined.remove()
-        }
-
-        const imgFormData = new FormData()
-        imgFormData.set('image', blob, `tekening-${pageNums[0]}.png`)
-        const uploadResult = await uploadLeverancierTekening(offerteId, pageNums[0], imgFormData)
-
-        const path = ('path' in uploadResult && uploadResult.path) ? uploadResult.path : `leverancier-pdfs/${offerteId}/tekening-${pageNums[0]}.png`
-
-        tekeningData.push({ naam, tekeningPath: path })
       }
 
       setPdfProgress('Opslaan...')
@@ -487,10 +404,10 @@ export function StapControleren({
       }
 
       // Step 2: Upload pre-rendered PNGs
-      const tekeningData: { naam: string; tekeningPath: string }[] = []
+      const tekeningData: { naam: string; tekeningPath: string; pageIndex: number; totalPages: number }[] = []
 
       for (let i = 0; i < tekeningen.length; i++) {
-        const { pageNum, naam, blob } = tekeningen[i]
+        const { pageNum, naam, blob, pageIndex, totalPages } = tekeningen[i]
         setPdfProgress(`Tekeningen uploaden (${i + 1}/${tekeningen.length})...`)
 
         const imgFormData = new FormData()
@@ -501,7 +418,7 @@ export function StapControleren({
           ? uploadResult.path
           : `leverancier-pdfs/${offerteId}/tekening-${pageNum}.png`
 
-        tekeningData.push({ naam, tekeningPath: path })
+        tekeningData.push({ naam, tekeningPath: path, pageIndex: pageIndex ?? 0, totalPages: totalPages ?? 1 })
       }
 
       // Step 3: Save tekening mappings + marge

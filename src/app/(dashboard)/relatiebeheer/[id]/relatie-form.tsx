@@ -48,7 +48,7 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const [kvkError, setKvkError] = useState('')
   const [showKvkDropdown, setShowKvkDropdown] = useState(false)
   const kvkRef = useRef<HTMLDivElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
   // Form field refs for auto-fill
   const bedrijfsnaamRef = useRef<HTMLInputElement>(null)

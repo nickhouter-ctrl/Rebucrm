@@ -15,6 +15,8 @@ export interface RenderedTekening {
   pageNum: number
   naam: string
   blob: Blob
+  pageIndex: number    // 0-based index within the element's pages
+  totalPages: number   // total number of pages for this element
 }
 
 export function StapTekeningen({
@@ -94,16 +96,16 @@ export function StapTekeningen({
       const totalPages = pdf.numPages
 
       // Scan all pages for element names and drawing markers
-      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?/i
+      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
-      for (let pageNum = 2; pageNum < totalPages; pageNum++) {
+      for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
         const page = await pdf.getPage(pageNum)
         const textContent = await page.getTextContent()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
         const headerMatch = pageText.match(elementHeaderPattern)
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/.test(pageText)
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         allPageScans.push({ pageNum, naam: headerMatch ? headerMatch[0] : null, hasDrawing, isStandaloneProduct })
       }
@@ -149,242 +151,120 @@ export function StapTekeningen({
         pages.sort((a, b) => a - b)
       }
 
-      // Helper: render and crop a single page
-      async function cropPage(pageNum: number) {
+      // Helper: render page with only the top leverancier header cropped away
+      async function renderPageWithHeaderCrop(pageNum: number) {
         const page = await pdf.getPage(pageNum)
-        const viewport = page.getViewport({ scale: 3 })
-        const fullCanvas = document.createElement('canvas')
-        fullCanvas.width = viewport.width
-        fullCanvas.height = viewport.height
-        const fullCtx = fullCanvas.getContext('2d')!
+        const viewport = page.getViewport({ scale: 2 })
+        const canvas = document.createElement('canvas')
+        canvas.width = viewport.width
+        canvas.height = viewport.height
+        const ctx = canvas.getContext('2d')!
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await page.render({ canvasContext: fullCtx, viewport, canvas: fullCanvas } as any).promise as void
+        await page.render({ canvasContext: ctx, viewport, canvas } as any).promise as void
 
-        const w = viewport.width
-        const h = viewport.height
+        const w = Math.floor(viewport.width)
+        const h = Math.floor(viewport.height)
 
-        // 1. Find header bottom using text positions
-        const pageTC = await page.getTextContent()
-        const headerPatterns = [/(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d/i, /Hoeveelheid|Hoev\./, /^Systeem\s*:/, /^Kleur\s*:/]
-        const specKeywords = /^(Vullingen|Beslag|Sluiting|Scharnieren|Gevraagd|Paneel|Afwatering|Hoekverbinding|Montage|Sluitcilinder|Commentaar|Dorpel|Lak\s*kleur|Buitenkader|Glazing|Muur|Versterking|Berichten|Bijprofiel|Eenheidsgewicht|Omtrek|Total\s+perimeter|Toebehoren|Prijs|Thermische|Kader|Toelaatbare|Stijl|Montage\s*ankers|Samen|Gemiddelde|Rolluikkast|Rolluikblad|Geleiders|Handling)/i
+        const textContent = await page.getTextContent()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const allTextItems = (pageTC.items as any[])
+        const textItems = (textContent.items as any[])
           .filter((item: any) => 'str' in item && item.str.trim())
           .map((item: any) => ({
             str: item.str.trim(),
-            cy: Math.round(h - item.transform[5] * 3),
-            cx: Math.round(item.transform[4] * 3),
+            cx: Math.round(item.transform[4] * 2),
+            cy: Math.round(h - item.transform[5] * 2),
           }))
-        const headerCandidates = allTextItems.filter((i: { str: string; cy: number }) =>
-          i.cy < h * 0.25 && headerPatterns.some(p => p.test(i.str))
-        )
-        let headerBottom = Math.floor(h * 0.06)
-        if (headerCandidates.length > 0) {
-          const maxHeaderCy = Math.max(...headerCandidates.map((i: { cy: number }) => i.cy))
-          const leftItems = allTextItems
-            .filter((i: { cx: number; cy: number }) => i.cx < w * 0.45 && i.cy >= maxHeaderCy)
-            .sort((a: { cy: number }, b: { cy: number }) => a.cy - b.cy)
-          let clusterBottom = maxHeaderCy
-          const isDimLabel = (s: string) => /^\d+([.,]\d+)?$/.test(s)
-          for (let idx = 1; idx < leftItems.length; idx++) {
-            if (leftItems[idx].cy - leftItems[idx - 1].cy > 80) break
-            // Stop if we hit drawing dimension labels (e.g. "600", "120") beyond the header area
-            if (isDimLabel(leftItems[idx].str) && leftItems[idx].cy > maxHeaderCy + 50) break
-            // Stop if we hit spec keyword labels (e.g. "Buitenkader", "Muur configuratie")
-            if (specKeywords.test(leftItems[idx].str)) break
-            clusterBottom = leftItems[idx].cy
-          }
-          headerBottom = clusterBottom + 20
-        }
 
-        // 1b. Skip colored header bar (solid-color rows below text header)
-        for (let y = headerBottom; y < Math.floor(h * 0.30); y += 2) {
-          const sampleW = Math.floor(w * 0.60)
-          const rowData = fullCtx.getImageData(0, y, sampleW, 1).data
+        // Find the element header line (e.g. "Element 001", "Deur 001", "Merk 1")
+        const headerMatch = textItems.find((i: { str: string; cy: number }) =>
+          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+/i.test(i.str)
+        )
+        const isGealanPage = headerMatch && /Merk\s+\d+/i.test(headerMatch.str)
+
+        // Crop just above the element header (remove leverancier branding)
+        let cropTop = Math.floor(h * 0.04)
+        if (headerMatch) {
+          cropTop = Math.max(0, headerMatch.cy - 30)
+        }
+        // Skip colored header bars (only for non-Gealan — Gealan uses text tables, not solid bars)
+        if (!isGealanPage) {
+          const sampleW = Math.floor(w * 0.25)
           const samples = Math.floor(sampleW / 2)
-          let darkPx = 0
-          for (let px = 0; px < sampleW; px += 2) {
-            const r = rowData[px * 4], g = rowData[px * 4 + 1], b = rowData[px * 4 + 2]
-            if (r < 200 || g < 200 || b < 200) darkPx++
-          }
-          if (darkPx < samples * 0.15) { headerBottom = y; break }
-        }
-
-        // 2. Find right boundary using spec keyword detection
-        //    (dimension labels like "4600", "1185.2" on drawings should NOT trigger spec detection)
-        //    Find view labels first to distinguish side-column specs from bottom-section specs
-        const viewLabelItemsForBound = allTextItems.filter((i: { str: string; cy: number }) =>
-          /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/i.test(i.str) && i.cy > headerBottom
-        )
-        const firstViewLabelCy = viewLabelItemsForBound.length > 0
-          ? Math.min(...viewLabelItemsForBound.map((i: { cy: number }) => i.cy))
-          : Infinity
-        const specLabelItems = allTextItems.filter((i: { str: string; cx: number; cy: number }) =>
-          i.cx > w * 0.35 && i.cy > headerBottom && i.cy < h * 0.90 && specKeywords.test(i.str)
-        )
-        let rightBound: number
-        if (specLabelItems.length >= 2) {
-          // Only treat as side-column if spec items exist ABOVE the first view label.
-          // Specs below view labels are bottom sections (e.g. schuifpui buitenaanzicht page),
-          // not side columns, and should not constrain the drawing width.
-          const sideColumnSpecs = specLabelItems.filter((i: { cy: number }) => i.cy < firstViewLabelCy)
-          if (sideColumnSpecs.length >= 2) {
-            const specLeftX = Math.min(...sideColumnSpecs.map((i: { cx: number }) => i.cx))
-            rightBound = specLeftX - 30
-            rightBound = Math.max(rightBound, Math.floor(w * 0.35))
-          } else {
-            rightBound = Math.floor(w * 0.92)
-          }
-        } else {
-          // No spec table (drawing-only page): use almost full width
-          rightBound = Math.floor(w * 0.92)
-        }
-
-        // 3. Find "SPECIFICATIES" or "Specificaties" text — hard boundary to exclude leverancier spec sections
-        const specsHeaderItems = allTextItems.filter((i: { str: string; cy: number }) =>
-          /^SPECIFICATIES$|^Specificaties$/i.test(i.str) && i.cy > headerBottom
-        )
-        let specsHeaderCy = Infinity
-        if (specsHeaderItems.length > 0) {
-          specsHeaderCy = Math.min(...specsHeaderItems.map((i: { cy: number }) => i.cy))
-        }
-
-        // 3b. Find bottom of drawing content (scan up from SPECIFICATIES or page bottom)
-        const scanBottomStart = specsHeaderCy < Infinity ? specsHeaderCy - 10 : Math.floor(h * 0.90)
-        let bottomBound = scanBottomStart
-        for (let y = scanBottomStart; y > Math.floor(h * 0.30); y -= 3) {
-          const rowData = fullCtx.getImageData(0, y, rightBound, 1).data
-          let nonWhite = 0
-          for (let px = 0; px < rightBound; px += 2) {
-            const r = rowData[px * 4], g = rowData[px * 4 + 1], b = rowData[px * 4 + 2]
-            if (r < 230 || g < 230 || b < 230) nonWhite++
-          }
-          if (nonWhite > 5) { bottomBound = Math.min(y + 30, scanBottomStart); break }
-        }
-
-        // 3b2. Constrain bottom to just below the last view label.
-        //      Content below view labels (like Samenvatting tables) is not part of the drawing.
-        if (viewLabelItemsForBound.length > 0) {
-          const lastViewLabelCy = Math.max(...viewLabelItemsForBound.map((i: { cy: number }) => i.cy))
-          bottomBound = Math.min(bottomBound, lastViewLabelCy + 60)
-        }
-
-        // 3c. On full-width pages, constrain bottom only if spec keywords appear below the drawing
-        if (rightBound > Math.floor(w * 0.70)) {
-          const viewLabels = allTextItems.filter((i: { str: string; cy: number }) =>
-            /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht/i.test(i.str) && i.cy > headerBottom
-          )
-          if (viewLabels.length > 0) {
-            const lastLabelCy = Math.max(...viewLabels.map((i: { cy: number }) => i.cy))
-            const specsBelowDrawing = allTextItems.filter((i: { str: string; cy: number }) =>
-              i.cy > lastLabelCy + 20 && specKeywords.test(i.str)
-            )
-            if (specsBelowDrawing.length > 0) {
-              const firstSpecCy = Math.min(...specsBelowDrawing.map((i: { cy: number }) => i.cy))
-              bottomBound = Math.min(bottomBound, firstSpecCy - 15)
+          for (let y = cropTop; y < Math.floor(h * 0.25); y += 2) {
+            const rowData = ctx.getImageData(0, y, sampleW, 1).data
+            let darkPx = 0
+            for (let px = 0; px < sampleW; px += 2) {
+              if (rowData[px * 4] < 200 || rowData[px * 4 + 1] < 200 || rowData[px * 4 + 2] < 200) darkPx++
             }
-            // Detect colored bars (e.g. purple Samenvatting table header) below the drawing
-            for (let y = lastLabelCy + 30; y < bottomBound; y += 3) {
-              const rd = fullCtx.getImageData(0, y, rightBound, 1).data
-              let colored = 0
-              for (let px = 0; px < rightBound; px += 2) {
-                const r = rd[px * 4], g = rd[px * 4 + 1], b = rd[px * 4 + 2]
-                const mx = Math.max(r, g, b), mn = Math.min(r, g, b)
-                if (mx - mn > 40 && mx > 50 && r + g + b < 600) colored++
-              }
-              if (colored > Math.floor(rightBound / 4) * 0.10) {
-                bottomBound = Math.min(bottomBound, y - 15)
-                break
+            if (darkPx > samples * 0.80) cropTop = y + 4
+          }
+        }
+
+        // Hide supplier prices on green bars
+        // Detect green bars (>30% of row green, ≥12px tall), then paint over
+        // text with the bar's own green color. This preserves the bar as a
+        // visual separator (no white stripes) while hiding price text.
+        const imgData = ctx.getImageData(0, 0, w, h)
+        const greenBarRows: boolean[] = new Array(h).fill(false)
+        for (let y = 0; y < h; y++) {
+          let greenCount = 0
+          for (let x = 0; x < w; x += 2) {
+            const idx = (y * w + x) * 4
+            const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+            if (g > 80 && g > r + 20 && g > b + 20) greenCount++
+          }
+          greenBarRows[y] = greenCount > (w / 2) * 0.30
+        }
+        const bars: { start: number; end: number }[] = []
+        let barStart = -1
+        for (let y = 0; y <= h; y++) {
+          if (y < h && greenBarRows[y]) {
+            if (barStart === -1) barStart = y
+          } else if (barStart !== -1) {
+            if (y - barStart >= 12) bars.push({ start: barStart, end: y })
+            barStart = -1
+          }
+        }
+        // For each green bar, find the actual green pixel range per row
+        // and fill only that range with white (not the full page width)
+        for (const bar of bars) {
+          for (let y = bar.start; y < bar.end; y++) {
+            let left = w, right = 0
+            for (let x = 0; x < w; x++) {
+              const idx = (y * w + x) * 4
+              const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+              if (g > 80 && g > r + 20 && g > b + 20) {
+                if (x < left) left = x
+                if (x > right) right = x
               }
             }
-            // Detect summary tables below drawing via white gap after view labels.
-            // If a gap >= 40px of white rows is followed by content, it's a table to exclude.
-            let whiteGapStart = -1
-            for (let y = lastLabelCy + 40; y < bottomBound; y += 3) {
-              const rd = fullCtx.getImageData(0, y, rightBound, 1).data
-              let nw = 0
-              for (let px = 0; px < rightBound; px += 2) {
-                const r = rd[px * 4], g = rd[px * 4 + 1], b = rd[px * 4 + 2]
-                if (r < 230 || g < 230 || b < 230) nw++
-              }
-              if (nw <= 3) {
-                if (whiteGapStart < 0) whiteGapStart = y
-              } else {
-                if (whiteGapStart >= 0 && y - whiteGapStart >= 40) {
-                  bottomBound = Math.min(bottomBound, whiteGapStart)
-                  break
-                }
-                whiteGapStart = -1
-              }
+            if (right > left) {
+              ctx.fillStyle = '#FFFFFF'
+              ctx.fillRect(left, y, right - left + 1, 1)
             }
           }
         }
 
-        // 4. Find top of content
-        let contentTop = headerBottom
-        let firstContentY = headerBottom
-        for (let y = headerBottom; y < Math.floor(h * 0.40); y += 3) {
-          const rowData = fullCtx.getImageData(0, y, rightBound, 1).data
-          let nonWhite = 0
-          for (let px = 0; px < rightBound; px += 2) {
-            const r = rowData[px * 4], g = rowData[px * 4 + 1], b = rowData[px * 4 + 2]
-            if (r < 230 || g < 230 || b < 230) nonWhite++
-          }
-          if (nonWhite > 5) { firstContentY = y; contentTop = Math.max(headerBottom, y - 80); break }
-        }
-
-        // 4b. Skip remark text between header and drawing (pixel-based gap detection).
-        //     If there's a small content block (< 150px) followed by a large white gap
-        //     (>= 60px), it's likely Commentaar/remark text that should be skipped.
-        if (firstViewLabelCy < Infinity) {
-          const maxScanY = Math.min(firstContentY + Math.floor(h * 0.15), firstViewLabelCy - 150)
-          let consecutiveWhite = 0
-          let lastContentBeforeGap = firstContentY
-          for (let y = firstContentY + 3; y < maxScanY; y += 3) {
-            const rowData = fullCtx.getImageData(0, y, rightBound, 1).data
-            let nonWhite = 0
-            for (let px = 0; px < rightBound; px += 2) {
-              const r = rowData[px * 4], g = rowData[px * 4 + 1], b = rowData[px * 4 + 2]
-              if (r < 230 || g < 230 || b < 230) nonWhite++
-            }
-            if (nonWhite > 3) {
-              if (consecutiveWhite >= 60) {
-                const preGapHeight = lastContentBeforeGap - firstContentY
-                if (preGapHeight >= 10 && preGapHeight < 150) {
-                  const preGapText = allTextItems.filter((i: { str: string; cy: number; cx: number }) =>
-                    i.cy >= firstContentY - 10 && i.cy <= lastContentBeforeGap + 10 &&
-                    i.cx < rightBound && !/^\d+([.,]\d+)?$/.test(i.str)
-                  )
-                  if (preGapText.length > 0) {
-                    contentTop = Math.max(headerBottom, y - 30)
-                  }
-                }
-                break
-              }
-              consecutiveWhite = 0
-              lastContentBeforeGap = y
-            } else {
-              consecutiveWhite += 3
-            }
-          }
-          // Safety: ensure contentTop doesn't cut into the first view label area
-          if (contentTop > firstViewLabelCy - 100) {
-            contentTop = Math.max(headerBottom, firstViewLabelCy - 100)
+        // Hide "geen garantie" text
+        for (const ti of textItems) {
+          if (/geen\s*garantie/i.test(ti.str)) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
           }
         }
 
-        const cropW = rightBound
-        const cropH = bottomBound - contentTop
+        // Keep everything from cropTop to bottom (minus small footer margin)
+        const cropBottom = Math.floor(h * 0.97)
+        const cropH = cropBottom - cropTop
         const croppedCanvas = document.createElement('canvas')
-        croppedCanvas.width = cropW
+        croppedCanvas.width = w
         croppedCanvas.height = cropH
-        const croppedCtx = croppedCanvas.getContext('2d')!
-        croppedCtx.drawImage(fullCanvas, 0, contentTop, cropW, cropH, 0, 0, cropW, cropH)
-        fullCanvas.remove()
+        croppedCanvas.getContext('2d')!.drawImage(canvas, 0, cropTop, w, cropH, 0, 0, w, cropH)
+        canvas.remove()
         return croppedCanvas
       }
 
-      // Render each element's drawing pages and combine multi-page into single image
+      // Render each element's pages individually (no combining)
       const tekeningen: RenderedTekening[] = []
       for (let ei = 0; ei < elementOrder.length; ei++) {
         const naam = elementOrder[ei]
@@ -392,42 +272,21 @@ export function StapTekeningen({
         if (pageNums.length === 0) continue
         setProgress(`Tekeningen extraheren (${ei + 1}/${elementOrder.length})...`)
 
-        // Render and crop each page
-        const croppedCanvases: HTMLCanvasElement[] = []
-        for (const pn of pageNums) {
-          croppedCanvases.push(await cropPage(pn))
-        }
-
-        // Combine all cropped pages into one image (stacked vertically)
-        let blob: Blob
-        if (croppedCanvases.length === 1) {
-          const single = croppedCanvases[0]
-          blob = await new Promise<Blob>((resolve) => {
-            single.toBlob((b) => resolve(b!), 'image/png', 0.9)
+        for (let pi = 0; pi < pageNums.length; pi++) {
+          const croppedCanvas = await renderPageWithHeaderCrop(pageNums[pi])
+          const blob = await new Promise<Blob>((resolve) => {
+            croppedCanvas.toBlob((b) => resolve(b!), 'image/png', 0.9)
           })
-          single.remove()
-        } else {
-          const maxW = Math.max(...croppedCanvases.map(c => c.width))
-          const totalH = croppedCanvases.reduce((sum, c) => sum + c.height, 0) + (croppedCanvases.length - 1) * 20
-          const combined = document.createElement('canvas')
-          combined.width = maxW
-          combined.height = totalH
-          const ctx = combined.getContext('2d')!
-          ctx.fillStyle = 'white'
-          ctx.fillRect(0, 0, maxW, totalH)
-          let yOff = 0
-          for (const c of croppedCanvases) {
-            ctx.drawImage(c, 0, yOff)
-            yOff += c.height + 20
-            c.remove()
-          }
-          blob = await new Promise<Blob>((resolve) => {
-            combined.toBlob((b) => resolve(b!), 'image/png', 0.9)
-          })
-          combined.remove()
-        }
+          croppedCanvas.remove()
 
-        tekeningen.push({ pageNum: pageNums[0], naam, blob })
+          tekeningen.push({
+            pageNum: pageNums[pi],
+            naam,
+            blob,
+            pageIndex: pi,
+            totalPages: pageNums.length,
+          })
+        }
       }
 
       setProgress('')

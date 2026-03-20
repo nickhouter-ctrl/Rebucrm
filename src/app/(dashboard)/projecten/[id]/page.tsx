@@ -1,15 +1,14 @@
-import { getProject, getRelaties, getOffertesByProject } from '@/lib/actions'
+import { getProjectTimeline, getRelaties } from '@/lib/actions'
 import { ProjectDetail } from './project-detail'
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const isNew = id === 'nieuw'
 
-  const [project, relaties, offertes] = await Promise.all([
-    isNew ? null : getProject(id),
+  const [timeline, relaties] = await Promise.all([
+    isNew ? null : getProjectTimeline(id),
     getRelaties(),
-    isNew ? [] : getOffertesByProject(id),
   ])
 
-  return <ProjectDetail project={project} relaties={relaties} offertes={offertes} isNew={isNew} />
+  return <ProjectDetail timeline={timeline} relaties={relaties} isNew={isNew} />
 }

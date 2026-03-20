@@ -47,7 +47,7 @@ export async function GET(
         try {
           // Support both old format (array) and new format (object with tekeningen + margePercentage)
           const rawMeta = JSON.parse(metaDoc.storage_path)
-          let tekeningData: { naam: string; tekeningPath: string }[]
+          let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[]
           let margePercentage = 0
           if (Array.isArray(rawMeta)) {
             tekeningData = rawMeta
@@ -71,7 +71,10 @@ export async function GET(
             const leverancierTotaalRaw = parseTotaalFromText(parsed.text)
 
             // Download tekening images and convert to base64
-            kozijnElementen = []
+            // Group by element name to support multi-page elements
+            const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
+            const elementOrder: string[] = []
+
             for (const tekening of tekeningData) {
               const { data: imgFile } = await supabaseAdmin.storage
                 .from('documenten')
@@ -83,14 +86,25 @@ export async function GET(
                 tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
               }
 
-              // Find matching element data
-              const matchingElement = elementData.find(e => e.naam === tekening.naam)
-              // Apply marge to price
+              const pageIndex = tekening.pageIndex ?? 0
+              const totalPages = tekening.totalPages ?? 1
+
+              if (!elementTekeningen.has(tekening.naam)) {
+                elementTekeningen.set(tekening.naam, [])
+                elementOrder.push(tekening.naam)
+              }
+              elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
+            }
+
+            kozijnElementen = []
+            for (const naam of elementOrder) {
+              const pages = elementTekeningen.get(naam)!
+              const matchingElement = elementData.find(e => e.naam === naam)
               const inkoopPrijs = matchingElement?.prijs || 0
               const verkoopPrijs = margePercentage > 0 ? Math.round(inkoopPrijs * (1 + margePercentage / 100) * 100) / 100 : inkoopPrijs
 
               kozijnElementen.push({
-                naam: matchingElement?.naam || tekening.naam,
+                naam: matchingElement?.naam || naam,
                 hoeveelheid: matchingElement?.hoeveelheid || 1,
                 systeem: matchingElement?.systeem || '',
                 kleur: matchingElement?.kleur || '',
@@ -118,7 +132,8 @@ export async function GET(
                 gelijksluitend: matchingElement?.gelijksluitend || '',
                 krukBinnen: matchingElement?.krukBinnen || '',
                 krukBuiten: matchingElement?.krukBuiten || '',
-                tekeningUrl,
+                tekeningUrl: pages[0]?.url || '',
+                tekeningUrls: pages,
               })
             }
 
@@ -193,14 +208,24 @@ interface ParsedElement {
 function parseElementsFromText(text: string): ParsedElement[] {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
-  // Detect Eko-Okna format (uses "Hoev. :" instead of "Hoeveelheid:")
-  const isEkoOkna = /Hoev\.\s*:\s*\d+/.test(text)
+  // Detect format
+  const isGealan = /Merk\s+\d+Aantal:\d+/.test(text)
+  const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Find element headers
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
-  if (isEkoOkna) {
-    const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
+  if (isGealan) {
+    const elementPattern = /Merk\s+(\d+)Aantal:(\d+)(?:Verbinding:\w+)?Systeem:\s*([^\n]+(?:\n[^\n]+)?)/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      const nextMerkIdx = text.indexOf('Merk ' + (parseInt(match[1]) + 1) + 'Aantal:', match.index + 1)
+      const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
+      const section = text.substring(match.index, sectionEnd)
+      const kleurMatch = section.match(/Kader\s+([^\n]+)/)
+      headers.push({ naam: 'Merk ' + match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim().replace(/\n/g, ' '), kleur: kleurMatch ? kleurMatch[1].trim() : '', idx: match.index, endIdx: match.index + match[0].length })
+    }
+  } else if (isEkoOkna) {
+    const elementPattern = /((?:Gekoppeld\s+)?(?:Deur|[Ee]lement)\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
     while ((match = elementPattern.exec(text)) !== null) {
       headers.push({ naam: match[1].trim(), hoeveelheid: parseInt(match[2]), systeem: match[4].trim(), kleur: match[3].trim(), idx: match.index, endIdx: match.index + match[0].length })
     }
@@ -214,7 +239,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
   // Find all Buitenaanzicht positions — specs appear BEFORE each element header
   const allBuitenPositions: number[] = []
   const specsPositions: number[] = []
-  if (!isEkoOkna) {
+  if (!isEkoOkna && !isGealan) {
     const buitenPattern = /Buitenaanzicht\n/g
     while ((match = buitenPattern.exec(text)) !== null) { allBuitenPositions.push(match.index) }
     for (let i = 0; i < headers.length; i++) {
@@ -224,9 +249,9 @@ function parseElementsFromText(text: string): ParsedElement[] {
     }
   }
 
-  // Extract prices in order (only for non-Eko-Okna; Eko-Okna uses only totaal)
+  // Extract prices in order (only for original format)
   const allPrices: number[] = []
-  if (!isEkoOkna) {
+  if (!isEkoOkna && !isGealan) {
     const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
     let priceMatch
     while ((priceMatch = pricePattern.exec(text)) !== null) {
@@ -243,7 +268,12 @@ function parseElementsFromText(text: string): ParsedElement[] {
     let notesText: string
     let searchText: string
 
-    if (isEkoOkna) {
+    if (isGealan) {
+      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
+      searchText = text.substring(header.endIdx, nextIdx)
+      specsText = searchText
+      notesText = searchText
+    } else if (isEkoOkna) {
       const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
       searchText = text.substring(header.endIdx, nextIdx)
       specsText = searchText
@@ -261,11 +291,18 @@ function parseElementsFromText(text: string): ParsedElement[] {
     }
 
     let prijs = 0
-    if (isEkoOkna) {
+    if (isGealan) {
+      const gealanPriceMatch = searchText.match(/Netto prijs\n\w+?([\d.,]+)\n/)
+      if (gealanPriceMatch) {
+        prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
+      }
+    } else if (isEkoOkna) {
       // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
       let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
       // Fallback: single price before "E" (no "N x" prefix)
       if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs van het element\s*([\d\s.]+,\d{2})\s*E/i)
+      // Deur elements use "Deurprijs" instead of "Prijs van het element"
+      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Deurprijs\s*([\d\s.]+,\d{2})\s*E/i)
       if (ekoPriceMatch) {
         const prijsStr = ekoPriceMatch[1].trim()
         prijs = parseFloat(prijsStr.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
@@ -276,7 +313,22 @@ function parseElementsFromText(text: string): ParsedElement[] {
 
     let drapirichting = '', type = header.naam.startsWith('Deur') ? 'Deur' :
       header.naam.toLowerCase().startsWith('gekoppeld') ? 'Koppelelement' : 'Raam'
-    const vleugelMatches = specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g)
+
+    if (isGealan) {
+      const vleugelGealanMatches = searchText.match(/Vleugel\s+[^\n]+/g)
+      if (vleugelGealanMatches) {
+        for (const v of vleugelGealanMatches) {
+          if (/DK\s*Raam/i.test(v)) { type = 'Draai-kiep raam' }
+          else if (/Stolpdeur\s+buitendr/i.test(v)) { type = 'Stolpdeur'; drapirichting = 'Naar buiten draaiend' }
+          else if (/Deur\s+binnendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar binnen draaiend' }
+          else if (/Deur\s+buitendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar buiten draaiend' }
+        }
+      } else {
+        type = 'Vast raam'
+      }
+    }
+
+    const vleugelMatches = !isGealan ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
     if (vleugelMatches) {
       let allVast = true
       for (const desc of vleugelMatches) {
@@ -290,7 +342,8 @@ function parseElementsFromText(text: string): ParsedElement[] {
       if (type !== 'Deur' && type !== 'Terrasraam' && allVast) { type = 'Vast raam' }
     }
     const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
-    const beslag = cleanField(beslagMatch ? beslagMatch[1].trim() : '')
+    const gealanBeslagMatch = isGealan ? searchText.match(/Raamkruk\s*\n\s*\n([^\n]+)/i) : null
+    const beslag = cleanField((beslagMatch ? beslagMatch[1].trim() : '') || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
     if (/Draai-kiep|Draai\s*-\s*kiep|Tilt\s*&\s*Turn/i.test(beslag) && type === 'Raam') type = 'Draai-kiep raam'
     else if (/Draai\s*\+\s*Draai\s*-?\s*kiep/i.test(beslag) && type === 'Raam') type = 'Draai + draai-kiep raam'
     else if (/Draai\s*\+\s*Draai\s*-?\s*deur/i.test(beslag) && drapirichting) type = 'Dubbele deur'
@@ -334,9 +387,28 @@ function parseElementsFromText(text: string): ParsedElement[] {
       }
       glasType = glasTypes.join(' / ')
     }
+    if (isGealan && !glasType) {
+      const glasSection = searchText.match(/Beglazingen & panelen[\s\S]*?(?=Netto prijs|$)/)
+      if (glasSection) {
+        const glasTypes = new Set<string>()
+        const glasPat = /(HR\+\+[^\n]+)/g
+        let gm
+        while ((gm = glasPat.exec(glasSection[0])) !== null) {
+          glasTypes.add(cleanField(gm[1].trim()))
+        }
+        glasType = Array.from(glasTypes).join(' / ')
+      }
+    }
+
+    // Gealan helper: extract spec value from "  Label\n \nValue\n" format
+    const gealanSpec = isGealan ? (label: string) => {
+      const m = searchText.match(new RegExp(label + '\\s*\\n\\s*\\n([^\\n]+)', 'i'))
+      return m ? cleanField(m[1].trim()) : ''
+    } : () => ''
+
     const dorpelMatch = searchText.match(/Deur\s*drempel\s*([^\n]+)/i) || searchText.match(/HST\s*dorpel\s*type\s*([^\n]+)/i) || searchText.match(/Dorpel\s*([^\n]+)/i)
-    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/)
-    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i)
+    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/) || searchText.match(/Slot\s*\n\s*\n([^\n]+)/i)
+    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i) || searchText.match(/Uitv\.\s*scharnieren\s*\n\s*\n([^\n]+)/i)
     const uwMatch = searchText.match(/Uw\s*=\s*([\d,]+\s*W\/m.*?K)/)
     const gewichtMatch = searchText.match(/Eenheidsgewicht\s*([\d.,]+\s*Kg)/i)
     const omtrekMatch = searchText.match(/Eenheidsomtrek\s*([\d.,]+\s*mm)/i) || searchText.match(/\bOmtrek\s*([\d.,]+\s*m)\b/i)
@@ -344,13 +416,13 @@ function parseElementsFromText(text: string): ParsedElement[] {
     const hoekverbindingMatch = searchText.match(/Hoekverbinding\s*([^\n]+)/i)
     const montageGatenMatch = searchText.match(/Montage\s*gaten\([^)]+\):\s*(\w+)/i) || searchText.match(/Montage\s*gaten\s+(\w[^\n]*)/i)
     const afwateringMatch = searchText.match(/Afwatering\s*([^\n]+)/i)
-    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
+    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*\n\s*\n([^\n]+)/i) || searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
     const lakKleurMatch = searchText.match(/Lak\s*kleur\s*([^\n]+)/i)
-    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i)
+    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i) || searchText.match(/Cilinder\s*\n\s*\n([^\n]+)/i)
     const aantalSleutelsMatch = searchText.match(/Aantal\s*sleutels?\s*([^\n]+)/i)
     const gelijksluitendMatch = searchText.match(/Gelijksluitend[e]?\s*(?:cilinder)?\s*([^\n]+)/i)
-    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i)
-    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i)
+    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i) || searchText.match(/Kruk binnen\s*\n\s*\n([^\n]+)/i)
+    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i) || searchText.match(/Kruk buiten\s*\n\s*\n([^\n]+)/i)
     const commentaarMatch = notesText.match(/Commentaar(?:\s+op het product)?\n([^\n]+)/)
 
     elementen.push({
@@ -359,9 +431,9 @@ function parseElementsFromText(text: string): ParsedElement[] {
       afmetingen: afmMatch ? afmMatch[1] : '', type, prijs, glasType, beslag,
       uwWaarde: uwMatch ? cleanField(uwMatch[1].trim()) : '',
       drapirichting,
-      dorpel: dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '',
-      sluiting: sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '',
-      scharnieren: scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '',
+      dorpel: (dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '') || gealanSpec('Dorpel'),
+      sluiting: (sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '') || gealanSpec('Slot'),
+      scharnieren: (scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '') || gealanSpec('Uitv\\. scharnieren'),
       gewicht: gewichtMatch ? gewichtMatch[1].trim() : '',
       omtrek: omtrekMatch ? omtrekMatch[1].trim() : '',
       paneel: paneelMatch ? cleanField(paneelMatch[1].trim()) : '',
@@ -369,13 +441,13 @@ function parseElementsFromText(text: string): ParsedElement[] {
       hoekverbinding: hoekverbindingMatch ? cleanField(hoekverbindingMatch[1].trim()) : '',
       montageGaten: montageGatenMatch ? cleanField(montageGatenMatch[1].trim()) : '',
       afwatering: afwateringMatch ? cleanField(afwateringMatch[1].trim()) : '',
-      scharnierenKleur: scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '',
+      scharnierenKleur: (scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '') || gealanSpec('Kleur scharnieren'),
       lakKleur: lakKleurMatch ? cleanField(lakKleurMatch[1].trim()) : '',
-      sluitcilinder: sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '',
+      sluitcilinder: (sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '') || gealanSpec('Cilinder'),
       aantalSleutels: aantalSleutelsMatch ? cleanField(aantalSleutelsMatch[1].trim()) : '',
       gelijksluitend: gelijksluitendMatch ? cleanField(gelijksluitendMatch[1].trim()) : '',
-      krukBinnen: krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '',
-      krukBuiten: krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '',
+      krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen'),
+      krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten'),
     })
   }
 
@@ -383,9 +455,15 @@ function parseElementsFromText(text: string): ParsedElement[] {
 }
 
 function parseTotaalFromText(text: string): number {
-  const isEkoOkna = /Hoev\.\s*:\s*\d+/.test(text)
+  const isGealan = /Merk\s+\d+Aantal:\d+/.test(text)
+  const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
 
-  if (isEkoOkna) {
+  if (isGealan) {
+    const totaalMatch = text.match(/Netto totaal\nTotaal([\d.,]+)/)
+    if (totaalMatch) {
+      return parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    }
+  } else if (isEkoOkna) {
     // Eko-Okna prices are always excl. BTW
     let totaalMatch = text.match(/([\d\s.,]+)\s*E\s*\n?\s*Totaal\b/)
     if (!totaalMatch) totaalMatch = text.match(/Totaal\s*\n?\s*([\d\s.,]+)\s*E(?:UR)?\b/i)

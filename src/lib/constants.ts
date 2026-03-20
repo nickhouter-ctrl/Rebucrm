@@ -2,14 +2,19 @@ import {
   LayoutDashboard,
   Users,
   FileText,
+  FilePen,
   Receipt,
   Package,
   FolderKanban,
   Clock,
   CheckSquare,
+  Calendar,
   Inbox,
   BarChart3,
   Settings,
+  Mail,
+  UserSearch,
+  HardHat,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -22,12 +27,18 @@ export interface NavItem {
 export const navigationItems: NavItem[] = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
   { label: 'Relatiebeheer', href: '/relatiebeheer', icon: Users },
+  { label: 'Leads', href: '/leads', icon: UserSearch },
   { label: 'Offertes & Orders', href: '/offertes', icon: FileText },
+  { label: 'Concept offertes', href: '/offertes/concepten', icon: FilePen },
   { label: 'Facturatie', href: '/facturatie', icon: Receipt },
   { label: 'Producten', href: '/producten', icon: Package },
   { label: 'Projecten', href: '/projecten', icon: FolderKanban },
   { label: 'Urenregistratie', href: '/uren', icon: Clock },
-  { label: 'Taken & Agenda', href: '/taken', icon: CheckSquare },
+  { label: 'Medewerkers', href: '/medewerkers', icon: HardHat },
+  { label: 'Agenda', href: '/agenda', icon: Calendar },
+  { label: 'Taken', href: '/taken', icon: CheckSquare },
+  { label: 'Aanvragen', href: '/aanvragen', icon: Inbox },
+  { label: 'E-mail', href: '/email', icon: Mail },
   { label: 'Documenten inbox', href: '/documenten', icon: Inbox },
   { label: 'Rapportages', href: '/rapportages', icon: BarChart3 },
   { label: 'Beheer', href: '/beheer', icon: Settings },
@@ -80,4 +91,21 @@ export const statusKleuren: Record<string, string> = {
   readonly: 'bg-gray-100 text-gray-700',
   particulier: 'bg-blue-100 text-blue-700',
   zakelijk: 'bg-purple-100 text-purple-700',
+  offerte_aanvraag: 'bg-green-100 text-green-700',
+  offerte_reactie: 'bg-blue-100 text-blue-700',
+  onzeker: 'bg-orange-100 text-orange-700',
+  irrelevant: 'bg-gray-100 text-gray-400',
+  gecontacteerd: 'bg-cyan-100 text-cyan-700',
+  offerte_verstuurd: 'bg-indigo-100 text-indigo-700',
+  gewonnen: 'bg-emerald-100 text-emerald-700',
+  verloren: 'bg-red-100 text-red-700',
+  werknemer: 'bg-blue-100 text-blue-700',
+  zzp: 'bg-orange-100 text-orange-700',
+  medewerker: 'bg-teal-100 text-teal-700',
 }
+
+export const leadStatussen = ['nieuw', 'gecontacteerd', 'offerte_verstuurd', 'gewonnen', 'verloren'] as const
+export type LeadStatus = (typeof leadStatussen)[number]
+
+export const medewerkerTypes = ['werknemer', 'zzp'] as const
+export type MedewerkerType = (typeof medewerkerTypes)[number]

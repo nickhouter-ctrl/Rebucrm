@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2 } from 'lucide-react'
+import { Pipeline } from '@/components/verkoopkans/pipeline'
+import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
 import { Dialog } from '@/components/ui/dialog'
 
@@ -71,12 +73,13 @@ interface ProjectWithOffertes {
     datum: string
     status: string
     totaal: number
+    facturen?: { id: string; factuur_type: string; status: string }[]
   }[]
 }
 
 interface KlantAccount {
   id: string
-  profiel: { id: string; naam: string; email: string } | null
+  profiel: { id: string; naam: string; email: string } | { id: string; naam: string; email: string }[] | null
   created_at: string
 }
 
@@ -276,18 +279,44 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
           ) : (
             projecten.map(p => {
               const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+              const geoffreerd = sortedOffertes.reduce((sum, o) => sum + (o.totaal || 0), 0)
+              const allFacturen = sortedOffertes.flatMap(o => o.facturen || [])
+              const heeftOffertes = sortedOffertes.length > 0
+              const heeftGeaccepteerd = sortedOffertes.some(o => o.status === 'geaccepteerd')
+              const heeftAanbetaling = allFacturen.some(f => (f.factuur_type === 'aanbetaling' || f.factuur_type === 'volledig') && f.status !== 'concept')
+              const heeftRestbetaling = allFacturen.some(f => f.factuur_type === 'restbetaling' && f.status !== 'concept')
+              const isAfgerond = p.status === 'afgerond'
+              const stages: PipelineStage[] = [
+                { key: 'contact', label: 'Contact', bereikt: true, actief: false },
+                { key: 'offerte', label: 'Offerte', bereikt: heeftOffertes, actief: false },
+                { key: 'offerte_akkoord', label: 'Akkoord', bereikt: heeftGeaccepteerd, actief: false },
+                { key: 'eerste_factuur', label: '1e Factuur', bereikt: heeftAanbetaling, actief: false },
+                { key: 'tweede_factuur', label: '2e Factuur', bereikt: heeftRestbetaling, actief: false },
+                { key: 'afgerond', label: 'Afgerond', bereikt: isAfgerond, actief: false },
+              ]
+              const laatsteBereikte = stages.reduce((idx, s, i) => (s.bereikt ? i : idx), 0)
+              stages[laatsteBereikte].actief = true
+
               return (
                 <Card key={p.id}>
                   <div
-                    className="px-6 py-4 border-b border-gray-200 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                    className="px-6 py-4 border-b border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
                     onClick={() => router.push(`/projecten/${p.id}`)}
                   >
-                    <div className="flex items-center gap-3">
-                      <FolderKanban className="h-4 w-4 text-gray-500" />
-                      <h3 className="font-semibold text-gray-900">{p.naam}</h3>
-                      <Badge status={p.status} />
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <FolderKanban className="h-4 w-4 text-gray-500" />
+                        <h3 className="font-semibold text-gray-900">{p.naam}</h3>
+                        <Badge status={p.status} />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {geoffreerd > 0 && (
+                          <span className="text-sm font-medium text-gray-700">{formatCurrency(geoffreerd)}</span>
+                        )}
+                        <span className="text-sm text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''}</span>
+                      </div>
                     </div>
-                    <span className="text-sm text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''}</span>
+                    <Pipeline stages={stages} compact />
                   </div>
                   {sortedOffertes.length > 0 && (
                     <CardContent className="p-0">

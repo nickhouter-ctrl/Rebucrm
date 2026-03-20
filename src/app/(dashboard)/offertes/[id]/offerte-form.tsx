@@ -44,20 +44,23 @@ const ZAKELIJK_REGELS: Regel[] = [
   { omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: 0, btw_percentage: 21 },
 ]
 
-export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode }: {
+export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder }: {
   offerte: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
   initialRelatieId?: string | null
   initialRelatieName?: string | null
-  wizardMode?: boolean
+  wizardMode?: boolean | 'concept'
+  linkedOrder?: { id: string; ordernummer: string; status: string } | null
 }) {
   const router = useRouter()
   const isNew = !offerte
+  const isConceptWizard = wizardMode === 'concept'
 
   // ========== WIZARD STATE ==========
   // Steps: 0=klant, 1=project, 2=type, 3=tekeningen, 4=marge, 5=controleren, 6=versturen
   const [step, setStep] = useState(() => {
+    if (isConceptWizard) return 2 // concept offerte: klant+project al ingevuld, start bij type
     if (!isNew && wizardMode) return 3 // nieuwe versie: start bij tekeningen
     if (!isNew) return -1 // edit mode
     if (initialRelatieId) return 1 // skip klant kiezen
@@ -68,7 +71,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [selectedRelatieName, setSelectedRelatieName] = useState<string>(initialRelatieName || '')
   const [selectedProjectId, setSelectedProjectId] = useState<string>((offerte?.project_id as string) || '')
   const [selectedProjectName, setSelectedProjectName] = useState<string>('')
-  const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew && !wizardMode ? null : 'zakelijk')
+  const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew && !wizardMode ? null : isConceptWizard ? null : 'zakelijk')
   const [regels, setRegels] = useState<Regel[]>((offerte?.regels as Regel[]) || [])
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
   const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
@@ -135,12 +138,13 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     setMargePercentage(0)
   }
 
-  function handleMargeNext() {
-    // Calculate verkoop totaal with marge and fill kozijnen prijs
+  function handleMargeNext(marges: Record<string, number>) {
+    // Calculate verkoop totaal with per-element marges and fill kozijnen prijs
     if (parsedPdfResult) {
-      const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-      const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
-      const verkoopTotaal = inkoopTotaal * (1 + margePercentage / 100)
+      const verkoopTotaal = parsedPdfResult.elementen.reduce((sum, e) => {
+        const eMarge = marges[e.naam] ?? margePercentage
+        return sum + e.prijs * (1 + eMarge / 100) * e.hoeveelheid
+      }, 0)
       const kozijnRegelIndex = regels.findIndex(r =>
         r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
         r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
@@ -180,13 +184,13 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
 
   // ========== WIZARD RENDERING ==========
 
-  if ((isNew || wizardMode) && step >= 0) {
+  if ((isNew || wizardMode || isConceptWizard) && step >= 0) {
     return (
       <div>
         <PageHeader
-          title={wizardMode ? `Nieuwe versie ${offerte?.offertenummer || ''}` : 'Nieuwe offerte'}
+          title={isConceptWizard ? `Offerte afmaken — ${offerte?.offertenummer || ''}` : wizardMode ? `Nieuwe versie ${offerte?.offertenummer || ''}` : 'Nieuwe offerte'}
           actions={
-            <Button variant="ghost" onClick={() => router.push('/offertes')}>
+            <Button variant="ghost" onClick={() => router.push(isConceptWizard ? '/offertes/concepten' : '/offertes')}>
               <ArrowLeft className="h-4 w-4" />
               Annuleren
             </Button>
@@ -247,7 +251,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
                 parsedPdfResult={parsedPdfResult}
                 margePercentage={margePercentage}
                 onMargeChange={setMargePercentage}
-                onNext={handleMargeNext}
+                onNext={(marges) => handleMargeNext(marges)}
                 onSkip={handleMargeSkip}
                 onBack={() => setStep(3)}
               />
@@ -265,8 +269,8 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
 
           {step === 5 && offerteType && (
             <StapControleren
-              offerte={wizardMode ? offerte : null}
-              isNew={!wizardMode}
+              offerte={(wizardMode || isConceptWizard) ? offerte : null}
+              isNew={!wizardMode && !isConceptWizard}
               relatieName={selectedRelatieName}
               projectName={selectedProjectName}
               offerteType={offerteType}
@@ -308,6 +312,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
       selectedProjectId={selectedProjectId}
       selectedRelatieName={selectedRelatieName}
       selectedProjectName={selectedProjectName}
+      linkedOrder={linkedOrder}
     />
   )
 }
@@ -322,6 +327,7 @@ function EditOfferteView({
   selectedProjectId: initProjectId,
   selectedRelatieName,
   selectedProjectName,
+  linkedOrder,
 }: {
   offerte: Record<string, unknown>
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
@@ -331,6 +337,7 @@ function EditOfferteView({
   selectedProjectId: string
   selectedRelatieName: string
   selectedProjectName: string
+  linkedOrder?: { id: string; ordernummer: string; status: string } | null
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -569,6 +576,22 @@ function EditOfferteView({
           <Button variant="secondary" size="sm" onClick={handleNieuweVersie} disabled={loading}>
             <Copy className="h-3.5 w-3.5" />
             Nieuwe versie aanmaken
+          </Button>
+        </div>
+      )}
+
+      {/* Link naar order */}
+      {linkedOrder && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FolderKanban className="h-4 w-4 text-green-600" />
+            <p className="text-sm text-green-800">
+              Klus <strong>{linkedOrder.ordernummer}</strong> aangemaakt
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => router.push(`/offertes/orders/${linkedOrder.id}`)}>
+            <FolderKanban className="h-3.5 w-3.5" />
+            Bekijk klus
           </Button>
         </div>
       )}

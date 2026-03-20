@@ -1,4 +1,4 @@
-import { getOfferte, getRelaties, getProducten } from '@/lib/actions'
+import { getOfferte, getRelaties, getProducten, getOrderByOfferteId } from '@/lib/actions'
 import { OfferteForm } from './offerte-form'
 
 export default async function OfferteDetailPage({
@@ -10,10 +10,11 @@ export default async function OfferteDetailPage({
 }) {
   const { id } = await params
   const { relatie_id, wizard } = await searchParams
-  const [offerte, relaties, producten] = await Promise.all([
+  const [offerte, relaties, producten, linkedOrder] = await Promise.all([
     id === 'nieuw' ? null : getOfferte(id),
     getRelaties(),
     getProducten(),
+    id === 'nieuw' ? null : getOrderByOfferteId(id),
   ])
 
   const relatiesWithDetails = relaties.map((r: Record<string, unknown>) => ({
@@ -37,7 +38,8 @@ export default async function OfferteDetailPage({
       producten={producten}
       initialRelatieId={initialRelatie?.id || null}
       initialRelatieName={initialRelatie?.bedrijfsnaam || null}
-      wizardMode={wizard === 'true'}
+      wizardMode={wizard === 'concept' ? 'concept' : wizard === 'true' ? true : false}
+      linkedOrder={linkedOrder}
     />
   )
 }

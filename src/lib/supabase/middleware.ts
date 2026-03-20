@@ -33,7 +33,7 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const publicPaths = ['/login', '/registreren', '/wachtwoord-vergeten']
+  const publicPaths = ['/login', '/registreren', '/wachtwoord-vergeten', '/api/email/sync']
   const isPublicPath = publicPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   ) || request.nextUrl.pathname.match(/^\/offerte\/[^/]+$/)

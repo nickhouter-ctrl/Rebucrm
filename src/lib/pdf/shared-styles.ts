@@ -30,73 +30,26 @@ export const sharedStyles = StyleSheet.create({
     color: COLORS.text,
   },
 
-  // === COVER PAGE ===
-  coverPage: {
-    display: 'flex',
-    flexDirection: 'row',
-    height: '100%',
-  },
-  coverLeft: {
-    width: '65%',
-    backgroundColor: COLORS.black,
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  coverRight: {
-    width: '35%',
-    backgroundColor: COLORS.white,
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  coverRebu: {
-    fontSize: 42,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.white,
-    letterSpacing: 4,
-  },
-  coverKozijnen: {
-    fontSize: 42,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.green,
-    letterSpacing: 2,
-  },
-  coverSlogan: {
-    fontSize: 16,
-    color: COLORS.white,
-    marginTop: 4,
-  },
-  coverRkIcon: {
-    fontSize: 160,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.black,
-    opacity: 0.15,
-  },
+  // === COVER PAGE (uses background image) ===
   coverBottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    height: 60,
+    height: 80,
     backgroundColor: COLORS.green,
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'center',
     paddingHorizontal: 30,
   },
-  coverBottomLabel: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-    color: COLORS.white,
-    letterSpacing: 1,
-  },
-  coverBottomValue: {
-    fontSize: 10,
-    color: COLORS.white,
+  // Full-page background image
+  fullPageBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
   },
 
   // === CONTENT PAGE ===
@@ -283,15 +236,14 @@ export const sharedStyles = StyleSheet.create({
     marginTop: 1,
   },
 
-  // Watermark
-  watermark: {
+  // Watermark (RK icon image)
+  watermarkImage: {
     position: 'absolute',
-    top: '35%',
-    left: '25%',
-    fontSize: 300,
-    fontFamily: 'Helvetica-Bold',
-    color: '#F3F4F6',
-    opacity: 0.3,
+    top: '28%',
+    left: '22%',
+    width: 280,
+    height: 'auto',
+    opacity: 0.06,
   },
 
   // Kozijn element pages
@@ -314,6 +266,19 @@ export const sharedStyles = StyleSheet.create({
     color: '#FFFFFF',
     marginTop: 1,
   },
+  // Clean element name (no green bar)
+  elementNameText: {
+    fontSize: 12,
+    fontFamily: 'Helvetica-Bold',
+    color: '#111827',
+    letterSpacing: 0.5,
+  },
+  elementSubText: {
+    fontSize: 8,
+    color: '#6B7280',
+    marginTop: 2,
+    marginBottom: 8,
+  },
   elementPriceBelow: {
     fontSize: 13,
     fontFamily: 'Helvetica-Bold',
@@ -324,6 +289,20 @@ export const sharedStyles = StyleSheet.create({
     maxHeight: 460,
     objectFit: 'contain' as const,
     marginBottom: 10,
+  },
+  // Full-page element image (used when specs are on separate page)
+  elementImageFullPage: {
+    maxWidth: '100%',
+    height: 520,
+    objectFit: 'contain' as const,
+    marginBottom: 10,
+  },
+  // Page indicator for multi-page elements
+  pageIndicator: {
+    fontSize: 8,
+    color: '#6B7280',
+    textAlign: 'right' as const,
+    marginBottom: 4,
   },
   specsTable: {
     backgroundColor: '#F3F4F6',
@@ -353,6 +332,40 @@ export const sharedStyles = StyleSheet.create({
   specsValue: {
     flex: 1,
     fontSize: 8,
+    color: '#111827',
+  },
+  // Separate specs page styles
+  specsPageTable: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 6,
+    padding: 16,
+    borderWidth: 0.5,
+    borderColor: '#E5E7EB',
+  },
+  specsPageRow: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E5E7EB',
+  },
+  specsPageRowAlt: {
+    flexDirection: 'row',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#E5E7EB',
+    backgroundColor: '#F3F4F6',
+  },
+  specsPageLabel: {
+    width: 140,
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+    color: '#374151',
+  },
+  specsPageValue: {
+    flex: 1,
+    fontSize: 9,
     color: '#111827',
   },
 

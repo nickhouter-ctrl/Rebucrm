@@ -15,6 +15,7 @@ export interface TekeningenElement {
   beslag: string
   uwWaarde: string
   tekeningUrl: string
+  tekeningUrls?: { url: string; pageIndex: number; totalPages: number }[]
   drapirichting: string
   dorpel: string
   sluiting: string
@@ -41,6 +42,9 @@ interface TekeningenData {
 }
 
 const logoPath = path.join(process.cwd(), 'public', 'images', 'logo-rebu.png')
+const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
+const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
+const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
 export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
   let totaalGewicht = 0
@@ -51,20 +55,15 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
 
   let totaalOmtrek = 0
   offerte.elementen.forEach(e => {
-    // Prefer parsed Eenheidsomtrek value (mm)
     const omtrekMmMatch = e.omtrek?.match(/([\d.,]+)\s*mm/i)
-    // Also handle meters format (e.g. "8.4 m" from Aluprof/Eko-Okna PDFs)
     const omtrekMMatch = !omtrekMmMatch ? e.omtrek?.match(/([\d.,]+)\s*m\b/i) : null
     if (omtrekMmMatch) {
-      // Dutch format: dot = thousands separator, comma = decimal
       const val = parseFloat(omtrekMmMatch[1].replace(/\./g, '').replace(',', '.'))
       totaalOmtrek += val * e.hoeveelheid
     } else if (omtrekMMatch) {
-      // Meters → convert to mm
       const val = parseFloat(omtrekMMatch[1].replace(',', '.'))
       totaalOmtrek += val * 1000 * e.hoeveelheid
     } else {
-      // Fallback: compute from afmetingen
       const afmMatch = e.afmetingen?.match(/(\d+)\s*mm\s*x\s*(\d+)\s*mm/)
       if (afmMatch) {
         totaalOmtrek += 2 * (parseInt(afmMatch[1]) + parseInt(afmMatch[2])) * e.hoeveelheid
@@ -76,232 +75,94 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
     <Document>
       {/* ====== COVER ====== */}
       <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={s.coverPage}>
-          <View style={s.coverLeft}>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={s.coverRebu}>REBU</Text>
-              <Text style={s.coverKozijnen}>KOZIJNEN</Text>
-              <Text style={s.coverSlogan}>Maken het verschil.</Text>
-            </View>
-          </View>
-          <View style={s.coverRight}>
-            <Text style={s.coverRkIcon}>RK</Text>
-          </View>
-        </View>
-        <View style={s.coverBottomBar}>
-          <View style={{ flexDirection: 'row', gap: 40 }}>
+        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <Image src={coverBgPath} style={s.fullPageBg} />
+          <View style={s.coverBottomBar}>
             <View>
-              <Text style={s.coverBottomLabel}>TEKENINGEN</Text>
-              <Text style={s.coverBottomValue}>{offerte.offertenummer}</Text>
+              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5 }}>
+                <Text>TEKENINGEN</Text>
+              </Text>
+              <Text style={{ fontSize: 8, color: COLORS.white, marginTop: 2 }}>
+                {offerte.offertenummer}
+              </Text>
             </View>
           </View>
         </View>
       </Page>
 
       {/* ====== ELEMENT PAGINA'S (ZONDER PRIJZEN) ====== */}
-      {offerte.elementen.map((element, idx) => (
-        <Page key={`tekening-${idx}`} size="A4" style={[s.page, s.contentPage]}>
-          <View style={s.contentSidebar} />
-          <Text style={s.watermark}>RK</Text>
-          <View style={s.logoArea}>
-            <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
-          </View>
+      {offerte.elementen.map((element, idx) => {
+        const pages = element.tekeningUrls && element.tekeningUrls.length > 0
+          ? element.tekeningUrls
+          : element.tekeningUrl
+            ? [{ url: element.tekeningUrl, pageIndex: 0, totalPages: 1 }]
+            : []
 
-          {/* Groene header bar — compact, links uitgelijnd */}
-          <View style={s.elementHeaderBar}>
-            <Text style={s.elementHeaderTitle}>
-              {element.naam.toUpperCase()}
-              {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
-            </Text>
-            <Text style={s.elementHeaderSub}>
-              {[element.systeem, element.afmetingen].filter(Boolean).join(' \u00B7 ')}
-            </Text>
-          </View>
+        return (
+          <React.Fragment key={`tekening-${idx}`}>
+            {pages.map((pg, pi) => (
+              <Page key={`tekening-${idx}-p${pi}`} size="A4" style={[s.page, s.contentPage]}>
+                <View style={s.contentSidebar} />
+                <Image src={rkIconPath} style={s.watermarkImage} />
+                <View style={s.logoArea}>
+                  <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
+                </View>
 
-          {/* Tekening afbeelding */}
-          {element.tekeningUrl && (
-            <View style={{ alignItems: 'center', marginBottom: 15 }}>
-              <Image src={element.tekeningUrl} style={s.elementImage} />
-            </View>
-          )}
+                <View style={{ marginBottom: 4, marginTop: 20 }}>
+                  <Text style={s.elementNameText}>
+                    {element.naam.toUpperCase()}
+                    {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
+                  </Text>
+                  <Text style={s.elementSubText}>
+                    {[element.systeem, element.afmetingen].filter(Boolean).join(' \u00B7 ')}
+                  </Text>
+                </View>
 
-          {/* Specificaties tabel */}
-          <View style={s.specsTable}>
-            <Text style={s.specsTitle}>Specificaties</Text>
-            {element.type && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Type</Text>
-                <Text style={s.specsValue}>{element.type}{element.drapirichting ? ` — ${element.drapirichting}` : ''}</Text>
-              </View>
-            )}
-            {element.systeem && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Systeem</Text>
-                <Text style={s.specsValue}>{element.systeem}</Text>
-              </View>
-            )}
-            {element.kleur && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Kleur</Text>
-                <Text style={s.specsValue}>{element.kleur}</Text>
-              </View>
-            )}
-            {element.afmetingen && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Afmetingen</Text>
-                <Text style={s.specsValue}>{element.afmetingen}</Text>
-              </View>
-            )}
-            {element.glasType && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Beglazing</Text>
-                <Text style={s.specsValue}>{element.glasType}</Text>
-              </View>
-            )}
-            {element.beslag && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Beslag</Text>
-                <Text style={s.specsValue}>{element.beslag}</Text>
-              </View>
-            )}
-            {element.sluiting && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Sluiting</Text>
-                <Text style={s.specsValue}>{element.sluiting}</Text>
-              </View>
-            )}
-            {element.scharnieren && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Scharnieren</Text>
-                <Text style={s.specsValue}>{element.scharnieren}</Text>
-              </View>
-            )}
-            {element.scharnierenKleur && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Kleur scharnieren</Text>
-                <Text style={s.specsValue}>{element.scharnierenKleur}</Text>
-              </View>
-            )}
-            {element.lakKleur && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Lak kleur</Text>
-                <Text style={s.specsValue}>{element.lakKleur}</Text>
-              </View>
-            )}
-            {element.hoekverbinding && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Hoekverbinding</Text>
-                <Text style={s.specsValue}>{element.hoekverbinding}</Text>
-              </View>
-            )}
-            {element.montageGaten && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Montage gaten</Text>
-                <Text style={s.specsValue}>{element.montageGaten}</Text>
-              </View>
-            )}
-            {element.afwatering && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Afwatering</Text>
-                <Text style={s.specsValue}>{element.afwatering}</Text>
-              </View>
-            )}
-            {element.sluitcilinder && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Sluitcilinder</Text>
-                <Text style={s.specsValue}>{element.sluitcilinder}</Text>
-              </View>
-            )}
-            {element.aantalSleutels && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Aantal sleutels</Text>
-                <Text style={s.specsValue}>{element.aantalSleutels}</Text>
-              </View>
-            )}
-            {element.gelijksluitend && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Gelijksluitend</Text>
-                <Text style={s.specsValue}>{element.gelijksluitend}</Text>
-              </View>
-            )}
-            {element.krukBinnen && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Kruk binnen</Text>
-                <Text style={s.specsValue}>{element.krukBinnen}</Text>
-              </View>
-            )}
-            {element.krukBuiten && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Kruk buiten</Text>
-                <Text style={s.specsValue}>{element.krukBuiten}</Text>
-              </View>
-            )}
-            {element.dorpel && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Deur drempel</Text>
-                <Text style={s.specsValue}>{element.dorpel}</Text>
-              </View>
-            )}
-            {element.paneel && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Paneel</Text>
-                <Text style={s.specsValue}>{element.paneel}</Text>
-              </View>
-            )}
-            {element.uwWaarde && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Uw-waarde</Text>
-                <Text style={s.specsValue}>{element.uwWaarde}</Text>
-              </View>
-            )}
-            {element.gewicht && (
-              <View style={s.specsRow}>
-                <Text style={s.specsLabel}>Gewicht</Text>
-                <Text style={s.specsValue}>{element.gewicht}</Text>
-              </View>
-            )}
-            {element.commentaar && (
-              <View style={[s.specsRow, { borderBottomWidth: 0 }]}>
-                <Text style={s.specsLabel}>Opmerking</Text>
-                <Text style={[s.specsValue, { color: '#DC2626' }]}>{element.commentaar}</Text>
-              </View>
-            )}
-          </View>
+                {pg.totalPages > 1 && (
+                  <Text style={s.pageIndicator}>Pagina {pg.pageIndex + 1}/{pg.totalPages}</Text>
+                )}
 
-          {/* Footer */}
-          <View style={s.footer}>
-            <View style={s.footerCol}>
-              <Text style={s.footerLabel}>{COMPANY.naam}</Text>
-              <Text style={s.footerText}>{COMPANY.adres}</Text>
-              <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
-            </View>
-            <View style={s.footerCol}>
-              <Text style={s.footerText}>{COMPANY.telefoon}</Text>
-              <Text style={s.footerText}>{COMPANY.email}</Text>
-              <Text style={s.footerText}>{COMPANY.website}</Text>
-            </View>
-            <View style={s.footerCol}>
-              <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
-              <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
-              <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
-            </View>
-          </View>
-        </Page>
-      ))}
+                {pg.url && (
+                  <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                    <Image src={pg.url} style={s.elementImageFullPage} />
+                  </View>
+                )}
+
+                <View style={s.footer}>
+                  <View style={s.footerCol}>
+                    <Text style={s.footerLabel}>{COMPANY.naam}</Text>
+                    <Text style={s.footerText}>{COMPANY.adres}</Text>
+                    <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
+                  </View>
+                  <View style={s.footerCol}>
+                    <Text style={s.footerText}>{COMPANY.telefoon}</Text>
+                    <Text style={s.footerText}>{COMPANY.email}</Text>
+                    <Text style={s.footerText}>{COMPANY.website}</Text>
+                  </View>
+                  <View style={s.footerCol}>
+                    <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
+                    <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
+                    <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
+                  </View>
+                </View>
+              </Page>
+            ))}
+          </React.Fragment>
+        )
+      })}
 
       {/* ====== SAMENVATTING + VOORWAARDEN ====== */}
       <Page size="A4" style={[s.page, s.contentPage]}>
         <View style={s.contentSidebar} />
-        <Text style={s.watermark}>RK</Text>
+        <Image src={rkIconPath} style={s.watermarkImage} />
         <View style={s.logoArea}>
           <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
         </View>
 
-        {/* Samenvatting */}
         <View style={{ marginBottom: 20 }}>
-          <View style={s.elementHeaderBar}>
-            <Text style={s.elementHeaderTitle}>SAMENVATTING</Text>
-          </View>
+          <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 0.5, marginBottom: 10 }}>
+            SAMENVATTING
+          </Text>
 
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 30, marginTop: 10 }}>
             {totaalGewicht > 0 && (
@@ -368,7 +229,6 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
           </Text>
         </View>
 
-        {/* Footer */}
         <View style={s.footer}>
           <View style={s.footerCol}>
             <Text style={s.footerLabel}>{COMPANY.naam}</Text>
@@ -388,33 +248,10 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
         </View>
       </Page>
 
-      {/* ====== ACHTERPAGINA ====== */}
-      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: COLORS.black }]}>
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          <View style={{
-            backgroundColor: COLORS.green,
-            paddingHorizontal: 40,
-            paddingVertical: 25,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-          }}>
-            <View>
-              <Text style={{ fontSize: 14, fontFamily: 'Helvetica-Bold', color: COLORS.white, marginBottom: 4 }}>
-                06 58 86 60 70
-              </Text>
-              <Text style={{ fontSize: 10, color: COLORS.white, marginBottom: 10 }}>
-                info@rebukozijnen.nl
-              </Text>
-              <Text style={{ fontSize: 10, color: COLORS.white }}>Samsonweg 26F</Text>
-              <Text style={{ fontSize: 10, color: COLORS.white }}>1521 RM, Wormerveer</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 2 }}>REBU</Text>
-              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 1 }}>KOZIJNEN</Text>
-              <Text style={{ fontSize: 9, color: COLORS.white }}>Maken het verschil.</Text>
-            </View>
-          </View>
+      {/* ====== ACHTERPAGINA MET FOTO ====== */}
+      <Page size="A4" style={[s.page, { padding: 0 }]}>
+        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <Image src={backPagePath} style={s.fullPageBg} />
         </View>
       </Page>
     </Document>

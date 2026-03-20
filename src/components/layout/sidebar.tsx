@@ -6,8 +6,14 @@ import { usePathname } from 'next/navigation'
 import { navigationItems } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
-export function Sidebar() {
+const medewerkerNavHrefs = ['/', '/agenda', '/taken', '/uren']
+
+export function Sidebar({ rol }: { rol?: string }) {
   const pathname = usePathname()
+
+  const items = rol === 'medewerker'
+    ? navigationItems.filter(item => medewerkerNavHrefs.includes(item.href))
+    : navigationItems
 
   return (
     <aside className="w-60 bg-sidebar text-white flex flex-col h-screen fixed left-0 top-0">
@@ -16,7 +22,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
-        {navigationItems.map((item) => {
+        {items.map((item) => {
           const isActive =
             item.href === '/'
               ? pathname === '/'

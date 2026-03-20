@@ -269,6 +269,16 @@ export async function getOffertes() {
   return data || []
 }
 
+export async function getConceptOffertes() {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('offertes')
+    .select('id, offertenummer, datum, onderwerp, totaal, created_at, relatie:relaties(id, bedrijfsnaam), project:projecten(id, naam)')
+    .eq('status', 'concept')
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
 export async function getOfferte(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
@@ -443,11 +453,32 @@ export async function deleteOfferte(id: string) {
 // === ORDERS ===
 export async function getOrders() {
   const supabase = await createClient()
-  const { data } = await supabase
+  const { data: orders } = await supabase
     .from('orders')
     .select('*, relatie:relaties(bedrijfsnaam)')
     .order('datum', { ascending: false })
-  return data || []
+
+  if (!orders || orders.length === 0) return []
+
+  const orderIds = orders.map(o => o.id)
+  const { data: facturen } = await supabase
+    .from('facturen')
+    .select('id, factuurnummer, factuur_type, status, totaal, betaald_bedrag, order_id')
+    .in('order_id', orderIds)
+
+  return orders.map(order => {
+    const orderFacturen = (facturen || []).filter(f => f.order_id === order.id)
+    const aanbetaling = orderFacturen.find(f => f.factuur_type === 'aanbetaling')
+    const restbetaling = orderFacturen.find(f => f.factuur_type === 'restbetaling')
+    const volledig = orderFacturen.find(f => f.factuur_type === 'volledig')
+    return {
+      ...order,
+      facturen: orderFacturen,
+      aanbetaling: aanbetaling || null,
+      restbetaling: restbetaling || null,
+      volledigFactuur: volledig || null,
+    }
+  })
 }
 
 export async function getOrder(id: string) {
@@ -457,6 +488,16 @@ export async function getOrder(id: string) {
     .select('*, relatie:relaties(*), regels:order_regels(*, product:producten(naam))')
     .eq('id', id)
     .single()
+  return data
+}
+
+export async function getOrderByOfferteId(offerteId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('orders')
+    .select('id, ordernummer, status')
+    .eq('offerte_id', offerteId)
+    .maybeSingle()
   return data
 }
 
@@ -529,9 +570,46 @@ export async function getFacturen() {
   const supabase = await createClient()
   const { data } = await supabase
     .from('facturen')
-    .select('*, relatie:relaties(bedrijfsnaam)')
+    .select('*, relatie:relaties(bedrijfsnaam), order:orders(id, ordernummer, status, onderwerp)')
     .order('datum', { ascending: false })
   return data || []
+}
+
+export async function getOrdersMetFactuurStatus() {
+  const supabase = await createClient()
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, ordernummer, status, onderwerp, datum, totaal, relatie:relaties(bedrijfsnaam)')
+    .in('status', ['nieuw', 'in_behandeling', 'geleverd', 'gefactureerd'])
+    .order('datum', { ascending: false })
+
+  if (!orders || orders.length === 0) return []
+
+  const orderIds = orders.map(o => o.id)
+  const { data: facturen } = await supabase
+    .from('facturen')
+    .select('id, factuurnummer, factuur_type, status, totaal, betaald_bedrag, order_id')
+    .in('order_id', orderIds)
+
+  return orders.map(order => {
+    const orderFacturen = (facturen || []).filter(f => f.order_id === order.id)
+    const heeftAanbetaling = orderFacturen.some(f => f.factuur_type === 'aanbetaling')
+    const heeftRestbetaling = orderFacturen.some(f => f.factuur_type === 'restbetaling')
+    const aanbetalingBetaald = orderFacturen.find(f => f.factuur_type === 'aanbetaling')?.status === 'betaald'
+    const restbetalingVerstuurd = orderFacturen.find(f => f.factuur_type === 'restbetaling')?.status !== 'concept'
+    const volledigFactuur = orderFacturen.find(f => f.factuur_type === 'volledig')
+    return {
+      ...order,
+      facturen: orderFacturen,
+      heeftAanbetaling,
+      heeftRestbetaling,
+      aanbetalingBetaald,
+      restbetalingVerstuurd,
+      volledigFactuur: volledigFactuur || null,
+      eindafrekeningNodig: heeftAanbetaling && !heeftRestbetaling,
+      restKanVerstuurd: heeftRestbetaling && !restbetalingVerstuurd && (order.status === 'geleverd' || order.status === 'gefactureerd'),
+    }
+  })
 }
 
 export async function getFactuur(id: string) {
@@ -1095,7 +1173,7 @@ export async function getTaken() {
   const supabase = await createClient()
   const { data } = await supabase
     .from('taken')
-    .select('*, project:projecten(naam), toegewezen:profielen(naam)')
+    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam)')
     .order('created_at', { ascending: false })
   return data || []
 }
@@ -1141,6 +1219,7 @@ export async function saveTaak(formData: FormData) {
     status: formData.get('status') as string || 'open',
     prioriteit: formData.get('prioriteit') as string || 'normaal',
     deadline: formData.get('deadline') as string || null,
+    medewerker_id: formData.get('medewerker_id') as string || null,
   }
 
   if (id) {
@@ -1237,9 +1316,9 @@ export async function getDashboardData() {
   if (!adminId || !user) return null
 
   const supabaseAdmin = createAdminClient()
-  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes] = await Promise.all([
-    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum').eq('administratie_id', adminId),
-    supabase.from('offertes').select('totaal, status, datum').eq('administratie_id', adminId),
+  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes] = await Promise.all([
+    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId),
+    supabase.from('offertes').select('totaal, status, datum, relatie_id').eq('administratie_id', adminId),
     supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan').eq('administratie_id', adminId),
     supabase.from('relaties').select('type').eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
@@ -1249,6 +1328,7 @@ export async function getDashboardData() {
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').order('datum', { ascending: false }),
     supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).in('status', ['verzonden', 'deels_betaald', 'vervallen']).order('vervaldatum', { ascending: true }),
+    supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
   ])
 
   const facturenData = facturenRes.data || []
@@ -1423,13 +1503,769 @@ export async function getDashboardData() {
     status: f.status,
   }))
 
+  // Top 50 klanten: aggregate by relatie_id
+  const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
+  // Build name lookup from relatiesData (we need full relaties for names)
+  const relatieNamen = new Map<string, string>()
+  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId)
+  for (const r of relatieNaamData || []) {
+    relatieNamen.set(r.id, r.bedrijfsnaam || 'Onbekend')
+  }
+  for (const f of facturenData) {
+    if (!f.relatie_id) continue
+    if (!relatieMap.has(f.relatie_id)) {
+      relatieMap.set(f.relatie_id, { relatie_id: f.relatie_id, bedrijfsnaam: relatieNamen.get(f.relatie_id) || 'Onbekend', betaald: 0, offerte_waarde: 0 })
+    }
+    const entry = relatieMap.get(f.relatie_id)!
+    if (f.status === 'betaald') entry.betaald += f.totaal || 0
+  }
+  for (const o of offertesData) {
+    if (!o.relatie_id) continue
+    if (!relatieMap.has(o.relatie_id)) {
+      relatieMap.set(o.relatie_id, { relatie_id: o.relatie_id, bedrijfsnaam: relatieNamen.get(o.relatie_id) || 'Onbekend', betaald: 0, offerte_waarde: 0 })
+    }
+    relatieMap.get(o.relatie_id)!.offerte_waarde += o.totaal || 0
+  }
+  const topKlanten = [...relatieMap.values()]
+    .sort((a, b) => b.betaald - a.betaald)
+    .slice(0, 50)
+
+  // Omzetdoelen
+  const doelen = omzetdoelenRes.data
+  const nuDate = new Date()
+  const startVanJaar = new Date(nuDate.getFullYear(), 0, 1)
+  const startVanMaand = new Date(nuDate.getFullYear(), nuDate.getMonth(), 1)
+  // Week: maandag t/m zondag
+  const dagVanWeek = nuDate.getDay() === 0 ? 6 : nuDate.getDay() - 1
+  const startVanWeek = new Date(nuDate.getFullYear(), nuDate.getMonth(), nuDate.getDate() - dagVanWeek)
+  startVanWeek.setHours(0, 0, 0, 0)
+
+  const betaaldeFacturen = facturenData.filter(f => f.status === 'betaald' && f.datum)
+  const weekOmzet = betaaldeFacturen
+    .filter(f => new Date(f.datum) >= startVanWeek)
+    .reduce((sum, f) => sum + (f.totaal || 0), 0)
+  const maandOmzetVal = betaaldeFacturen
+    .filter(f => new Date(f.datum) >= startVanMaand)
+    .reduce((sum, f) => sum + (f.totaal || 0), 0)
+  const jaarOmzet = betaaldeFacturen
+    .filter(f => new Date(f.datum) >= startVanJaar)
+    .reduce((sum, f) => sum + (f.totaal || 0), 0)
+
+  const omzetdoelen = {
+    week_doel: doelen?.week_doel ? Number(doelen.week_doel) : 0,
+    maand_doel: doelen?.maand_doel ? Number(doelen.maand_doel) : 0,
+    jaar_doel: doelen?.jaar_doel ? Number(doelen.jaar_doel) : 0,
+    week_omzet: weekOmzet,
+    maand_omzet: maandOmzetVal,
+    jaar_omzet: jaarOmzet,
+    heeft_doelen: !!doelen,
+  }
+
+  // E-mail triage: onverwerkte mails met classificatie offerte_aanvraag of onzeker
+  const { data: triageEmailsData } = await supabaseAdmin
+    .from('emails')
+    .select('id, van_email, van_naam, onderwerp, datum, labels')
+    .eq('administratie_id', adminId)
+    .eq('verwerkt', false)
+    .eq('richting', 'inkomend')
+    .order('datum', { ascending: false })
+    .limit(20)
+
+  const triageEmails = (triageEmailsData || []).filter(e => {
+    const labels: string[] = e.labels || []
+    return labels.includes('offerte_aanvraag') || labels.includes('onzeker')
+  })
+
+  // Open aanvragen (taken die nog verwerkt moeten worden)
+  const { data: aanvragenTaken } = await supabaseAdmin
+    .from('taken')
+    .select('id, omschrijving, status, created_at')
+    .eq('administratie_id', adminId)
+    .eq('titel', 'Nieuwe aanvraag - offerte nog te maken')
+    .neq('status', 'afgerond')
+    .order('created_at', { ascending: false })
+    .limit(5)
+
+  const { data: aanvraagEmails } = await supabaseAdmin
+    .from('emails')
+    .select('onderwerp, relatie_id')
+    .eq('administratie_id', adminId)
+    .contains('labels', ['offerte_aanvraag'])
+    .not('relatie_id', 'is', null)
+
+  const aanvraagOnderwerpMap = new Map<string, string>()
+  const aanvraagRelatieIds = new Set<string>()
+  for (const email of aanvraagEmails || []) {
+    if (email.onderwerp && email.relatie_id) {
+      aanvraagOnderwerpMap.set(email.onderwerp, email.relatie_id)
+      aanvraagRelatieIds.add(email.relatie_id)
+    }
+  }
+
+  const aanvraagRelatieNaamMap = new Map<string, string>()
+  if (aanvraagRelatieIds.size > 0) {
+    const { data: aanvraagRelaties } = await supabaseAdmin
+      .from('relaties')
+      .select('id, bedrijfsnaam')
+      .in('id', [...aanvraagRelatieIds])
+    for (const r of aanvraagRelaties || []) {
+      aanvraagRelatieNaamMap.set(r.id, r.bedrijfsnaam || 'Onbekend')
+    }
+  }
+
+  const openAanvragen = (aanvragenTaken || []).map(taak => {
+    let relatie_id: string | null = null
+    let relatie_naam: string | null = null
+    let offerte_id: string | null = null
+    if (taak.omschrijving) {
+      const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
+      if (offerteMatch?.[1]) offerte_id = offerteMatch[1]
+
+      const match = taak.omschrijving.match(/"(.+)"/)
+      if (match?.[1]) {
+        relatie_id = aanvraagOnderwerpMap.get(match[1]) || null
+        if (relatie_id) relatie_naam = aanvraagRelatieNaamMap.get(relatie_id) || null
+      }
+    }
+    return { ...taak, relatie_id, relatie_naam, offerte_id }
+  })
+
   return {
     omzet, openstaand, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
     offertesPerMaand, totaalOffertes,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
+    topKlanten, omzetdoelen, triageEmails, openAanvragen,
   }
+}
+
+// === OMZETDOELEN ===
+export async function saveOmzetdoelen(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const jaar = new Date().getFullYear()
+  const week_doel = parseFloat(formData.get('week_doel') as string) || 0
+  const maand_doel = parseFloat(formData.get('maand_doel') as string) || 0
+  const jaar_doel = parseFloat(formData.get('jaar_doel') as string) || 0
+
+  const { error } = await supabase
+    .from('omzetdoelen')
+    .upsert({
+      administratie_id: adminId,
+      jaar,
+      week_doel,
+      maand_doel,
+      jaar_doel,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'administratie_id,jaar' })
+
+  if (error) return { error: error.message }
+  revalidatePath('/')
+  return { success: true }
+}
+
+// === E-MAILS ===
+export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaand' = 'alle', zoekterm = '', toonIrrelevant = false) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { emails: [], total: 0 }
+
+  const pageSize = 25
+  const offset = (page - 1) * pageSize
+
+  let query = supabase
+    .from('emails')
+    .select('*, relatie:relaties(id, bedrijfsnaam), offerte:offertes(id, offertenummer)', { count: 'exact' })
+    .eq('administratie_id', adminId)
+
+  if (filter === 'inkomend') query = query.eq('richting', 'inkomend')
+  if (filter === 'uitgaand') query = query.eq('richting', 'uitgaand')
+  if (zoekterm) {
+    query = query.or(`onderwerp.ilike.%${zoekterm}%,van_email.ilike.%${zoekterm}%,van_naam.ilike.%${zoekterm}%`)
+  }
+  if (!toonIrrelevant) {
+    query = query.not('labels', 'cs', '{irrelevant}')
+  }
+
+  const { data, count } = await query
+    .order('datum', { ascending: false })
+    .range(offset, offset + pageSize - 1)
+
+  return { emails: data || [], total: count || 0 }
+}
+
+export async function markEmailGelezen(emailId: string) {
+  const supabase = await createClient()
+  await supabase.from('emails').update({ gelezen: true }).eq('id', emailId)
+  revalidatePath('/email')
+}
+
+export async function getEmailBody(emailId: string) {
+  const supabase = await createClient()
+  const { data: email } = await supabase
+    .from('emails')
+    .select('body_text, body_html, imap_uid')
+    .eq('id', emailId)
+    .single()
+
+  if (!email) return { text: null, html: null }
+
+  // If body already cached in DB, return it
+  if (email.body_text || email.body_html) {
+    return { text: email.body_text, html: email.body_html }
+  }
+
+  // Fetch body on-demand via IMAP
+  if (email.imap_uid) {
+    const { fetchEmailBody } = await import('@/lib/imap')
+    const body = await fetchEmailBody(email.imap_uid)
+
+    // Cache in DB for next time
+    if (body.text || body.html) {
+      await supabase
+        .from('emails')
+        .update({ body_text: body.text, body_html: body.html })
+        .eq('id', emailId)
+    }
+
+    return body
+  }
+
+  return { text: null, html: null }
+}
+
+export async function getEmailForOfferte(offerteId: string) {
+  const supabase = await createClient()
+
+  // Get offerte to find matching email
+  const { data: offerte } = await supabase
+    .from('offertes')
+    .select('onderwerp, relatie_id, created_at')
+    .eq('id', offerteId)
+    .single()
+
+  if (!offerte) return null
+
+  // Find email with matching label offerte_aanvraag that was processed around the same time
+  const { data: email } = await supabase
+    .from('emails')
+    .select('id, van_naam, van_email, onderwerp, body_text, body_html, datum, imap_uid')
+    .contains('labels', ['offerte_aanvraag'])
+    .order('datum', { ascending: false })
+    .limit(50)
+
+  if (!email || email.length === 0) return null
+
+  // Find best match: same subject or closest in time
+  const offerteOnderwerp = (offerte.onderwerp || '').toLowerCase()
+  let bestMatch = email.find(e =>
+    e.onderwerp && offerteOnderwerp && e.onderwerp.toLowerCase() === offerteOnderwerp.toLowerCase()
+  )
+
+  if (!bestMatch) {
+    // Try partial match
+    bestMatch = email.find(e =>
+      e.onderwerp && offerteOnderwerp && (
+        e.onderwerp.toLowerCase().includes(offerteOnderwerp) ||
+        offerteOnderwerp.includes(e.onderwerp.toLowerCase())
+      )
+    )
+  }
+
+  if (!bestMatch) return null
+
+  // If body is not cached, fetch on-demand
+  if (!bestMatch.body_text && !bestMatch.body_html && bestMatch.imap_uid) {
+    const body = await getEmailBody(bestMatch.id)
+    bestMatch.body_text = body.text
+    bestMatch.body_html = body.html
+  }
+
+  return {
+    id: bestMatch.id,
+    van_naam: bestMatch.van_naam,
+    van_email: bestMatch.van_email,
+    onderwerp: bestMatch.onderwerp,
+    body_text: bestMatch.body_text,
+    body_html: bestMatch.body_html,
+    datum: bestMatch.datum,
+  }
+}
+
+export async function getEmailAttachments(emailId: string): Promise<{ filename: string; contentType: string; size: number; data: string }[]> {
+  const supabase = await createClient()
+
+  const { data: email } = await supabase
+    .from('emails')
+    .select('imap_uid')
+    .eq('id', emailId)
+    .single()
+
+  if (!email?.imap_uid) return []
+
+  const { fetchEmailAttachments } = await import('@/lib/imap')
+  return fetchEmailAttachments(email.imap_uid)
+}
+
+export async function getEmailSyncStatus() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  const { data } = await supabase
+    .from('email_sync_state')
+    .select('*')
+    .eq('administratie_id', adminId)
+    .maybeSingle()
+
+  return data
+}
+
+export async function approveTriageEmail(emailId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  // Get email details
+  const { data: email } = await supabaseAdmin
+    .from('emails')
+    .select('id, van_email, van_naam, onderwerp, relatie_id')
+    .eq('id', emailId)
+    .eq('administratie_id', adminId)
+    .single()
+
+  if (!email) return { error: 'E-mail niet gevonden' }
+
+  // Create relatie if unknown sender
+  let relatieId = email.relatie_id
+  if (!relatieId) {
+    const { data: newRelatie } = await supabaseAdmin
+      .from('relaties')
+      .insert({
+        administratie_id: adminId,
+        bedrijfsnaam: email.van_naam || email.van_email,
+        email: email.van_email,
+        type: 'particulier',
+      })
+      .select('id')
+      .single()
+    relatieId = newRelatie?.id || null
+  }
+
+  // Update email: set label to offerte_aanvraag, mark as verwerkt
+  await supabaseAdmin
+    .from('emails')
+    .update({
+      labels: ['offerte_aanvraag'],
+      verwerkt: true,
+      relatie_id: relatieId,
+    })
+    .eq('id', emailId)
+
+  // Create project + concept offerte linked to the klant
+  let conceptOfferteId: string | null = null
+  if (relatieId) {
+    const projectNaam = email.onderwerp || '(geen onderwerp)'
+    const { data: newProject } = await supabaseAdmin
+      .from('projecten')
+      .insert({
+        administratie_id: adminId,
+        relatie_id: relatieId,
+        naam: projectNaam,
+        status: 'actief',
+      })
+      .select('id')
+      .single()
+
+    const { data: offertenummer } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: adminId,
+      p_type: 'offerte',
+    })
+    const vandaag = new Date().toISOString().split('T')[0]
+    const { data: newOfferte } = await supabaseAdmin
+      .from('offertes')
+      .insert({
+        administratie_id: adminId,
+        relatie_id: relatieId,
+        project_id: newProject?.id || null,
+        offertenummer: offertenummer || '',
+        datum: vandaag,
+        status: 'concept',
+        onderwerp: projectNaam,
+        subtotaal: 0,
+        btw_totaal: 0,
+        totaal: 0,
+      })
+      .select('id')
+      .single()
+    conceptOfferteId = newOfferte?.id || null
+  }
+
+  // Create task
+  await supabaseAdmin.from('taken').insert({
+    administratie_id: adminId,
+    titel: 'Nieuwe aanvraag - offerte nog te maken',
+    omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
+    prioriteit: 'hoog',
+    status: 'open',
+  })
+
+  revalidatePath('/')
+  revalidatePath('/email')
+  revalidatePath('/aanvragen')
+  revalidatePath('/offertes')
+  return { success: true }
+}
+
+export async function rejectTriageEmail(emailId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  await supabaseAdmin
+    .from('emails')
+    .update({
+      labels: ['irrelevant'],
+      verwerkt: true,
+    })
+    .eq('id', emailId)
+    .eq('administratie_id', adminId)
+
+  revalidatePath('/')
+  revalidatePath('/email')
+  revalidatePath('/aanvragen')
+  return { success: true }
+}
+
+export async function getAanvragen() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+
+  const supabaseAdmin = createAdminClient()
+  const [takenRes, emailsRes] = await Promise.all([
+    supabaseAdmin
+      .from('taken')
+      .select('*')
+      .eq('administratie_id', adminId)
+      .eq('titel', 'Nieuwe aanvraag - offerte nog te maken')
+      .order('created_at', { ascending: false }),
+    supabaseAdmin
+      .from('emails')
+      .select('onderwerp, relatie_id')
+      .eq('administratie_id', adminId)
+      .contains('labels', ['offerte_aanvraag'])
+      .not('relatie_id', 'is', null),
+  ])
+
+  const taken = takenRes.data || []
+  const emails = emailsRes.data || []
+
+  // Build map: email onderwerp → relatie_id
+  const onderwerpRelatieMap = new Map<string, string>()
+  for (const email of emails) {
+    if (email.onderwerp && email.relatie_id) {
+      onderwerpRelatieMap.set(email.onderwerp, email.relatie_id)
+    }
+  }
+
+  // Collect all relatie_ids to fetch names
+  const relatieIds = new Set<string>()
+  for (const email of emails) {
+    if (email.relatie_id) relatieIds.add(email.relatie_id)
+  }
+
+  // Fetch relatie names
+  const relatieNaamMap = new Map<string, string>()
+  if (relatieIds.size > 0) {
+    const { data: relaties } = await supabaseAdmin
+      .from('relaties')
+      .select('id, bedrijfsnaam')
+      .in('id', [...relatieIds])
+    for (const r of relaties || []) {
+      relatieNaamMap.set(r.id, r.bedrijfsnaam || 'Onbekend')
+    }
+  }
+
+  // Match taak omschrijving to email onderwerp to get relatie_id + extract offerte_id
+  return taken.map(taak => {
+    let relatie_id: string | null = null
+    let relatie_naam: string | null = null
+    let offerte_id: string | null = null
+
+    if (taak.omschrijving) {
+      // Extract offerte_id from [offerte:uuid] tag
+      const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
+      if (offerteMatch?.[1]) {
+        offerte_id = offerteMatch[1]
+      }
+
+      const match = taak.omschrijving.match(/"(.+)"/)
+      if (match?.[1]) {
+        relatie_id = onderwerpRelatieMap.get(match[1]) || null
+        if (relatie_id) {
+          relatie_naam = relatieNaamMap.get(relatie_id) || null
+        }
+      }
+    }
+    return { ...taak, relatie_id, relatie_naam, offerte_id }
+  })
+}
+
+export async function updateAanvraagStatus(taakId: string, status: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+  await supabaseAdmin
+    .from('taken')
+    .update({ status })
+    .eq('id', taakId)
+    .eq('administratie_id', adminId)
+
+  revalidatePath('/aanvragen')
+  revalidatePath('/')
+  return { success: true }
+}
+
+export async function reclassifyExistingEmails() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd', updated: 0 }
+
+  const supabaseAdmin = createAdminClient()
+  const { classifyEmail } = await import('@/lib/imap')
+
+  // Fetch all inkomende emails
+  const { data: emails } = await supabaseAdmin
+    .from('emails')
+    .select('id, van_email, van_naam, onderwerp, in_reply_to, relatie_id, labels')
+    .eq('administratie_id', adminId)
+    .eq('richting', 'inkomend')
+
+  if (!emails || emails.length === 0) return { updated: 0 }
+
+  let updated = 0
+  let takenAangemaakt = 0
+  for (const email of emails) {
+    const hasOfferteMatch = !!(email.onderwerp && /OFF-\d+/i.test(email.onderwerp))
+    const classificatie = classifyEmail(
+      email.onderwerp,
+      email.van_email,
+      email.in_reply_to,
+      hasOfferteMatch,
+      !!email.relatie_id,
+    )
+
+    const verwerkt = classificatie === 'irrelevant' || classificatie === 'offerte_aanvraag' || classificatie === 'offerte_reactie'
+    await supabaseAdmin
+      .from('emails')
+      .update({
+        labels: [classificatie],
+        verwerkt,
+      })
+      .eq('id', email.id)
+    updated++
+
+    // Create task for offerte_aanvraag emails (skip if task already exists)
+    if (classificatie === 'offerte_aanvraag') {
+      const omschrijvingMatch = `"${(email.onderwerp || '(geen onderwerp)').replace(/[%_]/g, '')}"`
+      const { count: existingTasks } = await supabaseAdmin
+        .from('taken')
+        .select('id', { count: 'exact', head: true })
+        .eq('administratie_id', adminId)
+        .ilike('omschrijving', `%${omschrijvingMatch}%`)
+
+      if ((existingTasks || 0) === 0) {
+        // Create relatie if unknown sender
+        let relatieId = email.relatie_id
+        if (!relatieId) {
+          const { data: newRelatie } = await supabaseAdmin
+            .from('relaties')
+            .insert({
+              administratie_id: adminId,
+              bedrijfsnaam: email.van_naam || email.van_email,
+              email: email.van_email,
+              type: 'particulier',
+            })
+            .select('id')
+            .single()
+          if (newRelatie) {
+            relatieId = newRelatie.id
+            await supabaseAdmin
+              .from('emails')
+              .update({ relatie_id: newRelatie.id })
+              .eq('id', email.id)
+          }
+        }
+
+        // Create project + concept offerte
+        let conceptOfferteId: string | null = null
+        if (relatieId) {
+          const projectNaam = email.onderwerp || '(geen onderwerp)'
+          const { data: newProject } = await supabaseAdmin
+            .from('projecten')
+            .insert({
+              administratie_id: adminId,
+              relatie_id: relatieId,
+              naam: projectNaam,
+              status: 'actief',
+            })
+            .select('id')
+            .single()
+
+          const { data: offertenummer } = await supabaseAdmin.rpc('volgende_nummer', {
+            p_administratie_id: adminId,
+            p_type: 'offerte',
+          })
+          const vandaag = new Date().toISOString().split('T')[0]
+          const { data: newOfferte } = await supabaseAdmin
+            .from('offertes')
+            .insert({
+              administratie_id: adminId,
+              relatie_id: relatieId,
+              project_id: newProject?.id || null,
+              offertenummer: offertenummer || '',
+              datum: vandaag,
+              status: 'concept',
+              onderwerp: projectNaam,
+              subtotaal: 0,
+              btw_totaal: 0,
+              totaal: 0,
+            })
+            .select('id')
+            .single()
+          conceptOfferteId = newOfferte?.id || null
+        }
+
+        await supabaseAdmin.from('taken').insert({
+          administratie_id: adminId,
+          titel: 'Nieuwe aanvraag - offerte nog te maken',
+          omschrijving: `E-mail van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
+          prioriteit: 'hoog',
+          status: 'open',
+        })
+        takenAangemaakt++
+      }
+    }
+  }
+
+  revalidatePath('/')
+  revalidatePath('/email')
+  revalidatePath('/taken')
+  return { success: true, updated, takenAangemaakt }
+}
+
+export async function ensureConceptOffertesForAanvragen() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return 0
+
+  const supabaseAdmin = createAdminClient()
+
+  // Find all open aanvraag-taken without [offerte:...] tag
+  const { data: taken } = await supabaseAdmin
+    .from('taken')
+    .select('id, omschrijving')
+    .eq('administratie_id', adminId)
+    .eq('titel', 'Nieuwe aanvraag - offerte nog te maken')
+    .neq('status', 'afgerond')
+
+  if (!taken || taken.length === 0) return 0
+
+  let created = 0
+  for (const taak of taken) {
+    // Skip if already has offerte linked
+    if (taak.omschrijving?.includes('[offerte:')) continue
+
+    // Extract email onderwerp from omschrijving
+    const match = taak.omschrijving?.match(/"([^"]+)"/)
+    const onderwerp = match?.[1] || '(geen onderwerp)'
+
+    // Find the matching email to get relatie_id
+    const { data: email } = await supabaseAdmin
+      .from('emails')
+      .select('id, van_email, van_naam, relatie_id')
+      .eq('administratie_id', adminId)
+      .ilike('onderwerp', onderwerp)
+      .limit(1)
+      .maybeSingle()
+
+    let relatieId = email?.relatie_id || null
+
+    // Create relatie if needed
+    if (!relatieId && email) {
+      const { data: newRelatie } = await supabaseAdmin
+        .from('relaties')
+        .insert({
+          administratie_id: adminId,
+          bedrijfsnaam: email.van_naam || email.van_email,
+          email: email.van_email,
+          type: 'particulier',
+        })
+        .select('id')
+        .single()
+      relatieId = newRelatie?.id || null
+    }
+
+    if (!relatieId) continue
+
+    // Create project
+    const { data: newProject } = await supabaseAdmin
+      .from('projecten')
+      .insert({
+        administratie_id: adminId,
+        relatie_id: relatieId,
+        naam: onderwerp,
+        status: 'actief',
+      })
+      .select('id')
+      .single()
+
+    // Create concept offerte
+    const { data: offertenummer } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: adminId,
+      p_type: 'offerte',
+    })
+    const vandaag = new Date().toISOString().split('T')[0]
+    const { data: newOfferte } = await supabaseAdmin
+      .from('offertes')
+      .insert({
+        administratie_id: adminId,
+        relatie_id: relatieId,
+        project_id: newProject?.id || null,
+        offertenummer: offertenummer || '',
+        datum: vandaag,
+        status: 'concept',
+        onderwerp,
+        subtotaal: 0,
+        btw_totaal: 0,
+        totaal: 0,
+      })
+      .select('id')
+      .single()
+
+    // Update taak with offerte reference
+    if (newOfferte) {
+      await supabaseAdmin
+        .from('taken')
+        .update({
+          omschrijving: `${taak.omschrijving} [offerte:${newOfferte.id}]`,
+        })
+        .eq('id', taak.id)
+      created++
+    }
+  }
+
+  return created
 }
 
 export async function getNummering() {
@@ -1608,7 +2444,7 @@ export async function getRelatieDetail(id: string) {
     supabase.from('relaties').select('*').eq('id', id).single(),
     supabase.from('offertes').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
     supabase.from('facturen').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
-    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, totaal)').eq('relatie_id', id).order('created_at', { ascending: false }),
+    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, totaal, facturen:facturen(id, factuur_type, status))').eq('relatie_id', id).order('created_at', { ascending: false }),
   ])
 
   const relatie = relatieRes.data
@@ -2197,6 +3033,15 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 
   if (!offerte) return { error: 'Offerte niet gevonden' }
 
+  // Zoek gekoppelde order voor deze offerte
+  const { data: linkedOrder } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('offerte_id', offerteId)
+    .limit(1)
+    .single()
+  const orderId = linkedOrder?.id || null
+
   if (splitType === 'volledig') {
     const nummer = await getVolgendeNummer('factuur')
     const { data: factuur, error } = await supabase
@@ -2204,6 +3049,9 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       .insert({
         administratie_id: adminId,
         relatie_id: offerte.relatie_id,
+        offerte_id: offerteId,
+        order_id: orderId,
+        factuur_type: 'volledig',
         factuurnummer: nummer,
         datum: new Date().toISOString().split('T')[0],
         vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -2254,6 +3102,9 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       .insert({
         administratie_id: adminId,
         relatie_id: offerte.relatie_id,
+        offerte_id: offerteId,
+        order_id: orderId,
+        factuur_type: 'aanbetaling',
         factuurnummer: nummer1,
         datum: new Date().toISOString().split('T')[0],
         vervaldatum: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -2283,6 +3134,10 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       .insert({
         administratie_id: adminId,
         relatie_id: offerte.relatie_id,
+        offerte_id: offerteId,
+        order_id: orderId,
+        factuur_type: 'restbetaling',
+        gerelateerde_factuur_id: factuur1.id,
         factuurnummer: nummer2,
         datum: new Date().toISOString().split('T')[0],
         vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -2296,6 +3151,9 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       .single()
 
     if (err2) return { error: err2.message }
+
+    // Link factuur1 terug naar factuur2
+    await supabase.from('facturen').update({ gerelateerde_factuur_id: factuur2.id }).eq('id', factuur1.id)
 
     await supabase.from('factuur_regels').insert({
       factuur_id: factuur2.id,
@@ -2457,6 +3315,196 @@ export async function getOffertesByProject(projectId: string) {
     .eq('project_id', projectId)
     .order('versie_nummer', { ascending: false })
   return data || []
+}
+
+// === PROJECT TIMELINE (Verkoopkans view) ===
+
+export interface PipelineStage {
+  key: string
+  label: string
+  bereikt: boolean
+  actief: boolean
+}
+
+export interface TimelineItem {
+  id: string
+  type: 'offerte_aangemaakt' | 'offerte_verzonden' | 'offerte_geaccepteerd' | 'offerte_afgewezen' | 'order_aangemaakt' | 'factuur_aangemaakt' | 'factuur_verzonden' | 'factuur_betaald' | 'email_verstuurd' | 'bericht' | 'taak' | 'afspraak' | 'project_aangemaakt'
+  datum: string
+  titel: string
+  ondertitel?: string
+  bedrag?: number
+  status?: string
+  link?: string
+  meta?: Record<string, unknown>
+}
+
+export interface ProjectTimeline {
+  project: Record<string, unknown> & {
+    relatie?: { id: string; bedrijfsnaam: string; email?: string } | null
+    geoffreerd: number
+    gefactureerd: number
+    betaald: number
+    openstaand: number
+  }
+  pipeline: PipelineStage[]
+  items: TimelineItem[]
+}
+
+export async function getProjectTimeline(projectId: string): Promise<ProjectTimeline | null> {
+  const supabase = await createClient()
+
+  const [projectRes, offertesRes, takenRes, afsprakenRes] = await Promise.all([
+    supabase
+      .from('projecten')
+      .select('*, relatie:relaties(id, bedrijfsnaam, email)')
+      .eq('id', projectId)
+      .single(),
+    supabase
+      .from('offertes')
+      .select('id, offertenummer, versie_nummer, datum, status, totaal, onderwerp, created_at, facturen:facturen(id, factuurnummer, datum, status, totaal, betaald_bedrag, factuur_type, created_at), email_log:email_log(id, aan, onderwerp, verstuurd_op), berichten:berichten(id, tekst, afzender_type, afzender_naam, created_at)')
+      .eq('project_id', projectId)
+      .order('versie_nummer', { ascending: false }),
+    supabase
+      .from('taken')
+      .select('id, titel, status, prioriteit, deadline, created_at')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('afspraken')
+      .select('id, titel, start_datum, locatie, created_at')
+      .eq('project_id', projectId)
+      .order('start_datum', { ascending: false }),
+  ])
+
+  const project = projectRes.data
+  if (!project) return null
+
+  const offertes = offertesRes.data || []
+  const taken = takenRes.data || []
+  const afspraken = afsprakenRes.data || []
+
+  // Financiële samenvatting
+  const allFacturen = offertes.flatMap((o: Record<string, unknown>) => (o.facturen as Record<string, unknown>[]) || [])
+  const geoffreerd = offertes.reduce((sum: number, o: Record<string, unknown>) => sum + ((o.totaal as number) || 0), 0)
+  const gefactureerd = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.totaal as number) || 0), 0)
+  const betaald = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.betaald_bedrag as number) || 0), 0)
+  const openstaand = gefactureerd - betaald
+
+  // Pipeline stages afleiden
+  const heeftOffertes = offertes.length > 0
+  const heeftGeaccepteerd = offertes.some((o: Record<string, unknown>) => o.status === 'geaccepteerd')
+  const heeftAanbetaling = allFacturen.some((f: Record<string, unknown>) => (f.factuur_type === 'aanbetaling' || f.factuur_type === 'volledig') && f.status !== 'concept')
+  const heeftRestbetaling = allFacturen.some((f: Record<string, unknown>) => f.factuur_type === 'restbetaling' && f.status !== 'concept')
+  const isAfgerond = project.status === 'afgerond'
+
+  const stages: PipelineStage[] = [
+    { key: 'contact', label: 'Contact', bereikt: true, actief: false },
+    { key: 'offerte', label: 'Offerte', bereikt: heeftOffertes, actief: false },
+    { key: 'offerte_akkoord', label: 'Offerte akkoord', bereikt: heeftGeaccepteerd, actief: false },
+    { key: 'eerste_factuur', label: '1e Factuur', bereikt: heeftAanbetaling, actief: false },
+    { key: 'tweede_factuur', label: '2e Factuur', bereikt: heeftRestbetaling, actief: false },
+    { key: 'afgerond', label: 'Afgerond', bereikt: isAfgerond, actief: false },
+  ]
+  // Actieve stage = laatste bereikte
+  const laatsteBereikte = stages.reduce((idx, s, i) => (s.bereikt ? i : idx), 0)
+  stages[laatsteBereikte].actief = true
+
+  // Timeline items opbouwen
+  const items: TimelineItem[] = []
+
+  // Project aangemaakt
+  items.push({
+    id: `project-${project.id}`,
+    type: 'project_aangemaakt',
+    datum: project.created_at,
+    titel: 'Project aangemaakt',
+    ondertitel: project.naam as string,
+  })
+
+  for (const o of offertes as Record<string, unknown>[]) {
+    // Offerte aangemaakt
+    items.push({
+      id: `offerte-${o.id}`,
+      type: o.status === 'geaccepteerd' ? 'offerte_geaccepteerd' : o.status === 'afgewezen' ? 'offerte_afgewezen' : o.status === 'verzonden' ? 'offerte_verzonden' : 'offerte_aangemaakt',
+      datum: o.created_at as string,
+      titel: `${o.offertenummer} v${(o.versie_nummer as number) || 1}`,
+      ondertitel: (o.onderwerp as string) || undefined,
+      bedrag: o.totaal as number,
+      status: o.status as string,
+      link: `/offertes/${o.id}`,
+    })
+
+    // Facturen per offerte
+    for (const f of (o.facturen as Record<string, unknown>[]) || []) {
+      const fStatus = f.status as string
+      const fType = fStatus === 'betaald' ? 'factuur_betaald' : fStatus === 'verzonden' || fStatus === 'vervallen' || fStatus === 'deels_betaald' ? 'factuur_verzonden' : 'factuur_aangemaakt'
+      items.push({
+        id: `factuur-${f.id}`,
+        type: fType,
+        datum: f.created_at as string,
+        titel: `Factuur ${f.factuurnummer}`,
+        ondertitel: f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : undefined,
+        bedrag: f.totaal as number,
+        status: fStatus,
+        link: `/facturatie`,
+      })
+    }
+
+    // Emails per offerte
+    for (const e of (o.email_log as Record<string, unknown>[]) || []) {
+      items.push({
+        id: `email-${e.id}`,
+        type: 'email_verstuurd',
+        datum: e.verstuurd_op as string,
+        titel: (e.onderwerp as string) || 'E-mail verstuurd',
+        ondertitel: `Aan: ${e.aan}`,
+      })
+    }
+
+    // Berichten per offerte
+    for (const b of (o.berichten as Record<string, unknown>[]) || []) {
+      items.push({
+        id: `bericht-${b.id}`,
+        type: 'bericht',
+        datum: b.created_at as string,
+        titel: `Bericht van ${(b.afzender_naam as string) || (b.afzender_type as string)}`,
+        ondertitel: ((b.tekst as string) || '').substring(0, 100),
+      })
+    }
+  }
+
+  // Taken
+  for (const t of taken) {
+    items.push({
+      id: `taak-${t.id}`,
+      type: 'taak',
+      datum: t.created_at,
+      titel: t.titel,
+      status: t.status,
+      link: `/taken/${t.id}`,
+    })
+  }
+
+  // Afspraken
+  for (const a of afspraken) {
+    items.push({
+      id: `afspraak-${a.id}`,
+      type: 'afspraak',
+      datum: a.start_datum,
+      titel: a.titel,
+      ondertitel: a.locatie || undefined,
+      link: `/agenda`,
+    })
+  }
+
+  // Sorteer op datum, nieuwste eerst
+  items.sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
+
+  return {
+    project: { ...project, geoffreerd, gefactureerd, betaald, openstaand },
+    pipeline: stages,
+    items,
+  }
 }
 
 // === KLANTENPORTAAL ===
@@ -2655,12 +3703,18 @@ interface KozijnElement {
 function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
-  // Detect Eko-Okna format (uses "Hoev. :" instead of "Hoeveelheid:")
-  const isEkoOkna = /Hoev\.\s*:\s*\d+/.test(text)
+  // Detect format
+  const isGealan = /Merk\s+\d+Aantal:\d+/.test(text)
+  const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
   let totaal = 0
-  if (isEkoOkna) {
+  if (isGealan) {
+    const totaalMatch = text.match(/Netto totaal\nTotaal([\d.,]+)/)
+    if (totaalMatch) {
+      totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    }
+  } else if (isEkoOkna) {
     // Eko-Okna prices are always excl. BTW
     // Try multiple patterns for total extraction from Eko-Okna PDFs:
     // Pattern 1: "17 519,29 ETotaal" or "17 519,29 E Totaal" or "17 519,29 E\nTotaal"
@@ -2684,7 +3738,23 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
   // Find element headers (name, hoeveelheid, systeem, kleur)
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
-  if (isEkoOkna) {
+  if (isGealan) {
+    const elementPattern = /Merk\s+(\d+)Aantal:(\d+)(?:Verbinding:\w+)?Systeem:\s*([^\n]+(?:\n[^\n]+)?)/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      const nextMerkIdx = text.indexOf('Merk ' + (parseInt(match[1]) + 1) + 'Aantal:', match.index + 1)
+      const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
+      const section = text.substring(match.index, sectionEnd)
+      const kleurMatch = section.match(/Kader\s+([^\n]+)/)
+      headers.push({
+        naam: 'Merk ' + match[1],
+        hoeveelheid: parseInt(match[2]),
+        systeem: match[3].trim().replace(/\n/g, ' '),
+        kleur: kleurMatch ? kleurMatch[1].trim() : '',
+        idx: match.index,
+        endIdx: match.index + match[0].length,
+      })
+    }
+  } else if (isEkoOkna) {
     const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
     while ((match = elementPattern.exec(text)) !== null) {
       headers.push({
@@ -2713,7 +3783,7 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
   // Find all Buitenaanzicht positions (only for original format where specs appear BEFORE each header)
   const allBuitenPositions: number[] = []
   const specsPositions: number[] = []
-  if (!isEkoOkna) {
+  if (!isEkoOkna && !isGealan) {
     const buitenPattern = /Buitenaanzicht\n/g
     while ((match = buitenPattern.exec(text)) !== null) {
       allBuitenPositions.push(match.index)
@@ -2727,7 +3797,7 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
 
   // Extract ALL price lines in order (only for original format; Eko-Okna uses only totaal)
   const allPrices: number[] = []
-  if (!isEkoOkna) {
+  if (!isEkoOkna && !isGealan) {
     const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
     let priceMatch
     while ((priceMatch = pricePattern.exec(text)) !== null) {
@@ -2745,7 +3815,13 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
     let notesText: string
     let searchText: string
 
-    if (isEkoOkna) {
+    if (isGealan) {
+      // In Gealan, all specs come AFTER the header (like Eko-Okna)
+      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
+      searchText = text.substring(header.endIdx, nextIdx)
+      specsText = searchText
+      notesText = searchText
+    } else if (isEkoOkna) {
       // In Eko-Okna, all specs come AFTER the header (not before)
       const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
       searchText = text.substring(header.endIdx, nextIdx)
@@ -2768,7 +3844,12 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
 
     // --- Prijs ---
     let prijs = 0
-    if (isEkoOkna) {
+    if (isGealan) {
+      const gealanPriceMatch = searchText.match(/Netto prijs\n\w+?([\d.,]+)\n/)
+      if (gealanPriceMatch) {
+        prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
+      }
+    } else if (isEkoOkna) {
       // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
       let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
       // Fallback: single price before "E" (no "N x" prefix)
@@ -2786,7 +3867,21 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
     let type = header.naam.startsWith('Deur') ? 'Deur' :
                header.naam.toLowerCase().startsWith('gekoppeld') ? 'Koppelelement' : 'Raam'
 
-    const vleugelMatches = specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g)
+    if (isGealan) {
+      const vleugelGealanMatches = searchText.match(/Vleugel\s+[^\n]+/g)
+      if (vleugelGealanMatches) {
+        for (const v of vleugelGealanMatches) {
+          if (/DK\s*Raam/i.test(v)) { type = 'Draai-kiep raam' }
+          else if (/Stolpdeur\s+buitendr/i.test(v)) { type = 'Stolpdeur'; drapirichting = 'Naar buiten draaiend' }
+          else if (/Deur\s+binnendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar binnen draaiend' }
+          else if (/Deur\s+buitendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar buiten draaiend' }
+        }
+      } else {
+        type = 'Vast raam'
+      }
+    }
+
+    const vleugelMatches = !isGealan ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
     if (vleugelMatches) {
       // Check ALL vleugels — door/terras types take priority over Vast raam
       let allVast = true
@@ -2818,7 +3913,8 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
     // Refine type with beslag info
     const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
     const beslagRaw = beslagMatch ? beslagMatch[1].trim() : ''
-    const beslag = cleanField(beslagRaw)
+    const gealanBeslagMatch = isGealan ? searchText.match(/Raamkruk\s*\n\s*\n([^\n]+)/i) : null
+    const beslag = cleanField(beslagRaw || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
 
     if (/Draai-kiep|Draai\s*-\s*kiep|Tilt\s*&\s*Turn/i.test(beslag)) {
       if (type === 'Raam') type = 'Draai-kiep raam'
@@ -2884,11 +3980,30 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       }
       glasType = glasTypes.join(' / ')
     }
+    // Step 4: Gealan fallback — extract from "Beglazingen & panelen" section
+    if (isGealan && !glasType) {
+      const glasSection = searchText.match(/Beglazingen & panelen[\s\S]*?(?=Netto prijs|$)/)
+      if (glasSection) {
+        const glasTypes = new Set<string>()
+        const glasPat = /(HR\+\+[^\n]+)/g
+        let gm
+        while ((gm = glasPat.exec(glasSection[0])) !== null) {
+          glasTypes.add(cleanField(gm[1].trim()))
+        }
+        glasType = Array.from(glasTypes).join(' / ')
+      }
+    }
 
     // --- Specs fields ---
+    // Gealan helper: extract spec value from "  Label\n \nValue\n" format
+    const gealanSpec = isGealan ? (label: string) => {
+      const m = searchText.match(new RegExp(label + '\\s*\\n\\s*\\n([^\\n]+)', 'i'))
+      return m ? cleanField(m[1].trim()) : ''
+    } : () => ''
+
     const dorpelMatch = searchText.match(/Deur\s*drempel\s*([^\n]+)/i) || searchText.match(/HST\s*dorpel\s*type\s*([^\n]+)/i) || searchText.match(/Dorpel\s*([^\n]+)/i)
-    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/)
-    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i)
+    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/) || searchText.match(/Slot\s*\n\s*\n([^\n]+)/i)
+    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i) || searchText.match(/Uitv\.\s*scharnieren\s*\n\s*\n([^\n]+)/i)
     const uwMatch = searchText.match(/Uw\s*=\s*([\d,]+\s*W\/m.*?K)/)
     const gewichtMatch = searchText.match(/Eenheidsgewicht\s*([\d.,]+\s*Kg)/i)
     const omtrekMatch = searchText.match(/Eenheidsomtrek\s*([\d.,]+\s*mm)/i) || searchText.match(/\bOmtrek\s*([\d.,]+\s*m)\b/i)
@@ -2896,13 +4011,13 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
     const hoekverbindingMatch = searchText.match(/Hoekverbinding\s*([^\n]+)/i)
     const montageGatenMatch = searchText.match(/Montage\s*gaten\([^)]+\):\s*(\w+)/i) || searchText.match(/Montage\s*gaten\s+(\w[^\n]*)/i)
     const afwateringMatch = searchText.match(/Afwatering\s*([^\n]+)/i)
-    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
+    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*\n\s*\n([^\n]+)/i) || searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
     const lakKleurMatch = searchText.match(/Lak\s*kleur\s*([^\n]+)/i)
-    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i)
+    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i) || searchText.match(/Cilinder\s*\n\s*\n([^\n]+)/i)
     const aantalSleutelsMatch = searchText.match(/Aantal\s*sleutels?\s*([^\n]+)/i)
     const gelijksluitendMatch = searchText.match(/Gelijksluitend[e]?\s*(?:cilinder)?\s*([^\n]+)/i)
-    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i)
-    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i)
+    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i) || searchText.match(/Kruk binnen\s*\n\s*\n([^\n]+)/i)
+    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i) || searchText.match(/Kruk buiten\s*\n\s*\n([^\n]+)/i)
 
     // --- Commentaar ---
     const commentaarMatch = notesText.match(/Commentaar(?:\s+op het product)?\n([^\n]+)/)
@@ -2920,9 +4035,9 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       beslag,
       uwWaarde: uwMatch ? cleanField(uwMatch[1].trim()) : '',
       drapirichting,
-      dorpel: dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '',
-      sluiting: sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '',
-      scharnieren: scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '',
+      dorpel: (dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '') || gealanSpec('Dorpel'),
+      sluiting: (sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '') || gealanSpec('Slot'),
+      scharnieren: (scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '') || gealanSpec('Uitv\\. scharnieren'),
       gewicht: gewichtMatch ? gewichtMatch[1].trim() : '',
       omtrek: omtrekMatch ? omtrekMatch[1].trim() : '',
       paneel: paneelMatch ? cleanField(paneelMatch[1].trim()) : '',
@@ -2931,13 +4046,13 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       hoekverbinding: hoekverbindingMatch ? cleanField(hoekverbindingMatch[1].trim()) : '',
       montageGaten: montageGatenMatch ? cleanField(montageGatenMatch[1].trim()) : '',
       afwatering: afwateringMatch ? cleanField(afwateringMatch[1].trim()) : '',
-      scharnierenKleur: scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '',
+      scharnierenKleur: (scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '') || gealanSpec('Kleur scharnieren'),
       lakKleur: lakKleurMatch ? cleanField(lakKleurMatch[1].trim()) : '',
-      sluitcilinder: sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '',
+      sluitcilinder: (sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '') || gealanSpec('Cilinder'),
       aantalSleutels: aantalSleutelsMatch ? cleanField(aantalSleutelsMatch[1].trim()) : '',
       gelijksluitend: gelijksluitendMatch ? cleanField(gelijksluitendMatch[1].trim()) : '',
-      krukBinnen: krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '',
-      krukBuiten: krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '',
+      krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen'),
+      krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten'),
     })
   }
 
@@ -3072,7 +4187,7 @@ export async function uploadLeverancierTekening(offerteId: string, pageNum: numb
   return { path }
 }
 
-export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string }[], margePercentage?: number) {
+export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[], margePercentage?: number) {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
@@ -3311,4 +4426,633 @@ export async function deleteLeverancierPdf(offerteId: string) {
     .eq('entiteit_id', offerteId)
 
   return { success: true }
+}
+
+// === LEADS ===
+export async function getLeads(filter?: string) {
+  const supabase = await createClient()
+  let query = supabase
+    .from('leads')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (filter && filter !== 'alle') {
+    query = query.eq('status', filter)
+  }
+
+  const { data } = await query
+  return data || []
+}
+
+export async function getLead(id: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('leads')
+    .select('*')
+    .eq('id', id)
+    .single()
+  return data
+}
+
+export async function getLeadTaken(leadId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('taken')
+    .select('*')
+    .eq('lead_id', leadId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function createLead(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const record = {
+    administratie_id: adminId,
+    bedrijfsnaam: formData.get('bedrijfsnaam') as string,
+    contactpersoon: formData.get('contactpersoon') as string || null,
+    email: formData.get('email') as string || null,
+    telefoon: formData.get('telefoon') as string || null,
+    adres: formData.get('adres') as string || null,
+    postcode: formData.get('postcode') as string || null,
+    plaats: formData.get('plaats') as string || null,
+    bron: 'handmatig',
+    notities: formData.get('notities') as string || null,
+  }
+
+  const { data, error } = await supabase
+    .from('leads')
+    .insert(record)
+    .select('id')
+    .single()
+
+  if (error) return { error: error.message }
+  revalidatePath('/leads')
+  return { success: true, id: data.id }
+}
+
+export async function updateLead(id: string, formData: FormData) {
+  const supabase = await createClient()
+  const record = {
+    bedrijfsnaam: formData.get('bedrijfsnaam') as string,
+    contactpersoon: formData.get('contactpersoon') as string || null,
+    email: formData.get('email') as string || null,
+    telefoon: formData.get('telefoon') as string || null,
+    adres: formData.get('adres') as string || null,
+    postcode: formData.get('postcode') as string || null,
+    plaats: formData.get('plaats') as string || null,
+    notities: formData.get('notities') as string || null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { error } = await supabase.from('leads').update(record).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/leads')
+  revalidatePath(`/leads/${id}`)
+  return { success: true }
+}
+
+export async function deleteLead(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('leads').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/leads')
+  return { success: true }
+}
+
+export async function updateLeadStatus(id: string, status: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('leads')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/leads')
+  revalidatePath(`/leads/${id}`)
+  return { success: true }
+}
+
+export async function setTerugbelMoment(id: string, datum: string, notitie: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('leads')
+    .update({
+      terugbel_datum: datum || null,
+      terugbel_notitie: notitie || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/leads')
+  revalidatePath(`/leads/${id}`)
+  return { success: true }
+}
+
+export async function convertLeadToRelatie(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const lead = await getLead(id)
+  if (!lead) return { error: 'Lead niet gevonden' }
+
+  const { data: relatie, error: relatieError } = await supabase
+    .from('relaties')
+    .insert({
+      administratie_id: adminId,
+      bedrijfsnaam: lead.bedrijfsnaam,
+      contactpersoon: lead.contactpersoon,
+      email: lead.email,
+      telefoon: lead.telefoon,
+      adres: lead.adres,
+      postcode: lead.postcode,
+      plaats: lead.plaats,
+      type: 'zakelijk',
+    })
+    .select('id')
+    .single()
+
+  if (relatieError) return { error: relatieError.message }
+
+  await supabase
+    .from('leads')
+    .update({
+      status: 'gewonnen',
+      relatie_id: relatie.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', id)
+
+  revalidatePath('/leads')
+  revalidatePath('/relatiebeheer')
+  return { success: true, relatie_id: relatie.id }
+}
+
+export async function importLeads(rows: {
+  bedrijfsnaam: string
+  contactpersoon?: string
+  email?: string
+  telefoon?: string
+  adres?: string
+  postcode?: string
+  plaats?: string
+  notities?: string
+}[]) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: existing } = await supabase
+    .from('leads')
+    .select('bedrijfsnaam')
+    .eq('administratie_id', adminId)
+
+  const existingNames = new Set(
+    (existing || []).map(r => r.bedrijfsnaam.toLowerCase().trim())
+  )
+
+  const toInsert: typeof rows = []
+  const duplicates: string[] = []
+  const invalid: string[] = []
+
+  for (const row of rows) {
+    const name = row.bedrijfsnaam?.trim()
+    if (!name) {
+      invalid.push(row.bedrijfsnaam || '(leeg)')
+      continue
+    }
+    if (existingNames.has(name.toLowerCase())) {
+      duplicates.push(name)
+      continue
+    }
+    toInsert.push({ ...row, bedrijfsnaam: name })
+    existingNames.add(name.toLowerCase())
+  }
+
+  let imported = 0
+  const errors: string[] = []
+
+  if (toInsert.length > 0) {
+    const BATCH_SIZE = 100
+    for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+      const batch = toInsert.slice(i, i + BATCH_SIZE).map(row => ({
+        administratie_id: adminId,
+        bedrijfsnaam: row.bedrijfsnaam,
+        contactpersoon: row.contactpersoon || null,
+        email: row.email || null,
+        telefoon: row.telefoon || null,
+        adres: row.adres || null,
+        postcode: row.postcode || null,
+        plaats: row.plaats || null,
+        notities: row.notities || null,
+        bron: 'import',
+        status: 'nieuw',
+      }))
+
+      const { error } = await supabase.from('leads').insert(batch)
+      if (error) {
+        errors.push(error.message)
+      } else {
+        imported += batch.length
+      }
+    }
+  }
+
+  revalidatePath('/leads')
+  return {
+    success: true,
+    imported,
+    duplicates: duplicates.length,
+    duplicateNames: duplicates.slice(0, 10),
+    invalid: invalid.length,
+    errors,
+  }
+}
+
+export async function createLeadTaak(leadId: string, titel: string, deadline?: string, prioriteit?: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { error } = await supabase.from('taken').insert({
+    administratie_id: adminId,
+    titel,
+    lead_id: leadId,
+    deadline: deadline || null,
+    prioriteit: prioriteit || 'normaal',
+    status: 'open',
+  })
+
+  if (error) return { error: error.message }
+  revalidatePath(`/leads/${leadId}`)
+  revalidatePath('/taken')
+  return { success: true }
+}
+
+// === AFSPRAKEN ===
+export async function getAfspraken() {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('afspraken')
+    .select('*, relatie:relaties(bedrijfsnaam), lead:leads(bedrijfsnaam)')
+    .order('start_datum', { ascending: true })
+  return data || []
+}
+
+export async function saveAfspraak(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const id = formData.get('id') as string
+  const record = {
+    administratie_id: adminId,
+    titel: formData.get('titel') as string,
+    omschrijving: formData.get('omschrijving') as string || null,
+    start_datum: formData.get('start_datum') as string,
+    eind_datum: formData.get('eind_datum') as string || null,
+    hele_dag: formData.get('hele_dag') === 'true',
+    locatie: formData.get('locatie') as string || null,
+    relatie_id: formData.get('relatie_id') as string || null,
+    lead_id: formData.get('lead_id') as string || null,
+    project_id: formData.get('project_id') as string || null,
+  }
+
+  if (id) {
+    const { error } = await supabase.from('afspraken').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('afspraken').insert(record)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export async function deleteAfspraak(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('afspraken').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export type AgendaItemType = 'taak' | 'levering' | 'terugbellen' | 'afspraak'
+
+export interface AgendaItem {
+  id: string
+  type: AgendaItemType
+  titel: string
+  datum: string
+  meta?: string
+  link?: string
+}
+
+export async function getAgendaItems(): Promise<AgendaItem[]> {
+  const supabase = await createClient()
+
+  const [takenRes, leveringenRes, leadsRes, afsprakenRes] = await Promise.all([
+    supabase
+      .from('taken')
+      .select('id, titel, deadline, status, prioriteit, project:projecten(naam)')
+      .not('deadline', 'is', null)
+      .neq('status', 'afgerond'),
+    supabase
+      .from('orders')
+      .select('id, ordernummer, leverdatum, status, onderwerp, relatie:relaties(bedrijfsnaam)')
+      .not('leverdatum', 'is', null),
+    supabase
+      .from('leads')
+      .select('id, bedrijfsnaam, terugbel_datum, terugbel_notitie')
+      .not('terugbel_datum', 'is', null),
+    supabase
+      .from('afspraken')
+      .select('id, titel, start_datum, locatie, hele_dag, relatie:relaties(bedrijfsnaam), lead:leads(bedrijfsnaam)'),
+  ])
+
+  const items: AgendaItem[] = []
+
+  for (const t of takenRes.data || []) {
+    items.push({
+      id: t.id,
+      type: 'taak',
+      titel: t.titel,
+      datum: t.deadline!,
+      meta: (t.project as { naam: string } | null)?.naam || undefined,
+      link: `/taken/${t.id}`,
+    })
+  }
+
+  for (const o of leveringenRes.data || []) {
+    const bedrijf = (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-'
+    items.push({
+      id: o.id,
+      type: 'levering',
+      titel: `${bedrijf} — ${o.ordernummer}`,
+      datum: o.leverdatum!,
+      meta: o.onderwerp || undefined,
+      link: `/offertes/orders/${o.id}`,
+    })
+  }
+
+  for (const l of leadsRes.data || []) {
+    items.push({
+      id: l.id,
+      type: 'terugbellen',
+      titel: l.bedrijfsnaam,
+      datum: l.terugbel_datum!,
+      meta: l.terugbel_notitie || undefined,
+      link: `/leads/${l.id}`,
+    })
+  }
+
+  for (const a of afsprakenRes.data || []) {
+    const relNaam = (a.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam
+    const leadNaam = (a.lead as { bedrijfsnaam: string } | null)?.bedrijfsnaam
+    items.push({
+      id: a.id,
+      type: 'afspraak',
+      titel: a.titel,
+      datum: a.start_datum,
+      meta: a.locatie || relNaam || leadNaam || undefined,
+    })
+  }
+
+  return items
+}
+
+// === MEDEWERKERS ===
+export async function getMedewerkers() {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('medewerkers')
+    .select('*')
+    .order('naam')
+  return data || []
+}
+
+export async function getMedewerker(id: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('medewerkers')
+    .select('*, profiel:profielen(naam, email, rol)')
+    .eq('id', id)
+    .single()
+  return data
+}
+
+export async function saveMedewerker(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const id = formData.get('id') as string
+  const specialisatiesRaw = formData.get('specialisaties') as string
+  const specialisaties = specialisatiesRaw
+    ? specialisatiesRaw.split(',').map(s => s.trim()).filter(Boolean)
+    : null
+
+  const record = {
+    administratie_id: adminId,
+    naam: formData.get('naam') as string,
+    email: formData.get('email') as string || null,
+    telefoon: formData.get('telefoon') as string || null,
+    type: formData.get('type') as string,
+    functie: formData.get('functie') as string || null,
+    uurtarief: parseFloat(formData.get('uurtarief') as string) || null,
+    kvk_nummer: formData.get('kvk_nummer') as string || null,
+    btw_nummer: formData.get('btw_nummer') as string || null,
+    specialisaties,
+    kleur: formData.get('kleur') as string || '#3b82f6',
+    actief: formData.get('actief') === 'true',
+    startdatum: formData.get('startdatum') as string || null,
+    opmerkingen: formData.get('opmerkingen') as string || null,
+  }
+
+  if (id) {
+    const { error } = await supabase.from('medewerkers').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('medewerkers').insert(record)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/medewerkers')
+  return { success: true }
+}
+
+export async function deleteMedewerker(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('medewerkers').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/medewerkers')
+  return { success: true }
+}
+
+export async function getOrderFacturen(orderId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('facturen')
+    .select('id, factuurnummer, datum, status, totaal, betaald_bedrag, factuur_type, onderwerp, gerelateerde_factuur_id')
+    .eq('order_id', orderId)
+    .order('factuur_type', { ascending: true })
+  return data || []
+}
+
+export async function getOrderMedewerkers(orderId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('order_medewerkers')
+    .select('*, medewerker:medewerkers(id, naam, type, functie, kleur)')
+    .eq('order_id', orderId)
+  return data || []
+}
+
+export async function saveOrderMedewerker(formData: FormData) {
+  const supabase = await createClient()
+
+  const id = formData.get('id') as string
+  const record = {
+    order_id: formData.get('order_id') as string,
+    medewerker_id: formData.get('medewerker_id') as string,
+    rol: formData.get('rol') as string || null,
+    gepland_van: formData.get('gepland_van') as string || null,
+    gepland_tot: formData.get('gepland_tot') as string || null,
+    geschatte_uren: parseFloat(formData.get('geschatte_uren') as string) || null,
+    notitie: formData.get('notitie') as string || null,
+  }
+
+  if (id) {
+    const { error } = await supabase.from('order_medewerkers').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('order_medewerkers').insert(record)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/offertes/orders')
+  return { success: true }
+}
+
+export async function deleteOrderMedewerker(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('order_medewerkers').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/offertes/orders')
+  return { success: true }
+}
+
+export async function getMedewerkerOrders(medewerkerId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('order_medewerkers')
+    .select('*, order:orders(id, ordernummer, onderwerp, status, datum, relatie:relaties(bedrijfsnaam))')
+    .eq('medewerker_id', medewerkerId)
+  return data || []
+}
+
+export async function createMedewerkerAccount(medewerkerId: string, formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const email = formData.get('email') as string
+  const wachtwoord = formData.get('wachtwoord') as string
+  const naam = formData.get('naam') as string
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: userData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    email,
+    password: wachtwoord,
+    email_confirm: true,
+    user_metadata: { naam },
+  })
+  if (authError) return { error: authError.message }
+  if (!userData.user) return { error: 'Account aanmaken mislukt' }
+
+  await supabaseAdmin
+    .from('profielen')
+    .update({ administratie_id: adminId, rol: 'medewerker', naam })
+    .eq('id', userData.user.id)
+
+  await supabaseAdmin
+    .from('medewerkers')
+    .update({ profiel_id: userData.user.id })
+    .eq('id', medewerkerId)
+
+  revalidatePath('/medewerkers')
+  return { success: true }
+}
+
+export async function getMedewerkerDashboardData() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+
+  const supabaseAdmin = createAdminClient()
+
+  // Find medewerker record linked to this profile
+  const { data: medewerker } = await supabaseAdmin
+    .from('medewerkers')
+    .select('id')
+    .eq('profiel_id', user.id)
+    .single()
+  if (!medewerker) return null
+
+  const [ordersRes, takenRes, urenRes] = await Promise.all([
+    supabaseAdmin
+      .from('order_medewerkers')
+      .select('*, order:orders(id, ordernummer, onderwerp, status, datum, leverdatum, relatie:relaties(bedrijfsnaam))')
+      .eq('medewerker_id', medewerker.id),
+    supabaseAdmin
+      .from('taken')
+      .select('*, project:projecten(naam)')
+      .eq('medewerker_id', medewerker.id)
+      .in('status', ['open', 'in_uitvoering']),
+    supabaseAdmin
+      .from('uren')
+      .select('*')
+      .eq('medewerker_id', medewerker.id)
+      .gte('datum', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]),
+  ])
+
+  return {
+    medewerkerId: medewerker.id,
+    orders: ordersRes.data || [],
+    taken: takenRes.data || [],
+    urenDezeWeek: urenRes.data || [],
+  }
+}
+
+export async function getMedewerkerPlanning(startDatum: string, eindDatum: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('order_medewerkers')
+    .select('*, medewerker:medewerkers(id, naam, kleur, functie), order:orders(id, ordernummer, onderwerp, relatie:relaties(bedrijfsnaam))')
+    .or(`gepland_van.lte.${eindDatum},gepland_tot.gte.${startDatum}`)
+    .not('gepland_van', 'is', null)
+  return data || []
+}
+
+export async function getMedewerkersMetBezetting() {
+  const supabase = await createClient()
+  const vandaag = new Date().toISOString().split('T')[0]
+  const volgendeWeek = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  const [medewerkers, bezetting] = await Promise.all([
+    supabase.from('medewerkers').select('id, naam, type, functie, kleur, actief').eq('actief', true).order('naam'),
+    supabase.from('order_medewerkers')
+      .select('medewerker_id, gepland_van, gepland_tot, order:orders(ordernummer, onderwerp)')
+      .gte('gepland_tot', vandaag)
+      .lte('gepland_van', volgendeWeek),
+  ])
+
+  return {
+    medewerkers: medewerkers.data || [],
+    bezetting: bezetting.data || [],
+  }
 }

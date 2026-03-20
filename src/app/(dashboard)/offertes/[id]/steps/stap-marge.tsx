@@ -20,26 +20,50 @@ export function StapMarge({
   parsedPdfResult: ParsedPdfResult
   margePercentage: number
   onMargeChange: (marge: number) => void
-  onNext: () => void
+  onNext: (marges: Record<string, number>) => void
   onSkip: () => void
   onBack: () => void
 }) {
   const [inputValue, setInputValue] = useState(margePercentage > 0 ? String(margePercentage) : '')
+  const [elementMarges, setElementMarges] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {}
+    parsedPdfResult.elementen.forEach(e => {
+      initial[e.naam] = margePercentage
+    })
+    return initial
+  })
 
-  const marge = parseFloat(inputValue) || 0
+  const globalMarge = parseFloat(inputValue) || 0
   const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
   const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
-  const margeBedrag = inkoopTotaal * (marge / 100)
-  const verkoopTotaal = inkoopTotaal + margeBedrag
 
-  function handleMargeChange(value: string) {
+  // Calculate totals based on per-element marges
+  const verkoopTotaal = parsedPdfResult.elementen.reduce((sum, e) => {
+    const eMarge = elementMarges[e.naam] ?? globalMarge
+    return sum + (e.prijs * (1 + eMarge / 100)) * e.hoeveelheid
+  }, 0)
+  const margeBedrag = verkoopTotaal - inkoopTotaal
+
+  function handleGlobalMargeChange(value: string) {
     setInputValue(value)
-    onMargeChange(parseFloat(value) || 0)
+    const newMarge = parseFloat(value) || 0
+    onMargeChange(newMarge)
+    // Update all element marges to match global
+    const updated: Record<string, number> = {}
+    parsedPdfResult.elementen.forEach(e => {
+      updated[e.naam] = newMarge
+    })
+    setElementMarges(updated)
+  }
+
+  function handleElementMargeChange(naam: string, value: string) {
+    const newMarge = parseFloat(value) || 0
+    setElementMarges(prev => ({ ...prev, [naam]: newMarge }))
   }
 
   function handleNext() {
-    onMargeChange(marge)
-    onNext()
+    onMargeChange(globalMarge)
+    onNext(elementMarges)
   }
 
   return (
@@ -62,7 +86,7 @@ export function StapMarge({
         <div className="flex items-center gap-4 mb-6">
           <div className="flex items-center gap-2 flex-1">
             <label htmlFor="marge" className="text-sm font-medium text-gray-700 whitespace-nowrap">
-              Marge percentage
+              Marge percentage (alle elementen)
             </label>
             <div className="relative w-32">
               <input
@@ -72,7 +96,7 @@ export function StapMarge({
                 min="0"
                 max="100"
                 value={inputValue}
-                onChange={(e) => handleMargeChange(e.target.value)}
+                onChange={(e) => handleGlobalMargeChange(e.target.value)}
                 placeholder="0"
                 className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
               />
@@ -89,19 +113,15 @@ export function StapMarge({
                 <th className="text-left px-4 py-2.5 font-medium text-gray-600">Element</th>
                 <th className="text-center px-3 py-2.5 font-medium text-gray-600 w-16">Hvh</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Inkoop/stuk</th>
-                {marge > 0 && (
-                  <>
-                    <th className="text-right px-4 py-2.5 font-medium text-gray-600">Marge</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-gray-600">Verkoop/stuk</th>
-                  </>
-                )}
+                <th className="text-center px-3 py-2.5 font-medium text-gray-600 w-24">Marge %</th>
+                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Verkoop/stuk</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Totaal</th>
               </tr>
             </thead>
             <tbody>
               {parsedPdfResult.elementen.map((element, i) => {
-                const elementMarge = element.prijs * (marge / 100)
-                const verkoopPerStuk = element.prijs + elementMarge
+                const eMarge = elementMarges[element.naam] ?? globalMarge
+                const verkoopPerStuk = element.prijs * (1 + eMarge / 100)
                 const totaal = verkoopPerStuk * element.hoeveelheid
 
                 return (
@@ -114,12 +134,22 @@ export function StapMarge({
                     </td>
                     <td className="text-center px-3 py-2.5 text-gray-600">{element.hoeveelheid}</td>
                     <td className="text-right px-4 py-2.5 text-gray-600">{formatCurrency(element.prijs)}</td>
-                    {marge > 0 && (
-                      <>
-                        <td className="text-right px-4 py-2.5 text-green-600">+{formatCurrency(elementMarge)}</td>
-                        <td className="text-right px-4 py-2.5 font-medium text-gray-900">{formatCurrency(verkoopPerStuk)}</td>
-                      </>
-                    )}
+                    <td className="text-center px-3 py-2.5">
+                      <div className="relative w-20 mx-auto">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          value={eMarge || ''}
+                          onChange={(e) => handleElementMargeChange(element.naam, e.target.value)}
+                          placeholder="0"
+                          className="w-full px-2 py-1 pr-6 border border-gray-300 rounded text-xs text-right focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                        <Percent className="absolute right-1.5 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400" />
+                      </div>
+                    </td>
+                    <td className="text-right px-4 py-2.5 font-medium text-gray-900">{formatCurrency(verkoopPerStuk)}</td>
                     <td className="text-right px-4 py-2.5 font-medium text-gray-900">{formatCurrency(totaal)}</td>
                   </tr>
                 )
@@ -135,9 +165,9 @@ export function StapMarge({
               <span>Inkoop totaal:</span>
               <span>{formatCurrency(inkoopTotaal)}</span>
             </div>
-            {marge > 0 && (
+            {margeBedrag > 0 && (
               <div className="flex justify-between text-green-600">
-                <span>Marge ({marge}%):</span>
+                <span>Marge:</span>
                 <span>+{formatCurrency(margeBedrag)}</span>
               </div>
             )}

@@ -34,6 +34,9 @@ interface FactuurData {
 }
 
 const logoPath = path.join(process.cwd(), 'public', 'images', 'logo-rebu.png')
+const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
+const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
+const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
 export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
   const regels = factuur.regels || []
@@ -50,39 +53,25 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
     <Document>
       {/* ====== PAGINA 1: COVER ====== */}
       <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={s.coverPage}>
-          {/* Linker helft: zwart met logo tekst */}
-          <View style={s.coverLeft}>
-            <View style={{ alignItems: 'center' }}>
-              <Text style={s.coverRebu}>REBU</Text>
-              <Text style={s.coverKozijnen}>KOZIJNEN</Text>
-              <Text style={s.coverSlogan}>Maken het verschil.</Text>
-            </View>
-          </View>
-
-          {/* Rechter helft: wit met RK icoon */}
-          <View style={s.coverRight}>
-            <Text style={s.coverRkIcon}>RK</Text>
-          </View>
-        </View>
-
-        {/* Groene balk onderaan */}
-        <View style={s.coverBottomBar}>
-          <View style={{ flexDirection: 'row', gap: 40 }}>
+        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <Image src={coverBgPath} style={s.fullPageBg} />
+          <View style={s.coverBottomBar}>
             <View>
-              <Text style={s.coverBottomLabel}>FACTUURNUMMER:</Text>
-              <Text style={s.coverBottomValue}>{factuur.factuurnummer}</Text>
+              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5 }}>
+                <Text>FACTUURNUMMER:  </Text>
+                <Text style={{ fontFamily: 'Helvetica' }}>{factuur.factuurnummer}</Text>
+              </Text>
+              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5, marginTop: 2 }}>
+                <Text>FACTUURDATUM:   </Text>
+                <Text style={{ fontFamily: 'Helvetica' }}>{formatDatePdf(factuur.datum)}</Text>
+              </Text>
+              {factuur.vervaldatum && (
+                <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5, marginTop: 2 }}>
+                  <Text>VERVALDATUM:    </Text>
+                  <Text style={{ fontFamily: 'Helvetica' }}>{formatDatePdf(factuur.vervaldatum)}</Text>
+                </Text>
+              )}
             </View>
-            <View>
-              <Text style={s.coverBottomLabel}>FACTUURDATUM:</Text>
-              <Text style={s.coverBottomValue}>{formatDatePdf(factuur.datum)}</Text>
-            </View>
-            {factuur.vervaldatum && (
-              <View>
-                <Text style={s.coverBottomLabel}>VERVALDATUM:</Text>
-                <Text style={s.coverBottomValue}>{formatDatePdf(factuur.vervaldatum)}</Text>
-              </View>
-            )}
           </View>
         </View>
       </Page>
@@ -92,8 +81,8 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
         {/* Zwarte sidebar rechts */}
         <View style={s.contentSidebar} />
 
-        {/* Watermark RK */}
-        <Text style={s.watermark}>RK</Text>
+        {/* Watermark RK icoon */}
+        <Image src={rkIconPath} style={s.watermarkImage} />
 
         {/* Logo rechts boven */}
         <View style={s.logoArea}>
@@ -230,34 +219,10 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
         </View>
       </Page>
 
-      {/* ====== PAGINA 3: ACHTERPAGINA MET CONTACTGEGEVENS ====== */}
-      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: COLORS.black }]}>
-        <View style={{ flex: 1, justifyContent: 'flex-end' }}>
-          {/* Groene balk onderaan */}
-          <View style={{
-            backgroundColor: COLORS.green,
-            paddingHorizontal: 40,
-            paddingVertical: 25,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'flex-end',
-          }}>
-            <View>
-              <Text style={{ fontSize: 14, fontFamily: 'Helvetica-Bold', color: COLORS.white, marginBottom: 4 }}>
-                06 58 86 60 70
-              </Text>
-              <Text style={{ fontSize: 10, color: COLORS.white, marginBottom: 10 }}>
-                info@rebukozijnen.nl
-              </Text>
-              <Text style={{ fontSize: 10, color: COLORS.white }}>Samsonweg 26F</Text>
-              <Text style={{ fontSize: 10, color: COLORS.white }}>1521 RM, Wormerveer</Text>
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 2 }}>REBU</Text>
-              <Text style={{ fontSize: 24, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 1 }}>KOZIJNEN</Text>
-              <Text style={{ fontSize: 9, color: COLORS.white }}>Maken het verschil.</Text>
-            </View>
-          </View>
+      {/* ====== ACHTERPAGINA MET FOTO ====== */}
+      <Page size="A4" style={[s.page, { padding: 0 }]}>
+        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
+          <Image src={backPagePath} style={s.fullPageBg} />
         </View>
       </Page>
     </Document>

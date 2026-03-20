@@ -4,41 +4,37 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
 import { saveProject, deleteProject } from '@/lib/actions'
+import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Pipeline } from '@/components/verkoopkans/pipeline'
+import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, FileText, FolderKanban } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp } from 'lucide-react'
 
-interface Offerte {
-  id: string
-  offertenummer: string
-  versie_nummer: number | null
-  datum: string
-  status: string
-  totaal: number
-  relatie: { bedrijfsnaam: string } | null
-}
-
-export function ProjectDetail({ project, relaties, offertes, isNew }: {
-  project: Record<string, unknown> | null
+export function ProjectDetail({ timeline, relaties, isNew }: {
+  timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
-  offertes: Offerte[]
   isNew: boolean
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState(false)
+
+  const project = timeline?.project
 
   async function handleSubmit(formData: FormData) {
     setLoading(true); setError('')
     if (project) formData.set('id', project.id as string)
     const result = await saveProject(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else router.push('/projecten')
+    else if (isNew) router.push('/projecten')
+    else { setEditing(false); setLoading(false); router.refresh() }
   }
 
   async function handleDelete() {
@@ -48,16 +44,8 @@ export function ProjectDetail({ project, relaties, offertes, isNew }: {
     else router.push('/projecten')
   }
 
-  // Groepeer offertes per offertenummer
-  const offerteGroups = offertes.reduce<Record<string, Offerte[]>>((acc, o) => {
-    const key = o.offertenummer
-    if (!acc[key]) acc[key] = []
-    acc[key].push(o)
-    return acc
-  }, {})
-
+  // Nieuw project: toon alleen het formulier
   if (isNew) {
-    // Nieuw project: toon alleen het formulier
     return (
       <div>
         <PageHeader title="Nieuw project" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
@@ -91,25 +79,28 @@ export function ProjectDetail({ project, relaties, offertes, isNew }: {
     )
   }
 
-  // Bestaand project: detail pagina
-  const projectNaam = (project?.naam as string) || 'Project'
-  const projectStatus = (project?.status as string) || 'actief'
-  const relatieNaam = (project?.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam
+  if (!project || !timeline) {
+    return (
+      <div>
+        <PageHeader title="Project niet gevonden" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+      </div>
+    )
+  }
+
+  const projectNaam = (project.naam as string) || 'Project'
+  const projectStatus = (project.status as string) || 'actief'
+  const relatieId = project.relatie_id as string | null
+  const relatieNaam = (project.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam
 
   return (
     <div>
       <PageHeader
         title={projectNaam}
-        description={relatieNaam ? `Klant: ${relatieNaam}` : undefined}
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => router.push('/projecten')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
-            </Button>
-            <Button onClick={() => router.push(`/offertes/nieuw?project_id=${project?.id}&relatie_id=${project?.relatie_id}`)}>
-              <Plus className="h-4 w-4" />
-              Nieuwe offerte
             </Button>
           </div>
         }
@@ -117,123 +108,141 @@ export function ProjectDetail({ project, relaties, offertes, isNew }: {
 
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
 
-      <div className="space-y-6">
-        {/* Project status banner */}
-        <div className="flex items-center gap-3">
-          <Badge status={projectStatus} />
-          {project?.startdatum && (
-            <span className="text-sm text-gray-500">
-              Start: {formatDateShort(project.startdatum as string)}
-            </span>
-          )}
-          {project?.einddatum && (
-            <span className="text-sm text-gray-500">
-              Eind: {formatDateShort(project.einddatum as string)}
-            </span>
-          )}
-          {project?.budget && (
-            <span className="text-sm text-gray-500">
-              Budget: {formatCurrency(project.budget as number)}
-            </span>
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Zijbalk */}
+        <div className="lg:w-72 shrink-0 space-y-4">
+          <Card>
+            <CardContent className="pt-5">
+              {editing ? (
+                /* Inline edit form */
+                <form action={handleSubmit} className="space-y-3">
+                  <Input id="naam" name="naam" label="Projectnaam *" defaultValue={project.naam as string} required />
+                  <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={relatieId || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+                  <Select id="status" name="status" label="Status" defaultValue={projectStatus} options={[
+                    { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
+                    { value: 'on_hold', label: 'On hold' }, { value: 'geannuleerd', label: 'Geannuleerd' },
+                  ]} />
+                  <Input id="budget" name="budget" label="Budget" type="number" step="0.01" defaultValue={(project.budget as number) || ''} />
+                  <Input id="uurtarief" name="uurtarief" label="Uurtarief" type="number" step="0.01" defaultValue={(project.uurtarief as number) || ''} />
+                  <Input id="startdatum" name="startdatum" label="Startdatum" type="date" defaultValue={(project.startdatum as string) || ''} />
+                  <Input id="einddatum" name="einddatum" label="Einddatum" type="date" defaultValue={(project.einddatum as string) || ''} />
+                  <div>
+                    <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
+                    <textarea id="omschrijving" name="omschrijving" rows={2} defaultValue={(project.omschrijving as string) || ''} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <Button type="submit" size="sm" disabled={loading} className="flex-1">
+                      <Save className="h-3 w-3" />{loading ? 'Opslaan...' : 'Opslaan'}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <Button type="button" variant="danger" size="sm" onClick={handleDelete} className="w-full">
+                    <Trash2 className="h-3 w-3" />Verwijderen
+                  </Button>
+                </form>
+              ) : (
+                /* Read-only view */
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <h3 className="text-sm font-semibold text-gray-900">Projectgegevens</h3>
+                    <button onClick={() => setEditing(true)} className="text-gray-400 hover:text-gray-600">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Klant */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="h-4 w-4 text-gray-400 shrink-0" />
+                    {relatieId ? (
+                      <Link href={`/relatiebeheer/${relatieId}`} className="text-primary hover:underline">
+                        {relatieNaam}
+                      </Link>
+                    ) : (
+                      <span className="text-gray-500">Geen klant</span>
+                    )}
+                  </div>
+
+                  {/* Fase */}
+                  <div className="flex items-center gap-2">
+                    <Badge status={projectStatus} />
+                  </div>
+
+                  {/* Planning */}
+                  {!!(project.startdatum || project.einddatum) && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <CalendarDays className="h-4 w-4 text-gray-400 shrink-0" />
+                      <span>
+                        {project.startdatum ? formatDateShort(project.startdatum as string) : '–'}
+                        {' → '}
+                        {project.einddatum ? formatDateShort(project.einddatum as string) : '–'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Budget */}
+                  {!!project.budget && (
+                    <div className="flex items-center gap-2 text-sm text-gray-600">
+                      <Banknote className="h-4 w-4 text-gray-400 shrink-0" />
+                      <span>Budget: {formatCurrency(project.budget as number)}</span>
+                    </div>
+                  )}
+
+                  {/* Facturatie samenvatting */}
+                  <div className="border-t border-gray-100 pt-3 space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <TrendingUp className="h-4 w-4 text-gray-400" />
+                      <span className="text-sm font-semibold text-gray-900">Facturatie</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-blue-50 rounded-md p-2">
+                        <div className="text-blue-600 font-medium">Geoffreerd</div>
+                        <div className="text-blue-900 font-semibold">{formatCurrency(project.geoffreerd)}</div>
+                      </div>
+                      <div className="bg-purple-50 rounded-md p-2">
+                        <div className="text-purple-600 font-medium">Gefactureerd</div>
+                        <div className="text-purple-900 font-semibold">{formatCurrency(project.gefactureerd)}</div>
+                      </div>
+                      <div className="bg-green-50 rounded-md p-2">
+                        <div className="text-green-600 font-medium">Betaald</div>
+                        <div className="text-green-900 font-semibold">{formatCurrency(project.betaald)}</div>
+                      </div>
+                      <div className="bg-orange-50 rounded-md p-2">
+                        <div className="text-orange-600 font-medium">Openstaand</div>
+                        <div className="text-orange-900 font-semibold">{formatCurrency(project.openstaand)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Acties */}
+          {!editing && (
+            <Button
+              className="w-full"
+              onClick={() => router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)}
+            >
+              <Plus className="h-4 w-4" />
+              Nieuwe offerte
+            </Button>
           )}
         </div>
 
-        {/* Offertes sectie */}
-        <Card>
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-gray-500" />
-              <h2 className="font-semibold text-gray-900">Offertes</h2>
-              <span className="text-sm text-gray-500">({offertes.length})</span>
-            </div>
-          </div>
-          <CardContent>
-            {offertes.length === 0 ? (
-              <div className="py-8 text-center">
-                <FileText className="h-8 w-8 text-gray-300 mx-auto mb-2" />
-                <p className="text-sm text-gray-500 mb-3">Nog geen offertes voor dit project</p>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => router.push(`/offertes/nieuw?project_id=${project?.id}&relatie_id=${project?.relatie_id}`)}
-                >
-                  <Plus className="h-3 w-3" />
-                  Eerste offerte aanmaken
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {Object.entries(offerteGroups).map(([nummer, versies]) => (
-                  <div key={nummer}>
-                    <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                      {nummer}
-                    </div>
-                    <div className="space-y-1">
-                      {versies.map(o => (
-                        <Link
-                          key={o.id}
-                          href={`/offertes/${o.id}`}
-                          className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                              v{o.versie_nummer || 1}
-                            </span>
-                            <span className="text-sm text-gray-900">
-                              {formatDateShort(o.datum)}
-                            </span>
-                            <Badge status={o.status} />
-                          </div>
-                          <span className="text-sm font-medium text-gray-900">
-                            {formatCurrency(o.totaal || 0)}
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Project gegevens bewerken */}
-        <Card>
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
-            <FolderKanban className="h-4 w-4 text-gray-500" />
-            <h2 className="font-semibold text-gray-900">Projectgegevens</h2>
-          </div>
-          <form action={handleSubmit}>
-            <CardContent className="space-y-4 pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input id="naam" name="naam" label="Projectnaam *" defaultValue={(project?.naam as string) || ''} required />
-                <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={(project?.relatie_id as string) || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
-                <Select id="status" name="status" label="Status" defaultValue={(project?.status as string) || 'actief'} options={[
-                  { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
-                  { value: 'on_hold', label: 'On hold' }, { value: 'geannuleerd', label: 'Geannuleerd' },
-                ]} />
-                <Input id="budget" name="budget" label="Budget" type="number" step="0.01" defaultValue={(project?.budget as number) || ''} />
-                <Input id="uurtarief" name="uurtarief" label="Uurtarief" type="number" step="0.01" defaultValue={(project?.uurtarief as number) || ''} />
-                <Input id="startdatum" name="startdatum" label="Startdatum" type="date" defaultValue={(project?.startdatum as string) || ''} />
-                <Input id="einddatum" name="einddatum" label="Einddatum" type="date" defaultValue={(project?.einddatum as string) || ''} />
-              </div>
-              <div>
-                <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
-                <textarea id="omschrijving" name="omschrijving" rows={3} defaultValue={(project?.omschrijving as string) || ''} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
-              </div>
+        {/* Rechts: Pipeline + Timeline */}
+        <div className="flex-1 min-w-0 space-y-6">
+          {/* Pipeline voortgangsbalk */}
+          <Card>
+            <CardContent className="py-5">
+              <Pipeline stages={timeline.pipeline} />
             </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button type="button" variant="danger" onClick={handleDelete}>
-                <Trash2 className="h-4 w-4" />
-                Verwijderen
-              </Button>
-              <Button type="submit" disabled={loading}>
-                <Save className="h-4 w-4" />
-                {loading ? 'Opslaan...' : 'Opslaan'}
-              </Button>
-            </CardFooter>
-          </form>
-        </Card>
+          </Card>
+
+          {/* Timeline */}
+          <Timeline items={timeline.items} />
+        </div>
       </div>
     </div>
   )
