@@ -27,6 +27,10 @@ if (typeof globalThis.DOMMatrix === 'undefined') {
 export async function parsePdfBuffer(buffer: Buffer): Promise<{ text: string }> {
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
 
+  // Disable worker - not needed/available in serverless environments
+  // Setting to empty data URL prevents pdfjs from trying to load pdf.worker.mjs
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'data:application/javascript,'
+
   const data = new Uint8Array(buffer)
   const loadingTask = pdfjsLib.getDocument({
     data,
