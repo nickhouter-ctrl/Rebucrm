@@ -1,9 +1,17 @@
-// Server-side PDF text extraction using pdfjs-dist (replaces pdf-parse which doesn't bundle on Vercel)
+// Server-side PDF text extraction using pdfjs-dist
 export async function parsePdfBuffer(buffer: Buffer): Promise<{ text: string }> {
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  // Use the main build (not legacy) - works with Node.js 24
+  const pdfjsLib = await import('pdfjs-dist/build/pdf.mjs')
 
   const data = new Uint8Array(buffer)
-  const doc = await pdfjsLib.getDocument({ data, useSystemFonts: true }).promise
+  const loadingTask = pdfjsLib.getDocument({
+    data,
+    useSystemFonts: true,
+    // Disable worker in serverless environment
+    isEvalSupported: false,
+  })
+
+  const doc = await loadingTask.promise
 
   let text = ''
   for (let i = 1; i <= doc.numPages; i++) {

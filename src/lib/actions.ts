@@ -4068,13 +4068,13 @@ export async function processLeverancierPdf(offerteId: string, formData: FormDat
 
   const buffer = Buffer.from(await file.arrayBuffer())
 
-  // Import pdf-parse/lib directly to avoid test file loading in dev
   const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
   let parsed
   try {
     parsed = await pdfParse(buffer)
-  } catch {
-    return { error: 'Kan PDF niet lezen' }
+  } catch (e) {
+    console.error('PDF parse error:', e)
+    return { error: 'Kan PDF niet lezen: ' + (e instanceof Error ? e.message : String(e)) }
   }
 
   const { totaal, elementen } = parseLeverancierPdfText(parsed.text)
@@ -4343,15 +4343,14 @@ export async function parseLeverancierPdfOnly(formData: FormData) {
     if (!file) return { error: 'Geen PDF bestand' }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    // Import pdf-parse/lib directly to avoid test file loading in dev
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
 
     let parsed
     try {
       parsed = await pdfParse(buffer)
-    } catch {
-      return { error: 'Kan PDF niet lezen' }
+    } catch (e) {
+      console.error('PDF parse error:', e)
+      return { error: 'Kan PDF niet lezen: ' + (e instanceof Error ? e.message : String(e)) }
     }
 
     const { totaal, elementen } = parseLeverancierPdfText(parsed.text)
