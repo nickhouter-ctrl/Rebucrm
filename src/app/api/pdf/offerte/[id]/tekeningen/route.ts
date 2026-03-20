@@ -39,15 +39,17 @@ function parseElementsFromText(text: string): ParsedElement[] {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
   // Detect format
-  const isGealan = /Merk\s+\d+Aantal:\d+/.test(text)
+  const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
   const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
 
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
   if (isGealan) {
-    const elementPattern = /Merk\s+(\d+)Aantal:(\d+)(?:Verbinding:\w+)?Systeem:\s*([^\n]+(?:\n[^\n]+)?)/g
+    const elementPattern = /Merk\s+(\d+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
     while ((match = elementPattern.exec(text)) !== null) {
-      const nextMerkIdx = text.indexOf('Merk ' + (parseInt(match[1]) + 1) + 'Aantal:', match.index + 1)
+      const nextMerkPattern = new RegExp('Merk\\s+' + (parseInt(match[1]) + 1) + '\\s*Aantal\\s*:')
+      const nextMerkMatch = nextMerkPattern.exec(text.substring(match.index + 1))
+      const nextMerkIdx = nextMerkMatch ? match.index + 1 + nextMerkMatch.index : -1
       const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader\s+([^\n]+)/)
@@ -59,7 +61,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
       headers.push({ naam: match[1].trim(), hoeveelheid: parseInt(match[2]), systeem: match[4].trim(), kleur: match[3].trim(), idx: match.index, endIdx: match.index + match[0].length })
     }
   } else {
-    const elementPattern = /((?:Deur|Element)\s+\d{3})\nHoeveelheid:\n(\d+)\nSysteem:\s*([\s\S]+?)Kleur:\s*([^\n]+)/g
+    const elementPattern = /((?:Deur|Element)\s+\d{3})[\s\n]+Hoeveelheid\s*:[\s\n]*(\d+)[\s\n]+Systeem\s*:\s*([\s\S]+?)Kleur\s*:\s*([^\n]+)/g
     while ((match = elementPattern.exec(text)) !== null) {
       headers.push({ naam: match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim(), kleur: match[4].trim(), idx: match.index, endIdx: match.index + match[0].length })
     }
@@ -121,7 +123,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
 
     let prijs = 0
     if (isGealan) {
-      const gealanPriceMatch = searchText.match(/Netto prijs\n\w+?([\d.,]+)\n/)
+      const gealanPriceMatch = searchText.match(/Netto\s*prijs[\s\n]+\w+?\s*([\d.,]+)/)
       if (gealanPriceMatch) {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }

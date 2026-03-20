@@ -46,6 +46,10 @@ const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
 const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
 const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
+function fmtPrice(n: number): string {
+  return n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
+}
+
 export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
   let totaalGewicht = 0
   offerte.elementen.forEach(e => {
@@ -123,8 +127,24 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
                 )}
 
                 {pg.url && (
-                  <View style={{ alignItems: 'center', marginBottom: 8 }}>
+                  <View style={{ alignItems: 'center', marginBottom: 8, overflow: 'hidden', maxHeight: 520 }}>
                     <Image src={pg.url} style={s.elementImageFullPage} />
+                  </View>
+                )}
+
+                {/* Verkoopprijs in groen (alleen op eerste pagina van element) */}
+                {pi === 0 && element.prijs > 0 && (
+                  <View style={{ alignItems: 'flex-end', marginTop: 4, marginBottom: 4, paddingRight: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4, borderWidth: 0.5, borderColor: '#16A34A' }}>
+                      <Text style={{ fontSize: 9, color: '#16A34A', fontFamily: 'Helvetica-Bold' }}>
+                        Prijs: € {fmtPrice(element.prijs * element.hoeveelheid)}
+                      </Text>
+                      {element.hoeveelheid > 1 && (
+                        <Text style={{ fontSize: 7.5, color: '#16A34A', marginLeft: 6 }}>
+                          ({element.hoeveelheid}x € {fmtPrice(element.prijs)})
+                        </Text>
+                      )}
+                    </View>
                   </View>
                 )}
 
