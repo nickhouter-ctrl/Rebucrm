@@ -35,7 +35,7 @@ export function StapMarge({
 
   const globalMarge = parseFloat(inputValue) || 0
   const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-  const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
+  const inkoopTotaal = elementSum
 
   // Calculate totals based on per-element marges
   const verkoopTotaal = parsedPdfResult.elementen.reduce((sum, e) => {

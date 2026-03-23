@@ -161,17 +161,16 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   }
 
   function handleMargeSkip() {
-    // Fill kozijnen prijs without marge
+    // Fill kozijnen prijs without marge — use element sum (not PDF total which may include discount)
     if (parsedPdfResult) {
       const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-      const inkoopTotaal = parsedPdfResult.totaal > 0 ? parsedPdfResult.totaal : elementSum
       const kozijnRegelIndex = regels.findIndex(r =>
         r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
         r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
       )
       if (kozijnRegelIndex !== -1) {
         const updated = [...regels]
-        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(inkoopTotaal * 100) / 100 }
+        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(elementSum * 100) / 100 }
         setRegels(updated)
       }
     }
@@ -392,8 +391,7 @@ function EditOfferteView({
   useEffect(() => {
     if (leverancierElementen.length === 0 && leverancierTotaal === 0) return
     const elementSum = leverancierElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-    const inkoopTotaal = leverancierTotaal > 0 ? leverancierTotaal : elementSum
-    const verkoopTotaal = inkoopTotaal * (1 + margePercentage / 100)
+    const verkoopTotaal = elementSum * (1 + margePercentage / 100)
     const kozijnRegelIndex = regels.findIndex(r =>
       r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
       r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
@@ -790,7 +788,7 @@ function EditOfferteView({
                 <div className="w-72 space-y-1.5 text-sm">
                   {(() => {
                     const elementSum = leverancierElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-                    const inkoopTotaal = leverancierTotaal > 0 ? leverancierTotaal : elementSum
+                    const inkoopTotaal = elementSum
                     const margeBedrag = inkoopTotaal * (margePercentage / 100)
                     const verkoopTotaal = inkoopTotaal + margeBedrag
                     return (
