@@ -192,7 +192,7 @@ export function StapControleren({
       const totalPages = pdf.numPages
 
       // Scan all pages for element names and drawing markers
-      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+/i
+      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+|Positie\s*\d{3}/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
       for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
@@ -203,7 +203,9 @@ export function StapControleren({
         const headerMatch = pageText.match(elementHeaderPattern)
         const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
-        allPageScans.push({ pageNum, naam: headerMatch ? headerMatch[0] : null, hasDrawing, isStandaloneProduct })
+        let elementNaam = headerMatch ? headerMatch[0] : null
+        if (elementNaam) elementNaam = elementNaam.replace(/Positie\s*(\d{3})/, 'Positie $1')
+        allPageScans.push({ pageNum, naam: elementNaam, hasDrawing, isStandaloneProduct })
       }
 
       // Group pages per element (same logic as stap-tekeningen)
@@ -257,7 +259,7 @@ export function StapControleren({
           .map((it: any) => ({ str: it.str.trim(), cx: Math.round(it.transform[4] * 2), cy: Math.round(h - it.transform[5] * 2) }))
 
         const headerMatch = txtItems.find((i: { str: string; cy: number }) =>
-          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+/i.test(i.str)
+          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+|Positie|Binnenzicht/i.test(i.str)
         )
         const isGealanPg = headerMatch && /Merk\s+\d+/i.test(headerMatch.str)
         let cropTop = Math.floor(h * 0.04)

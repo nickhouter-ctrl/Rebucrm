@@ -96,7 +96,7 @@ export function StapTekeningen({
       const totalPages = pdf.numPages
 
       // Scan all pages for element names and drawing markers
-      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+/i
+      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+|Positie\s*\d{3}/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
       for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
@@ -107,7 +107,10 @@ export function StapTekeningen({
         const headerMatch = pageText.match(elementHeaderPattern)
         const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
-        allPageScans.push({ pageNum, naam: headerMatch ? headerMatch[0] : null, hasDrawing, isStandaloneProduct })
+        // Normalize Kochs "Positie" format to match parsed element names
+        let elementNaam = headerMatch ? headerMatch[0] : null
+        if (elementNaam) elementNaam = elementNaam.replace(/Positie\s*(\d{3})/, 'Positie $1')
+        allPageScans.push({ pageNum, naam: elementNaam, hasDrawing, isStandaloneProduct })
       }
 
       // Group pages per element: pages with same element name are combined.
@@ -177,7 +180,7 @@ export function StapTekeningen({
 
         // Find the element header line (e.g. "Element 001", "Deur 001", "Merk 1")
         const headerMatch = textItems.find((i: { str: string; cy: number }) =>
-          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+/i.test(i.str)
+          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+\d+|Positie|Binnenzicht/i.test(i.str)
         )
         const isGealanPage = headerMatch && /Merk\s+\d+/i.test(headerMatch.str)
 
