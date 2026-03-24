@@ -40,9 +40,18 @@ function parseElementsFromText(text: string): ParsedElement[] {
 
   // Detect format
   const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
-  const isEkoOkna = !isGealan && /Hoev\.\s*:\s*\d+/.test(text)
+  const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
+  const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
+
+  // Extract Kochs total for area-based price distribution
+  let kochsTotaal = 0
+  if (isKochs) {
+    const totaalMatch = text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/)
+    if (totaalMatch) kochsTotaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+  }
 
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
+  const kochsDimensions: { width: number; height: number }[] = []
   let match
   if (isGealan) {
     const elementPattern = /Merk\s+(\d+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
@@ -54,6 +63,16 @@ function parseElementsFromText(text: string): ParsedElement[] {
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader\s+([^\n]+)/)
       headers.push({ naam: 'Merk ' + match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim().replace(/\n/g, ' '), kleur: kleurMatch ? kleurMatch[1].trim() : '', idx: match.index, endIdx: match.index + match[0].length })
+    }
+  } else if (isKochs) {
+    const elementPattern = /(\d{3})\nBinnenzicht\nSysteem\s*:\s*([^\n]+)\nAfmeting\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n(\d+)\n/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      kochsDimensions.push({ width: parseInt(match[3]), height: parseInt(match[4]) })
+      const nextPosMatch = text.substring(match.index + match[0].length).match(/\d{3}\nBinnenzicht\nSysteem/)
+      const sectionEnd = nextPosMatch ? match.index + match[0].length + nextPosMatch.index : text.length
+      const section = text.substring(match.index, sectionEnd)
+      const kleurMatch = section.match(/Buiten\s+([^\n]+(?:\n[^\n]*glad[^\n]*)?)/)
+      headers.push({ naam: 'Positie ' + match[1], hoeveelheid: parseInt(match[5]), systeem: match[2].trim(), kleur: kleurMatch ? kleurMatch[1].replace(/\n/g, ' ').trim() : '', idx: match.index, endIdx: match.index + match[0].length })
     }
   } else if (isEkoOkna) {
     const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
@@ -70,7 +89,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
   // Find all Buitenaanzicht positions (only for original format where specs appear BEFORE each header)
   const allBuitenPositions: number[] = []
   const specsPositions: number[] = []
-  if (!isEkoOkna && !isGealan) {
+  if (!isEkoOkna && !isGealan && !isKochs) {
     const buitenPattern = /Buitenaanzicht\n/g
     while ((match = buitenPattern.exec(text)) !== null) { allBuitenPositions.push(match.index) }
     for (let i = 0; i < headers.length; i++) {
@@ -82,7 +101,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
 
   // Extract prices in order (only for original format)
   const allPrices: number[] = []
-  if (!isEkoOkna && !isGealan) {
+  if (!isEkoOkna && !isGealan && !isKochs) {
     const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
     let priceMatch
     while ((priceMatch = pricePattern.exec(text)) !== null) {
@@ -100,6 +119,11 @@ function parseElementsFromText(text: string): ParsedElement[] {
     let searchText: string
 
     if (isGealan) {
+      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
+      searchText = text.substring(header.endIdx, nextIdx)
+      specsText = searchText
+      notesText = searchText
+    } else if (isKochs) {
       const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
       searchText = text.substring(header.endIdx, nextIdx)
       specsText = searchText
@@ -127,6 +151,17 @@ function parseElementsFromText(text: string): ParsedElement[] {
       if (gealanPriceMatch) {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }
+    } else if (isKochs) {
+      if (kochsTotaal > 0 && i < kochsDimensions.length) {
+        const totalArea = headers.reduce((sum, h, j) => {
+          const d = kochsDimensions[j]
+          return d ? sum + d.width * d.height * h.hoeveelheid : sum
+        }, 0)
+        if (totalArea > 0) {
+          const d = kochsDimensions[i]
+          prijs = Math.round(kochsTotaal * (d.width * d.height / totalArea) * 100) / 100
+        }
+      }
     } else if (isEkoOkna) {
       // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
       let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
@@ -144,7 +179,13 @@ function parseElementsFromText(text: string): ParsedElement[] {
     let type = header.naam.startsWith('Deur') ? 'Deur' :
                header.naam.toLowerCase().startsWith('gekoppeld') ? 'Koppelelement' : 'Raam'
 
-    if (isGealan) {
+    if (isKochs) {
+      const beslagEntries = searchText.match(/Beslag\s+([^\n]+)/gi) || []
+      const hasDraaikiep = beslagEntries.some(b => /Draaikiep/i.test(b))
+      const hasVast = beslagEntries.some(b => /Vast/i.test(b))
+      if (hasDraaikiep) type = 'Draai-kiep raam'
+      else if (hasVast) type = 'Vast raam'
+    } else if (isGealan) {
       const vleugelGealanMatches = searchText.match(/Vleugel\s+[^\n]+/g)
       if (vleugelGealanMatches) {
         for (const v of vleugelGealanMatches) {
@@ -173,13 +214,18 @@ function parseElementsFromText(text: string): ParsedElement[] {
     }
     const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
     const gealanBeslagMatch = isGealan ? searchText.match(/Raamkruk\s*\n\s*\n([^\n]+)/i) : null
-    const beslag = cleanField((beslagMatch ? beslagMatch[1].trim() : '') || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
+    let beslag = cleanField((beslagMatch ? beslagMatch[1].trim() : '') || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
+    if (isKochs) {
+      const allBeslag = [...searchText.matchAll(/Beslag\s+([^\n]+)/gi)].map(m => m[1].trim())
+      beslag = cleanField([...new Set(allBeslag)].join(' + '))
+    }
     if (/Draai-kiep|Draai\s*-\s*kiep|Tilt\s*&\s*Turn/i.test(beslag) && type === 'Raam') type = 'Draai-kiep raam'
     else if (/Draai\s*\+\s*Draai\s*-?\s*kiep/i.test(beslag) && type === 'Raam') type = 'Draai + draai-kiep raam'
     else if (/Draai\s*\+\s*Draai\s*-?\s*deur/i.test(beslag) && drapirichting) type = 'Dubbele deur'
     else if (/deur\s*beslag/i.test(beslag) && !type.includes('Deur') && !type.includes('deur')) type = 'Deur'
     if (/STULP/i.test(specsText) && !type.includes('Dubbele')) type = type + ' (stulp)'
-    const afmMatch = searchText.match(/Afmetingen[\s\S]{0,30}?(\d+\s*mm\s*x\s*\d+\s*mm)/)
+    const afmMatch = searchText.match(/Afmetingen[\s\S]{0,30}?(\d+\s*mm\s*x\s*\d+\s*mm)/) ||
+                     searchText.match(/Afmeting\s*:\s*(\d+\s*x\s*\d+\s*mm)/)
     if (/HST|hef.*schui|\bschuif/i.test(header.systeem) || /HST|hef.*schui|\bschuif/i.test(searchText)) type = 'Schuifpui'
     const vulSpec = specsText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/)
     const vulNotes = !vulSpec ? notesText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/) : null
@@ -229,6 +275,10 @@ function parseElementsFromText(text: string): ParsedElement[] {
         glasType = Array.from(glasTypes).join(' / ')
       }
     }
+    if (isKochs && !glasType) {
+      const kochsGlasMatch = searchText.match(/(WS\s+[^\n]+?Ug[\d,]+)/i)
+      if (kochsGlasMatch) glasType = cleanField(kochsGlasMatch[1])
+    }
 
     // Gealan helper: extract spec value from "  Label\n \nValue\n" format
     const gealanSpec = isGealan ? (label: string) => {
@@ -251,7 +301,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
     const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i) || searchText.match(/Cilinder\s*\n\s*\n([^\n]+)/i)
     const aantalSleutelsMatch = searchText.match(/Aantal\s*sleutels?\s*([^\n]+)/i)
     const gelijksluitendMatch = searchText.match(/Gelijksluitend[e]?\s*(?:cilinder)?\s*([^\n]+)/i)
-    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i) || searchText.match(/Kruk binnen\s*\n\s*\n([^\n]+)/i)
+    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i) || searchText.match(/Kruk binnen\s*\n\s*\n([^\n]+)/i) || searchText.match(/Raamgreep\s+binnen\s+([^\n]+)/i)
     const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i) || searchText.match(/Kruk buiten\s*\n\s*\n([^\n]+)/i)
     const commentaarMatch = notesText.match(/Commentaar(?:\s+op het product)?\n([^\n]+)/)
 
