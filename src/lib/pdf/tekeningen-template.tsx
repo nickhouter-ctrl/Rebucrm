@@ -46,16 +46,7 @@ const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
 const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
 const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
-function fmtPrice(n: number): string {
-  return n.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.')
-}
-
 export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
-  let totaalPrijs = 0
-  offerte.elementen.forEach(e => {
-    if (e.prijs > 0) totaalPrijs += e.prijs * e.hoeveelheid
-  })
-
   let totaalGewicht = 0
   offerte.elementen.forEach(e => {
     const m = e.gewicht.match(/([\d.,]+)\s*Kg/i)
@@ -137,22 +128,6 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
                   </View>
                 )}
 
-                {/* Verkoopprijs in groen (alleen op eerste pagina van element) */}
-                {pi === 0 && element.prijs > 0 && (
-                  <View style={{ alignItems: 'flex-end', marginTop: 4, marginBottom: 4, paddingRight: 20 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F0FDF4', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4, borderWidth: 0.5, borderColor: '#16A34A' }}>
-                      <Text style={{ fontSize: 9, color: '#16A34A', fontFamily: 'Helvetica-Bold' }}>
-                        Prijs: € {fmtPrice(element.prijs * element.hoeveelheid)}
-                      </Text>
-                      {element.hoeveelheid > 1 && (
-                        <Text style={{ fontSize: 7.5, color: '#16A34A', marginLeft: 6 }}>
-                          ({element.hoeveelheid}x € {fmtPrice(element.prijs)})
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                )}
-
                 <View style={s.footer}>
                   <View style={s.footerCol}>
                     <Text style={s.footerLabel}>{COMPANY.naam}</Text>
@@ -195,18 +170,16 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
             <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderBottomWidth: 0.5, borderBottomColor: '#D1D5DB', paddingVertical: 5, paddingHorizontal: 8 }}>
               <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 3 }}>Element</Text>
               <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 2 }}>Systeem</Text>
+              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 60, textAlign: 'center' }}>Afmeting</Text>
               <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 30, textAlign: 'center' }}>Hvh</Text>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 80, textAlign: 'right' }}>Prijs</Text>
             </View>
             {/* Rows */}
             {offerte.elementen.map((el, i) => (
               <View key={`sum-${i}`} style={{ flexDirection: 'row', borderBottomWidth: i < offerte.elementen.length - 1 ? 0.5 : 0, borderBottomColor: '#E5E7EB', paddingVertical: 4, paddingHorizontal: 8 }}>
                 <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 3 }}>{el.naam}{el.type ? ` (${el.type})` : ''}</Text>
                 <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 2 }}>{el.systeem}</Text>
+                <Text style={{ fontSize: 7.5, color: COLORS.text, width: 60, textAlign: 'center' }}>{el.afmetingen}</Text>
                 <Text style={{ fontSize: 7.5, color: COLORS.text, width: 30, textAlign: 'center' }}>{el.hoeveelheid}</Text>
-                <Text style={{ fontSize: 7.5, color: COLORS.text, width: 80, textAlign: 'right' }}>
-                  {el.prijs > 0 ? `€ ${fmtPrice(el.prijs * el.hoeveelheid)}` : '-'}
-                </Text>
               </View>
             ))}
           </View>
@@ -223,11 +196,6 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
               <View style={{ flexDirection: 'row' }}>
                 <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>Totale omtrek: </Text>
                 <Text style={{ fontSize: 8, color: COLORS.text }}>{(totaalOmtrek / 1000).toFixed(2).replace('.', ',')} m</Text>
-              </View>
-            )}
-            {totaalPrijs > 0 && (
-              <View style={{ flexDirection: 'row', backgroundColor: '#F0FDF4', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 0.5, borderColor: '#16A34A' }}>
-                <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#16A34A' }}>Totaal: € {fmtPrice(totaalPrijs)}</Text>
               </View>
             )}
           </View>

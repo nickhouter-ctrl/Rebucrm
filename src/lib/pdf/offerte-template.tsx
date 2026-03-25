@@ -350,6 +350,26 @@ export function OfferteDocument({ offerte }: { offerte: OfferteData }) {
               TOTAALOVERZICHT
             </Text>
 
+            {/* Element overzicht tabel */}
+            <View style={{ borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 4, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderBottomWidth: 0.5, borderBottomColor: '#D1D5DB', paddingVertical: 5, paddingHorizontal: 8 }}>
+                <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 3 }}>Element</Text>
+                <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 2 }}>Systeem</Text>
+                <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 30, textAlign: 'center' }}>Hvh</Text>
+                <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 80, textAlign: 'right' }}>Prijs</Text>
+              </View>
+              {kozijnen.map((el, i) => (
+                <View key={`sum-${i}`} style={{ flexDirection: 'row', borderBottomWidth: i < kozijnen.length - 1 ? 0.5 : 0, borderBottomColor: '#E5E7EB', paddingVertical: 4, paddingHorizontal: 8 }}>
+                  <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 3 }}>{el.naam}{el.type ? ` (${el.type})` : ''}</Text>
+                  <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 2 }}>{el.systeem}</Text>
+                  <Text style={{ fontSize: 7.5, color: COLORS.text, width: 30, textAlign: 'center' }}>{el.hoeveelheid}</Text>
+                  <Text style={{ fontSize: 7.5, color: COLORS.text, width: 80, textAlign: 'right' }}>
+                    {el.prijs > 0 ? formatCurrencyPdf(el.prijs * el.hoeveelheid) : '-'}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
             <View style={s.totalsSection}>
               <View style={s.totalsRow}>
                 <Text style={s.totalsLabel}>Totaal excl. BTW</Text>
