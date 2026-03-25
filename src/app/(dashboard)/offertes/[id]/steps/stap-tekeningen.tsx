@@ -267,8 +267,17 @@ export function StapTekeningen({
           }
         }
 
-        // Keep everything from cropTop to bottom (minus small footer margin)
-        const cropBottom = Math.floor(h * 0.97)
+        // For Kochs pages: crop out the bottom "Beschrijving" detail table (all 0,00 rows)
+        let cropBottom = Math.floor(h * 0.97)
+        const isKochsPage = textItems.some((i: { str: string }) => /^Binnenzicht$/i.test(i.str))
+        if (isKochsPage) {
+          const beschrijvingItem = textItems.find((i: { str: string; cy: number }) =>
+            i.cy > h * 0.4 && /^Beschrijving$/i.test(i.str)
+          )
+          if (beschrijvingItem) {
+            cropBottom = Math.max(cropTop + 100, beschrijvingItem.cy - 20)
+          }
+        }
         const cropH = cropBottom - cropTop
         const croppedCanvas = document.createElement('canvas')
         croppedCanvas.width = w

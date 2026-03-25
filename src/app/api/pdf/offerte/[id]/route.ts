@@ -221,16 +221,15 @@ function parseElementsFromText(text: string): ParsedElement[] {
   const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
   const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
 
-  // Extract Kochs total for area-based price distribution
-  let kochsTotaal = 0
+  // Extract Kochs TZ surcharge multiplier (applied to all element prices)
+  let kochsTzMultiplier = 1
   if (isKochs) {
-    const totaalMatch = text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/)
-    if (totaalMatch) kochsTotaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    const tzMatch = text.match(/TZ\b[\s\S]{0,50}?([\d.,]+)\s*%/)
+    if (tzMatch) kochsTzMultiplier = 1 + parseFloat(tzMatch[1].replace(',', '.')) / 100
   }
 
   // Find element headers
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
-  const kochsDimensions: { width: number; height: number }[] = []
   let match
   if (isGealan) {
     const elementPattern = /Merk\s+(\d+)Aantal:(\d+)(?:Verbinding:\w+)?Systeem:\s*([^\n]+(?:\n[^\n]+)?)/g
@@ -244,7 +243,6 @@ function parseElementsFromText(text: string): ParsedElement[] {
   } else if (isKochs) {
     const elementPattern = /(\d{3})\nBinnenzicht\nSysteem\s*:\s*([^\n]+)\nAfmeting\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n(\d+)\n/g
     while ((match = elementPattern.exec(text)) !== null) {
-      kochsDimensions.push({ width: parseInt(match[3]), height: parseInt(match[4]) })
       const nextPosMatch = text.substring(match.index + match[0].length).match(/\d{3}\nBinnenzicht\nSysteem/)
       const sectionEnd = nextPosMatch ? match.index + match[0].length + nextPosMatch.index : text.length
       const section = text.substring(match.index, sectionEnd)
@@ -329,15 +327,14 @@ function parseElementsFromText(text: string): ParsedElement[] {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }
     } else if (isKochs) {
-      if (kochsTotaal > 0 && i < kochsDimensions.length) {
-        const totalArea = headers.reduce((sum, h, j) => {
-          const d = kochsDimensions[j]
-          return d ? sum + d.width * d.height * h.hoeveelheid : sum
-        }, 0)
-        if (totalArea > 0) {
-          const d = kochsDimensions[i]
-          prijs = Math.round(kochsTotaal * (d.width * d.height / totalArea) * 100) / 100
-        }
+      // Extract unit price from "Totaal elementen" row (only non-zero €-prices in section)
+      const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*€/g)]
+        .map(m => parseFloat(m[1].replace(/\./g, '').replace(',', '.')))
+        .filter(p => p > 0)
+      if (sectionPrices.length >= 2) {
+        prijs = Math.round(Math.min(...sectionPrices) * kochsTzMultiplier * 100) / 100
+      } else if (sectionPrices.length === 1) {
+        prijs = Math.round(sectionPrices[0] * kochsTzMultiplier * 100) / 100
       }
     } else if (isEkoOkna) {
       // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
