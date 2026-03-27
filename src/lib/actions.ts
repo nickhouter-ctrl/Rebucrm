@@ -1416,10 +1416,10 @@ export async function getDashboardData() {
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw']).order('leverdatum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').order('datum', { ascending: false }),
-    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).in('status', ['verzonden', 'deels_betaald', 'vervallen']).order('vervaldatum', { ascending: true }),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').order('datum', { ascending: false }),
+    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('status').order('vervaldatum', { ascending: true }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
@@ -1607,27 +1607,34 @@ export async function getDashboardData() {
   }))
 
   // Geplande leveringen (orders met leverdatum, nog niet afgeleverd)
-  const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => ({
-    id: o.id,
-    ordernummer: o.ordernummer,
-    leverdatum: o.leverdatum,
-    status: o.status,
-    onderwerp: o.onderwerp,
-    totaal: o.totaal || 0,
-    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-  }))
+  const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => {
+    const facturen = (o.facturen || []) as { id: string; factuurnummer: string; status: string; factuur_type: string; totaal: number }[]
+    const restbetaling = facturen.find(f => f.factuur_type === 'restbetaling')
+    return {
+      id: o.id,
+      ordernummer: o.ordernummer,
+      leverdatum: o.leverdatum,
+      status: o.status,
+      onderwerp: o.onderwerp,
+      totaal: o.totaal || 0,
+      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      restbetaling: restbetaling ? { id: restbetaling.id, factuurnummer: restbetaling.factuurnummer, status: restbetaling.status, totaal: restbetaling.totaal } : null,
+    }
+  })
 
-  // Geaccepteerde offertes (voor factuur aanmaken)
-  const geaccepteerdeOffertes = (geaccepteerdRes.data || []).map(o => ({
-    id: o.id,
-    offertenummer: o.offertenummer,
-    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-    onderwerp: o.onderwerp,
-    totaal: o.totaal || 0,
-    datum: o.datum,
-  }))
+  // Geaccepteerde offertes (voor factuur aanmaken) — alleen als er nog geen factuur is
+  const geaccepteerdeOffertes = (geaccepteerdRes.data || [])
+    .filter(o => !o.facturen || (o.facturen as { id: string }[]).length === 0)
+    .map(o => ({
+      id: o.id,
+      offertenummer: o.offertenummer,
+      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      onderwerp: o.onderwerp,
+      totaal: o.totaal || 0,
+      datum: o.datum,
+    }))
 
-  // Openstaande facturen (verzonden, deels_betaald, vervallen)
+  // Openstaande facturen (concept, verzonden, deels_betaald, vervallen)
   const openstaandeFacturen = (openstaandeFacturenRes.data || []).map(f => ({
     id: f.id,
     factuurnummer: f.factuurnummer,
@@ -1637,6 +1644,7 @@ export async function getDashboardData() {
     openstaand_bedrag: (f.totaal || 0) - (f.betaald_bedrag || 0),
     vervaldatum: f.vervaldatum,
     status: f.status,
+    factuur_type: f.factuur_type as string | null,
   }))
 
   // Top 50 klanten: aggregate by relatie_id
