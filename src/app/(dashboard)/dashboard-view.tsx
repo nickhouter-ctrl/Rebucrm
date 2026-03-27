@@ -894,6 +894,30 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               </Link>
             </div>
           </div>
+
+          {/* Top klanten */}
+          {data.topKlanten.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-900">Top klanten</h3>
+                <Link href="/relatiebeheer" className="text-[11px] font-medium text-[#00a66e] hover:underline">Alle klanten</Link>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {data.topKlanten.slice(0, 8).map((k, i) => (
+                  <Link key={k.relatie_id} href={`/relatiebeheer/${k.relatie_id}`} className="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-50 transition-colors">
+                    <span className="text-[10px] font-bold text-gray-300 w-4 text-right">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-900 truncate">{k.bedrijfsnaam}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-semibold text-gray-900">{formatCurrency(k.betaald)}</p>
+                      {k.offerte_waarde > 0 && <p className="text-[10px] text-gray-400">{formatCurrency(k.offerte_waarde)} geoffreerd</p>}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
