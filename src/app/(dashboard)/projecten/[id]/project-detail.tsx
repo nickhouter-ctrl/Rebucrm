@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject } from '@/lib/actions'
+import { saveProject, deleteProject, getEmailLogDetail } from '@/lib/actions'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -11,10 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Dialog } from '@/components/ui/dialog'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip } from 'lucide-react'
 
 export function ProjectDetail({ timeline, relaties, isNew }: {
   timeline: ProjectTimeline | null
@@ -25,6 +26,29 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
+  const [emailDetail, setEmailDetail] = useState<{
+    onderwerp: string | null
+    aan: string
+    verstuurd_op: string
+    body_html: string | null
+    bijlagen: { filename: string }[] | null
+  } | null>(null)
+  const [emailLoading, setEmailLoading] = useState(false)
+
+  async function handleEmailClick(emailLogId: string) {
+    setEmailLoading(true)
+    const detail = await getEmailLogDetail(emailLogId)
+    if (detail) {
+      setEmailDetail({
+        onderwerp: detail.onderwerp,
+        aan: detail.aan,
+        verstuurd_op: detail.verstuurd_op,
+        body_html: detail.body_html,
+        bijlagen: detail.bijlagen as { filename: string }[] | null,
+      })
+    }
+    setEmailLoading(false)
+  }
 
   const project = timeline?.project
 
@@ -241,9 +265,40 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
           </Card>
 
           {/* Timeline */}
-          <Timeline items={timeline.items} />
+          <Timeline items={timeline.items} onEmailClick={handleEmailClick} />
         </div>
       </div>
+
+      {/* Email detail dialog */}
+      {emailDetail && (
+        <Dialog open onClose={() => setEmailDetail(null)} title={emailDetail.onderwerp || 'E-mail'}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <div className="flex items-center gap-1.5">
+                <Mail className="h-3.5 w-3.5" />
+                <span>Aan: {emailDetail.aan}</span>
+              </div>
+              <span>{new Date(emailDetail.verstuurd_op).toLocaleString('nl-NL')}</span>
+            </div>
+            {emailDetail.bijlagen && emailDetail.bijlagen.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {emailDetail.bijlagen.map((b, i) => (
+                  <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                    <Paperclip className="h-3 w-3" />
+                    {b.filename}
+                  </span>
+                ))}
+              </div>
+            )}
+            {emailDetail.body_html && (
+              <div
+                className="border border-gray-200 rounded-lg p-4 bg-white text-sm overflow-auto max-h-[60vh]"
+                dangerouslySetInnerHTML={{ __html: emailDetail.body_html }}
+              />
+            )}
+          </div>
+        </Dialog>
+      )}
     </div>
   )
 }

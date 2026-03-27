@@ -18,6 +18,7 @@ import type { TimelineItem } from '@/lib/actions'
 
 interface TimelineProps {
   items: TimelineItem[]
+  onEmailClick?: (emailLogId: string) => void
 }
 
 type FilterTab = 'alles' | 'offertes' | 'emails' | 'facturen' | 'taken'
@@ -62,7 +63,7 @@ const typeLabels: Record<string, string> = {
   project_aangemaakt: 'PROJECT',
 }
 
-export function Timeline({ items }: TimelineProps) {
+export function Timeline({ items, onEmailClick }: TimelineProps) {
   const [activeTab, setActiveTab] = useState<FilterTab>('alles')
 
   const filteredItems = activeTab === 'alles'
@@ -154,10 +155,16 @@ export function Timeline({ items }: TimelineProps) {
                 </div>
               )
 
+              const isClickableEmail = item.type === 'email_verstuurd' && onEmailClick && item.meta?.emailLogId
+
               return item.link ? (
                 <Link key={item.id} href={item.link} className="block">
                   {content}
                 </Link>
+              ) : isClickableEmail ? (
+                <div key={item.id} className="cursor-pointer" onClick={() => onEmailClick(item.meta!.emailLogId as string)}>
+                  {content}
+                </div>
               ) : (
                 <div key={item.id}>{content}</div>
               )

@@ -376,10 +376,31 @@ export async function saveOfferte(formData: FormData) {
   const subtotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number }) => sum + r.aantal * r.prijs, 0)
   const btwTotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number; btw_percentage: number }) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
 
-  // Auto-generate offertenummer for new offertes
-  const offertenummer = id
-    ? (formData.get('offertenummer') as string)
-    : await getVolgendeNummer('offerte')
+  // Auto-generate offertenummer for new offertes (hergebruik nummer bij zelfde project)
+  const projectId = formData.get('project_id') as string || null
+  let offertenummer = id ? (formData.get('offertenummer') as string) : ''
+  let versieNummer = 1
+  let groepId: string | null = null
+
+  if (!id && projectId) {
+    // Check bestaande offertes voor dit project
+    const { data: bestaande } = await supabase
+      .from('offertes')
+      .select('id, offertenummer, versie_nummer, groep_id')
+      .eq('project_id', projectId)
+      .order('versie_nummer', { ascending: false })
+      .limit(1)
+
+    if (bestaande && bestaande.length > 0) {
+      offertenummer = bestaande[0].offertenummer
+      versieNummer = (bestaande[0].versie_nummer || 1) + 1
+      groepId = bestaande[0].groep_id || bestaande[0].id
+    } else {
+      offertenummer = await getVolgendeNummer('offerte')
+    }
+  } else if (!id) {
+    offertenummer = await getVolgendeNummer('offerte')
+  }
 
   const record = {
     administratie_id: adminId,
@@ -394,7 +415,9 @@ export async function saveOfferte(formData: FormData) {
     btw_totaal: btwTotaal,
     totaal: subtotaal + btwTotaal,
     opmerkingen: formData.get('opmerkingen') as string || null,
-    project_id: formData.get('project_id') as string || null,
+    project_id: projectId,
+    versie_nummer: versieNummer,
+    groep_id: groepId,
   }
 
   let offerteId = id
@@ -406,6 +429,10 @@ export async function saveOfferte(formData: FormData) {
     const { data, error } = await supabase.from('offertes').insert(record).select('id').single()
     if (error) return { error: error.message }
     offerteId = data.id
+    // Eerste offerte in project: groep_id = eigen id
+    if (!groepId) {
+      await supabase.from('offertes').update({ groep_id: offerteId }).eq('id', offerteId)
+    }
   }
 
   if (regels.length > 0) {
@@ -2915,6 +2942,17 @@ export async function sendOfferteEmail(offerteId: string, options: {
       filename: `Offerte-${offerte.offertenummer}.pdf`,
       content: pdfBase64,
     })
+
+    // Zakelijke klanten: extra PDF zonder prijzen
+    if (offerte.relatie?.type === 'zakelijk') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfNoPriceBuffer = await renderToBuffer(OfferteDocument({ offerte: offerteData, hidePrices: true }) as any)
+      const pdfNoPriceBase64 = Buffer.from(pdfNoPriceBuffer).toString('base64')
+      attachments.push({
+        filename: `Offerte-${offerte.offertenummer}-zonder-prijzen.pdf`,
+        content: pdfNoPriceBase64,
+      })
+    }
   } catch (err) {
     console.error('PDF generatie voor email mislukt:', err)
   }
@@ -3022,7 +3060,7 @@ export async function acceptOffertePublic(token: string) {
 
   const { data: offerte, error: fetchError } = await supabaseAdmin
     .from('offertes')
-    .select('id, status, administratie_id, relatie_id, onderwerp, subtotaal, btw_totaal, totaal')
+    .select('id, status, administratie_id, relatie_id, offertenummer, onderwerp, subtotaal, btw_totaal, totaal, relatie:relaties(email, contactpersoon, bedrijfsnaam)')
     .eq('publiek_token', token)
     .single()
 
@@ -3089,7 +3127,51 @@ export async function acceptOffertePublic(token: string) {
     }
   }
 
+  // Bevestigingsmail naar klant
+  const relatieEmail = (offerte.relatie as { email?: string } | null)?.email
+  if (relatieEmail) {
+    try {
+      const klantNaam = (offerte.relatie as { contactpersoon?: string; bedrijfsnaam?: string } | null)?.contactpersoon
+        || (offerte.relatie as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || ''
+      const bevestigBody = `Beste ${klantNaam},
+
+Bedankt voor het accepteren van offerte ${offerte.offertenummer}.
+
+Wij gaan direct voor u aan de slag. U ontvangt binnenkort meer informatie over het vervolg.
+
+Heeft u in de tussentijd vragen? Neem gerust contact met ons op.
+
+Met vriendelijke groet,
+Rebu Kozijnen`
+
+      const emailHtml = buildRebuEmailHtml(bevestigBody)
+      await sendEmail({
+        to: relatieEmail,
+        subject: `Uw offerte ${offerte.offertenummer} is geaccepteerd — Bedankt!`,
+        html: emailHtml,
+      })
+    } catch (err) {
+      console.error('Bevestigingsmail verzenden mislukt:', err)
+    }
+  }
+
   return { success: true }
+}
+
+// === EMAIL LOG DETAIL ===
+export async function getEmailLogDetail(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  const { data } = await supabase
+    .from('email_log')
+    .select('id, aan, onderwerp, body_html, bijlagen, verstuurd_op')
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+    .single()
+
+  return data
 }
 
 // === LEVERPLANNING ===
@@ -3599,6 +3681,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
         datum: e.verstuurd_op as string,
         titel: (e.onderwerp as string) || 'E-mail verstuurd',
         ondertitel: `Aan: ${e.aan}`,
+        meta: { emailLogId: e.id as string },
       })
     }
 

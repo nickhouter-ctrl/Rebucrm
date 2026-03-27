@@ -74,7 +74,7 @@ const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
 const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
 const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
-export function OfferteDocument({ offerte }: { offerte: OfferteData }) {
+export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData; hidePrices?: boolean }) {
   const regels = offerte.regels || []
   const relatie = offerte.relatie
 
@@ -194,23 +194,23 @@ export function OfferteDocument({ offerte }: { offerte: OfferteData }) {
             <View style={s.tableColAantal}><Text style={s.tableHeaderText}>Aantal</Text></View>
             <View style={s.tableColEenheid}><Text style={s.tableHeaderText}>Eenheid</Text></View>
             <View style={s.tableColDesc}><Text style={s.tableHeaderText}>Omschrijving</Text></View>
-            <View style={s.tableColBedrag}><Text style={s.tableHeaderText}>Bedrag</Text></View>
-            <View style={s.tableColKorting}><Text style={s.tableHeaderText}>Korting</Text></View>
-            <View style={s.tableColTotaal}><Text style={s.tableHeaderText}>Totaal</Text></View>
+            {!hidePrices && <View style={s.tableColBedrag}><Text style={s.tableHeaderText}>Bedrag</Text></View>}
+            {!hidePrices && <View style={s.tableColKorting}><Text style={s.tableHeaderText}>Korting</Text></View>}
+            {!hidePrices && <View style={s.tableColTotaal}><Text style={s.tableHeaderText}>Totaal</Text></View>}
           </View>
           {regels.map((regel, i) => (
             <View key={i} style={s.tableRow}>
               <View style={s.tableColAantal}><Text style={s.tableCellText}>{regel.aantal}</Text></View>
               <View style={s.tableColEenheid}><Text style={s.tableCellText}>Stuk</Text></View>
               <View style={s.tableColDesc}><Text style={s.tableCellText}>{regel.omschrijving}</Text></View>
-              <View style={s.tableColBedrag}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.prijs)}</Text></View>
-              <View style={s.tableColKorting}><Text style={s.tableCellText}>0%</Text></View>
-              <View style={s.tableColTotaal}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.aantal * regel.prijs)}</Text></View>
+              {!hidePrices && <View style={s.tableColBedrag}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.prijs)}</Text></View>}
+              {!hidePrices && <View style={s.tableColKorting}><Text style={s.tableCellText}>0%</Text></View>}
+              {!hidePrices && <View style={s.tableColTotaal}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.aantal * regel.prijs)}</Text></View>}
             </View>
           ))}
         </View>
 
-        <View style={s.totalsSection}>
+        {!hidePrices && <View style={s.totalsSection}>
           <View style={s.totalsRow}>
             <Text style={s.totalsLabel}>Subtotaal</Text>
             <Text style={s.totalsValue}>{formatCurrencyPdf(offerte.subtotaal)}</Text>
@@ -233,7 +233,7 @@ export function OfferteDocument({ offerte }: { offerte: OfferteData }) {
             <Text style={s.totalsFinalLabel}>Totaal bedrag incl. BTW</Text>
             <Text style={s.totalsFinalValue}>{formatCurrencyPdf(offerte.totaal)}</Text>
           </View>
-        </View>
+        </View>}
 
         {offerte.opmerkingen && (
           <View style={s.remarksSection}>

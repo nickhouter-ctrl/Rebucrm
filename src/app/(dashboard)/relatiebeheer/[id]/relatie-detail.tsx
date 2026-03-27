@@ -11,7 +11,7 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2 } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -128,6 +128,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [klantNaam, setKlantNaam] = useState(relatie.contactpersoon || relatie.bedrijfsnaam)
   const [klantWachtwoord, setKlantWachtwoord] = useState('')
   const [klantLoading, setKlantLoading] = useState(false)
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
   const [showNotitieForm, setShowNotitieForm] = useState(false)
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
@@ -290,13 +291,16 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
           ) : (
             projecten.map(p => {
               const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
-              const geoffreerd = sortedOffertes.reduce((sum, o) => sum + (o.totaal || 0), 0)
+              const laatsteOfferte = sortedOffertes[0]
+              const oudereVersies = sortedOffertes.slice(1)
+              const geoffreerd = laatsteOfferte?.totaal || 0
               const allFacturen = sortedOffertes.flatMap(o => o.facturen || [])
               const heeftOffertes = sortedOffertes.length > 0
               const heeftGeaccepteerd = sortedOffertes.some(o => o.status === 'geaccepteerd')
               const heeftAanbetaling = allFacturen.some(f => (f.factuur_type === 'aanbetaling' || f.factuur_type === 'volledig') && f.status !== 'concept')
               const heeftRestbetaling = allFacturen.some(f => f.factuur_type === 'restbetaling' && f.status !== 'concept')
               const isAfgerond = p.status === 'afgerond'
+              const isExpanded = expandedProjectIds.has(p.id)
               const stages: PipelineStage[] = [
                 { key: 'contact', label: 'Contact', bereikt: true, actief: false },
                 { key: 'offerte', label: 'Offerte', bereikt: heeftOffertes, actief: false },
@@ -329,25 +333,60 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                     </div>
                     <Pipeline stages={stages} compact />
                   </div>
-                  {sortedOffertes.length > 0 && (
+                  {laatsteOfferte && (
                     <CardContent className="p-0">
                       <table className="w-full">
                         <tbody>
-                          {sortedOffertes.map(o => (
+                          <tr
+                            className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer"
+                            onClick={() => router.push(`/offertes/${laatsteOfferte.id}`)}
+                          >
+                            <td className="px-6 py-2.5 text-sm font-medium text-primary">{laatsteOfferte.offertenummer}</td>
+                            <td className="px-6 py-2.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                                v{laatsteOfferte.versie_nummer || 1}
+                              </span>
+                            </td>
+                            <td className="px-6 py-2.5 text-sm text-gray-600">{formatDateShort(laatsteOfferte.datum)}</td>
+                            <td className="px-6 py-2.5"><Badge status={laatsteOfferte.status} /></td>
+                            <td className="px-6 py-2.5 text-sm text-right font-medium">{formatCurrency(laatsteOfferte.totaal)}</td>
+                          </tr>
+                          {oudereVersies.length > 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-6 py-1.5">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setExpandedProjectIds(prev => {
+                                      const next = new Set(prev)
+                                      if (next.has(p.id)) next.delete(p.id)
+                                      else next.add(p.id)
+                                      return next
+                                    })
+                                  }}
+                                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                  {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                  {oudereVersies.length} oudere versie{oudereVersies.length !== 1 ? 's' : ''}
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                          {isExpanded && oudereVersies.map(o => (
                             <tr
                               key={o.id}
-                              className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer"
+                              className="border-b border-gray-100 last:border-0 hover:bg-gray-50 cursor-pointer bg-gray-50/50"
                               onClick={() => router.push(`/offertes/${o.id}`)}
                             >
-                              <td className="px-6 py-2.5 text-sm font-medium text-primary">{o.offertenummer}</td>
+                              <td className="px-6 py-2.5 text-sm font-medium text-gray-400">{o.offertenummer}</td>
                               <td className="px-6 py-2.5">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-400">
                                   v{o.versie_nummer || 1}
                                 </span>
                               </td>
-                              <td className="px-6 py-2.5 text-sm text-gray-600">{formatDateShort(o.datum)}</td>
+                              <td className="px-6 py-2.5 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
                               <td className="px-6 py-2.5"><Badge status={o.status} /></td>
-                              <td className="px-6 py-2.5 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                              <td className="px-6 py-2.5 text-sm text-right font-medium text-gray-400">{formatCurrency(o.totaal)}</td>
                             </tr>
                           ))}
                         </tbody>

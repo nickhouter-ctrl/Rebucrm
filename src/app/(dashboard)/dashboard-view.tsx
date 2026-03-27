@@ -1,16 +1,16 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { Users, UserPlus, CheckSquare, AlertCircle, FileText, Clock, Truck, CalendarDays, Package, MessageCircle, CheckCircle, Receipt, GripVertical, Settings2, X, Eye, EyeOff, BarChart3, Trophy, Target, ChevronDown, ChevronUp, Pencil, Mail } from 'lucide-react'
+import { FileText, Clock, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, CheckCircle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, updateAanvraagStatus, markOrderBesteld } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, markOrderBesteld } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 
 interface TePlannenOrder {
@@ -131,46 +131,59 @@ interface DashboardData {
   }[]
 }
 
-const statusLabels: Record<string, string> = {
-  concept: 'Concept',
-  verzonden: 'Verzonden',
-  geaccepteerd: 'Geaccepteerd',
-  afgewezen: 'Afgewezen',
-  verlopen: 'Verlopen',
-  betaald: 'Betaald',
-  deels_betaald: 'Deels betaald',
-  vervallen: 'Vervallen',
-  gecrediteerd: 'Gecrediteerd',
+function formatDateShort(d: string) {
+  try {
+    return format(new Date(d), 'd MMM yyyy', { locale: nl })
+  } catch { return d }
 }
 
-const CARD_LABELS: Record<string, string> = {
-  gefactureerd: 'Gefactureerd',
-  klanten: 'Klanten',
-  berichten: 'Berichten',
-  offertesPerFase: 'Offertes per fase',
-  facturenPerFase: 'Facturen per fase',
-  tePlannen: 'Te plannen leveringen',
-  takenPerCollega: 'Taken per collega',
-  geplandeLeveringen: 'Geplande leveringen',
-  openOffertes: 'Open offertes',
-  geaccepteerdeOffertes: 'Geaccepteerde offertes',
-  openstaandeFacturen: 'Openstaande facturen',
-  mijnTaken: 'Mijn taken',
-  aangemaakteOffertes: 'Aangemaakte offertes',
-  omzetdoelen: 'Omzetdoelen',
-  openAanvragen: 'Openstaande aanvragen',
-  topKlanten: 'Top 50 klanten',
-  moetBesteld: 'Moet besteld worden',
+function dagenVerschil(d: string) {
+  const now = new Date()
+  const target = new Date(d)
+  return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-type PeriodFilter = 'week' | 'maand' | 'kwartaal' | 'jaar'
+// Collapsible section component
+function Section({ title, count, children, defaultOpen, linkHref, linkLabel }: {
+  title: string
+  count: number
+  children: React.ReactNode
+  defaultOpen?: boolean
+  linkHref?: string
+  linkLabel?: string
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? count > 0)
 
-function filterChartData<T extends { maand: string }>(data: T[], period: PeriodFilter): T[] {
-  if (period === 'jaar') return data
-  if (period === 'kwartaal') return data.slice(-3)
-  if (period === 'maand') return data.slice(-1)
-  // week = last 1 month too (we only have monthly data)
-  return data.slice(-1)
+  return (
+    <div className="border border-gray-200 rounded-xl bg-white overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
+      >
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
+          {count > 0 && (
+            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-xs font-bold">
+              {count}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {linkHref && (
+            <Link
+              href={linkHref}
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs font-medium text-[#00a66e] hover:underline flex items-center gap-1"
+            >
+              {linkLabel || 'Bekijk alle'} <ArrowRight className="h-3 w-3" />
+            </Link>
+          )}
+          {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+        </div>
+      </button>
+      {open && <div className="border-t border-gray-200">{children}</div>}
+    </div>
+  )
 }
 
 export function DashboardView({ data }: { data: DashboardData | null }) {
@@ -179,12 +192,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const [factuurLoading, setFactuurLoading] = useState<string | null>(null)
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
-  const [showSettings, setShowSettings] = useState(false)
-  const [aanvraagLoading, setAanvraagLoading] = useState<string | null>(null)
   const [besteldLoading, setBesteldLoading] = useState<string | null>(null)
-
-  // Top klanten & omzetdoelen
-  const [topKlantenExpanded, setTopKlantenExpanded] = useState(false)
   const [showDoelenEdit, setShowDoelenEdit] = useState(false)
   const [doelenSaving, setDoelenSaving] = useState(false)
   const [doelenTab, setDoelenTab] = useState<'week' | 'maand' | 'jaar'>('maand')
@@ -193,65 +201,6 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     maand_doel: data?.omzetdoelen?.maand_doel?.toString() || '0',
     jaar_doel: data?.omzetdoelen?.jaar_doel?.toString() || '0',
   })
-
-  // Period filters
-  const [gefactureerdPeriod, setGefactureerdPeriod] = useState<PeriodFilter>('jaar')
-  const [offertesPeriod, setOffertesPeriod] = useState<PeriodFilter>('jaar')
-
-  // Dashboard card order & visibility (drag & drop)
-  const CARD_STORAGE_KEY = 'rebu-dashboard-card-order'
-  const VISIBILITY_STORAGE_KEY = 'rebu-dashboard-visible-cards'
-  const DEFAULT_CARD_ORDER = ['omzetdoelen', 'gefactureerd', 'aangemaakteOffertes', 'openAanvragen', 'moetBesteld', 'topKlanten', 'klanten', 'berichten', 'offertesPerFase', 'facturenPerFase', 'tePlannen', 'takenPerCollega', 'geplandeLeveringen', 'openOffertes', 'geaccepteerdeOffertes', 'openstaandeFacturen', 'mijnTaken']
-  const [cardOrder, setCardOrder] = useState<string[]>(DEFAULT_CARD_ORDER)
-  const [hiddenCards, setHiddenCards] = useState<Set<string>>(new Set())
-
-  useEffect(() => {
-    try {
-      const savedOrder = localStorage.getItem(CARD_STORAGE_KEY)
-      if (savedOrder) {
-        const parsed = JSON.parse(savedOrder) as string[]
-        const cleaned = parsed.filter(id => id !== 'maandomzet' && DEFAULT_CARD_ORDER.includes(id))
-        for (const id of DEFAULT_CARD_ORDER) { if (!cleaned.includes(id)) cleaned.push(id) }
-        setCardOrder(cleaned)
-      }
-      const savedVisibility = localStorage.getItem(VISIBILITY_STORAGE_KEY)
-      if (savedVisibility) setHiddenCards(new Set(JSON.parse(savedVisibility) as string[]))
-    } catch { /* ignore */ }
-  }, [])
-  const [draggedCard, setDraggedCard] = useState<string | null>(null)
-  const [dragOverCard, setDragOverCard] = useState<string | null>(null)
-
-  function handleCardDragStart(e: React.DragEvent, cardId: string) {
-    setDraggedCard(cardId)
-    e.dataTransfer.effectAllowed = 'move'
-  }
-  function handleCardDragOver(e: React.DragEvent, cardId: string) {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    if (dragOverCard !== cardId) setDragOverCard(cardId)
-  }
-  function handleCardDrop(cardId: string) {
-    if (!draggedCard || draggedCard === cardId) { setDraggedCard(null); setDragOverCard(null); return }
-    const newOrder = [...cardOrder]
-    const from = newOrder.indexOf(draggedCard)
-    const to = newOrder.indexOf(cardId)
-    if (from === -1 || to === -1) { setDraggedCard(null); setDragOverCard(null); return }
-    newOrder.splice(from, 1)
-    newOrder.splice(to, 0, draggedCard)
-    setCardOrder(newOrder)
-    localStorage.setItem(CARD_STORAGE_KEY, JSON.stringify(newOrder))
-    setDraggedCard(null)
-    setDragOverCard(null)
-  }
-  function handleCardDragEnd() { setDraggedCard(null); setDragOverCard(null) }
-
-  function toggleCardVisibility(cardId: string) {
-    const next = new Set(hiddenCards)
-    if (next.has(cardId)) next.delete(cardId)
-    else next.add(cardId)
-    setHiddenCards(next)
-    localStorage.setItem(VISIBILITY_STORAGE_KEY, JSON.stringify([...next]))
-  }
 
   async function handleConvertToFactuur(offerteId: string, splitType: 'volledig' | 'split', percentage = 70) {
     setFactuurLoading(offerteId)
@@ -279,938 +228,586 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     return <div className="p-8 text-center text-gray-500">Dashboard laden...</div>
   }
 
-  const maxTaken = Math.max(...data.takenPerCollega.map(t => t.aantal), 1)
-
-  const WIDE_CARDS = new Set(['gefactureerd', 'aangemaakteOffertes', 'omzetdoelen'])
-
-  // Period filter component
-  function PeriodButtons({ value, onChange }: { value: PeriodFilter; onChange: (p: PeriodFilter) => void }) {
-    const options: { label: string; value: PeriodFilter }[] = [
-      { label: 'Maand', value: 'maand' },
-      { label: 'Kwartaal', value: 'kwartaal' },
-      { label: 'Dit jaar', value: 'jaar' },
-    ]
-    return (
-      <div className="flex gap-1">
-        {options.map(o => (
-          <button
-            key={o.value}
-            onClick={() => onChange(o.value)}
-            className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
-              value === o.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-    )
+  // Notification items
+  const notifications: { label: string; href: string; type: 'warning' | 'success' }[] = []
+  if (data.geaccepteerdeOffertes.length > 0) {
+    notifications.push({
+      label: `${data.geaccepteerdeOffertes.length} geaccepteerde offerte${data.geaccepteerdeOffertes.length !== 1 ? 's' : ''} — factuur aanmaken`,
+      href: '#geaccepteerd',
+      type: 'warning',
+    })
+  }
+  if (data.openAanvragen && data.openAanvragen.length > 0) {
+    notifications.push({
+      label: `${data.openAanvragen.length} nieuwe aanvra${data.openAanvragen.length !== 1 ? 'gen' : 'ag'} binnengekomen`,
+      href: '/aanvragen',
+      type: 'warning',
+    })
+  }
+  const achterstalligeFacturen = data.openstaandeFacturen.filter(f => f.vervaldatum && new Date(f.vervaldatum) < new Date())
+  if (achterstalligeFacturen.length > 0) {
+    notifications.push({
+      label: `${achterstalligeFacturen.length} factuur/facturen vervallen`,
+      href: '#facturen',
+      type: 'warning',
+    })
   }
 
-  // Chart bar renderer
-  function ChartBars({ data: chartData, valueKey, formatValue }: {
-    data: { maand: string; [key: string]: string | number }[]
-    valueKey: string
-    formatValue: (v: number) => string
-  }) {
-    const maxVal = Math.max(...chartData.map(d => Number(d[valueKey]) || 0), 1)
-    return (
-      <div className="flex items-end gap-1 h-28">
-        {chartData.map((d, i) => {
-          const val = Number(d[valueKey]) || 0
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-0.5 min-w-0">
-              <div className="w-full flex flex-col items-center justify-end h-20">
-                {val > 0 && (
-                  <span className="text-[9px] text-gray-500 mb-0.5 truncate max-w-full">
-                    {formatValue(val)}
-                  </span>
-                )}
-                <div
-                  className="w-full max-w-[36px] bg-primary rounded-t transition-all"
-                  style={{ height: `${Math.max((val / maxVal) * 100, val > 0 ? 4 : 0)}%` }}
-                />
-              </div>
-              <span className="text-[9px] text-gray-500 truncate max-w-full">{d.maand}</span>
-            </div>
-          )
-        })}
-      </div>
-    )
+  // KPI calculations
+  const conversieGraad = data.totaalOffertes > 0
+    ? Math.round((data.offertesPerFase.find(f => f.status === 'geaccepteerd')?.aantal || 0) / data.totaalOffertes * 100)
+    : 0
+  const achterstalligBedrag = achterstalligeFacturen.reduce((sum, f) => sum + f.openstaand_bedrag, 0)
+
+  const doelen = data.omzetdoelen
+  const doelenItems: Record<string, { label: string; omzet: number; doel: number }> = {
+    week: { label: 'Week', omzet: doelen.week_omzet, doel: doelen.week_doel },
+    maand: { label: 'Maand', omzet: doelen.maand_omzet, doel: doelen.maand_doel },
+    jaar: { label: 'Jaar', omzet: doelen.jaar_omzet, doel: doelen.jaar_doel },
   }
+  const activeDoel = doelenItems[doelenTab]
+  const doelenPercentage = activeDoel.doel > 0 ? Math.round((activeDoel.omzet / activeDoel.doel) * 100) : 0
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowSettings(!showSettings)}
-          className="text-gray-500"
-        >
-          <Settings2 className="h-4 w-4" />
-          Instellingen
-        </Button>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
 
-      {/* Dashboard instellingen panel */}
-      {showSettings && (
-        <Card>
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900">Dashboard instellingen</h2>
-            <button onClick={() => setShowSettings(false)} className="text-gray-400 hover:text-gray-600">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-          <CardContent>
-            <p className="text-sm text-gray-500 mb-4">Kies welke kaarten zichtbaar zijn op je dashboard. Sleep kaarten om de volgorde aan te passen.</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-              {cardOrder.map(cardId => {
-                const isVisible = !hiddenCards.has(cardId)
-                return (
-                  <button
-                    key={cardId}
-                    onClick={() => toggleCardVisibility(cardId)}
-                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all text-left ${
-                      isVisible
-                        ? 'border-primary/30 bg-primary/5 text-gray-900'
-                        : 'border-gray-200 bg-gray-50 text-gray-400'
-                    }`}
-                  >
-                    {isVisible ? <Eye className="h-3.5 w-3.5 text-primary shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
-                    <span className="truncate">{CARD_LABELS[cardId] || cardId}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
+      {/* Notificatiebalk */}
+      {notifications.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 space-y-1">
+          {notifications.map((n, i) => (
+            <Link key={i} href={n.href} className="flex items-center gap-2 text-sm text-amber-800 hover:underline">
+              <Bell className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              {n.label}
+            </Link>
+          ))}
+        </div>
       )}
 
-      {/* Brede kaarten */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {cardOrder.filter(id => WIDE_CARDS.has(id) && !hiddenCards.has(id)).map(cardId => {
-          let cardContent: React.ReactNode = null
-          if (false) { /* placeholder */ }
-          else if (cardId === 'gefactureerd') {
-            const chartData = filterChartData(data.gefactureerdPerMaand, gefactureerdPeriod)
-            const periodTotal = chartData.reduce((sum, d) => sum + d.bedrag, 0)
-            const periodCount = chartData.reduce((sum, d) => sum + d.aantal, 0)
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-1.5">
-                      <BarChart3 className="h-3.5 w-3.5 text-primary" />
-                      <h2 className="text-sm font-semibold text-gray-900">Gefactureerd</h2>
-                      <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                        {periodCount}
-                      </span>
-                    </div>
-                    <PeriodButtons value={gefactureerdPeriod} onChange={setGefactureerdPeriod} />
-                  </div>
-                  <p className="text-lg font-bold text-gray-900">{formatCurrency(periodTotal)}</p>
-                </div>
-                <CardContent className="p-3">
-                  <ChartBars
-                    data={chartData}
-                    valueKey="bedrag"
-                    formatValue={(v) => {
-                      if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`
-                      if (v >= 1000) return `${(v / 1000).toFixed(0)}K`
-                      return `€${v}`
-                    }}
-                  />
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'aangemaakteOffertes') {
-            const offertes = data.recenteOffertes || []
-            const totaalBedrag = offertes.reduce((sum, o) => sum + o.totaal, 0)
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <FileText className="h-3.5 w-3.5 text-green-600" />
-                      <h2 className="text-sm font-semibold text-gray-900">Recente offertes</h2>
-                      <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                        {offertes.length}
-                      </span>
-                    </div>
-                    <span className="text-sm font-bold text-gray-900">{formatCurrency(totaalBedrag)}</span>
-                  </div>
-                </div>
-                <CardContent className="p-2">
-                  {offertes.length === 0 ? (
-                    <p className="text-xs text-gray-500 py-4 text-center">Geen offertes</p>
-                  ) : (
-                    <div className="space-y-1">
-                      <div className="grid grid-cols-[1fr_4rem_5rem] gap-1 px-2 py-1 text-[10px] font-medium text-gray-400 uppercase">
-                        <span>Klant / Project</span>
-                        <span>Status</span>
-                        <span className="text-right">Bedrag</span>
-                      </div>
-                      {offertes.map(o => (
-                        <Link
-                          key={o.id}
-                          href={`/offertes/${o.id}`}
-                          className="grid grid-cols-[1fr_4rem_5rem] gap-1 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors items-center"
-                        >
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
-                            <p className="text-[10px] text-gray-500 truncate">{o.offertenummer}{o.project_naam && ` · ${o.project_naam}`}</p>
-                          </div>
-                          <Badge status={o.status}>{statusLabels[o.status] || o.status}</Badge>
-                          <span className="text-xs font-medium text-gray-900 text-right">{formatCurrency(o.totaal)}</span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'omzetdoelen') {
-            const doelen = data.omzetdoelen
-            const tabItems: Record<string, { label: string; omzet: number; doel: number }> = {
-              week: { label: 'Week', omzet: doelen.week_omzet, doel: doelen.week_doel },
-              maand: { label: 'Maand', omzet: doelen.maand_omzet, doel: doelen.maand_doel },
-              jaar: { label: 'Jaar', omzet: doelen.jaar_omzet, doel: doelen.jaar_doel },
-            }
-            const active = tabItems[doelenTab]
-            const percentage = active.doel > 0 ? Math.round((active.omzet / active.doel) * 100) : 0
-            const nogTeGaan = Math.max(0, active.doel - active.omzet)
-            const barColor = percentage > 100 ? 'bg-blue-500' : percentage >= 80 ? 'bg-green-500' : percentage >= 50 ? 'bg-orange-500' : 'bg-red-500'
-            const textColor = percentage > 100 ? 'text-blue-600' : percentage >= 80 ? 'text-green-600' : percentage >= 50 ? 'text-orange-600' : 'text-red-600'
-
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Target className="h-3.5 w-3.5 text-primary" />
-                    <h2 className="text-sm font-semibold text-gray-900">Omzetdoelen</h2>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex gap-1">
-                      {(['week', 'maand', 'jaar'] as const).map(tab => (
-                        <button
-                          key={tab}
-                          onClick={() => setDoelenTab(tab)}
-                          className={`px-2.5 py-1 text-xs rounded-md font-medium transition-colors ${
-                            doelenTab === tab ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                        </button>
-                      ))}
-                    </div>
-                    <Button variant="ghost" size="sm" onClick={() => { setShowDoelenEdit(true); setDoelenForm({ week_doel: doelen.week_doel.toString(), maand_doel: doelen.maand_doel.toString(), jaar_doel: doelen.jaar_doel.toString() }) }}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-                <CardContent className="p-3">
-                  {!doelen.heeft_doelen ? (
-                    <div className="py-4 text-center">
-                      <Target className="h-6 w-6 text-gray-300 mx-auto mb-1" />
-                      <p className="text-xs text-gray-500">Geen omzetdoelen ingesteld</p>
-                      <Button size="sm" className="mt-2 h-6 text-[10px]" onClick={() => setShowDoelenEdit(true)}>Doelen instellen</Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-3 gap-3 text-center">
-                        <div>
-                          <p className="text-[10px] text-gray-500 mb-0.5">Omzet</p>
-                          <p className="text-base font-bold text-gray-900">{formatCurrency(active.omzet)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-gray-500 mb-0.5">Doel</p>
-                          <p className="text-base font-bold text-gray-900">{formatCurrency(active.doel)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-gray-500 mb-0.5">Nog te gaan</p>
-                          <p className={`text-base font-bold ${nogTeGaan === 0 ? 'text-green-600' : textColor}`}>
-                            {nogTeGaan === 0 ? 'Behaald!' : formatCurrency(nogTeGaan)}
-                          </p>
-                        </div>
-                      </div>
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className={`text-sm font-semibold ${textColor}`}>{percentage}%</span>
-                          <span className="text-xs text-gray-400">{active.label}doel {new Date().getFullYear()}</span>
-                        </div>
-                        <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">
-                          <div className={`h-4 rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(percentage, 100)}%` }} />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100">
-                        {Object.entries(tabItems).map(([key, item]) => {
-                          const pct = item.doel > 0 ? Math.round((item.omzet / item.doel) * 100) : 0
-                          const clr = pct > 100 ? 'text-blue-600' : pct >= 80 ? 'text-green-600' : pct >= 50 ? 'text-orange-600' : 'text-red-600'
-                          return (
-                            <button key={key} onClick={() => setDoelenTab(key as typeof doelenTab)} className={`p-2 rounded-lg text-center transition-colors ${doelenTab === key ? 'bg-gray-50 ring-1 ring-gray-200' : 'hover:bg-gray-50'}`}>
-                              <p className="text-[10px] text-gray-400 uppercase">{item.label}</p>
-                              <p className={`text-sm font-bold ${clr}`}>{pct}%</p>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          }
-          if (!cardContent) return null
-          return (
-            <div
-              key={cardId}
-              draggable
-              onDragStart={(e) => handleCardDragStart(e, cardId)}
-              onDragOver={(e) => handleCardDragOver(e, cardId)}
-              onDrop={() => handleCardDrop(cardId)}
-              onDragEnd={handleCardDragEnd}
-              className={`relative group ${draggedCard === cardId ? 'opacity-50' : ''} ${dragOverCard === cardId ? 'ring-2 ring-primary ring-offset-2 rounded-xl' : ''}`}
-            >
-              {cardContent}
-            </div>
-          )
-        })}
+      {/* KPI rij */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Link href="/facturatie" className="block">
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Omzet deze maand</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.omzet)}</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-green-50 flex items-center justify-center">
+                <DollarSign className="h-5 w-5 text-[#00a66e]" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="#facturen" className="block">
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Openstaand</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.openstaand)}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{data.openstaandeFacturen.length} facturen</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-blue-50 flex items-center justify-center">
+                <Receipt className="h-5 w-5 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="/offertes" className="block">
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Conversiegraad</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{conversieGraad}%</p>
+                <p className="text-xs text-gray-400 mt-0.5">{data.totaalOffertes} offertes totaal</p>
+              </div>
+              <div className="h-10 w-10 rounded-full bg-purple-50 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-purple-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+        <Link href="#facturen" className="block">
+          <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Achterstallig</p>
+                <p className={`text-2xl font-bold mt-1 ${achterstalligBedrag > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                  {formatCurrency(achterstalligBedrag)}
+                </p>
+                {achterstalligeFacturen.length > 0 && (
+                  <p className="text-xs text-red-500 mt-0.5">{achterstalligeFacturen.length} vervallen</p>
+                )}
+              </div>
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center ${achterstalligBedrag > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <AlertTriangle className={`h-5 w-5 ${achterstalligBedrag > 0 ? 'text-red-500' : 'text-gray-400'}`} />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
-      {/* Reguliere kaarten in columns layout (masonry) */}
-      <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-4">
-        {cardOrder.filter(id => !WIDE_CARDS.has(id) && id !== 'emailTriage').map(cardId => {
-          if (hiddenCards.has(cardId) && cardId !== 'openAanvragen') return null
+      {/* Main content: secties links + zijbalk rechts */}
+      <div className="flex gap-6 items-start">
+        {/* Secties - full width tabellen */}
+        <div className="flex-1 min-w-0 space-y-4">
 
-          let cardContent: React.ReactNode = null
-
-          if (cardId === 'openAanvragen') {
-            if (!data.openAanvragen || data.openAanvragen.length === 0) return null
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 text-blue-500" />
-                    <h2 className="text-sm font-semibold text-gray-900">Openstaande aanvragen</h2>
-                    <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">
-                      {data.openAanvragen.length}
-                    </span>
-                  </div>
-                  <Link href="/aanvragen">
-                    <Button size="sm" variant="ghost" className="text-[10px] text-gray-500 h-6 px-1.5">
-                      Alle
-                    </Button>
-                  </Link>
-                </div>
-                <CardContent className="p-0">
-                  <div className="divide-y divide-gray-100">
-                    {data.openAanvragen.map(aanvraag => {
-                      const emailMatch = aanvraag.omschrijving?.match(/E-mail van (.+?): "(.+)"/)
-                      const afzender = emailMatch?.[1] || 'Onbekend'
-                      const onderwerp = emailMatch?.[2] || aanvraag.omschrijving || '-'
-                      return (
-                        <div key={aanvraag.id} className="px-3 py-2 flex items-center gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-900 truncate">{onderwerp}</p>
-                            <div className="flex items-center gap-1.5">
-                              <p className="text-[10px] text-gray-500">Van: {afzender}</p>
-                              {aanvraag.relatie_naam && (
-                                <span className="text-[10px] font-medium text-primary">→ {aanvraag.relatie_naam}</span>
-                              )}
-                            </div>
-                          </div>
-                          {aanvraag.relatie_id && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={async () => {
-                                setAanvraagLoading(aanvraag.id)
-                                await updateAanvraagStatus(aanvraag.id, 'in_uitvoering')
-                                if (aanvraag.offerte_id) {
-                                  router.push(`/offertes/${aanvraag.offerte_id}`)
-                                } else {
-                                  router.push(`/offertes/nieuw?relatie_id=${aanvraag.relatie_id}`)
-                                }
-                              }}
-                              disabled={aanvraagLoading === aanvraag.id}
-                              className="text-primary hover:text-primary/80 hover:bg-primary/5 shrink-0 h-6 px-1.5 text-[10px]"
-                            >
-                              <FileText className="h-3 w-3" />
-                              Offerte
-                            </Button>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'moetBesteld' && data.moetBesteldOrders && data.moetBesteldOrders.length > 0) {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Package className="h-3.5 w-3.5 text-amber-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Moet besteld worden</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">
-                    {data.moetBesteldOrders.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="space-y-1.5">
-                    {data.moetBesteldOrders.map(order => (
-                      <div key={order.id} className="p-2 rounded-lg border border-amber-100 bg-amber-50/30">
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-900 truncate">{order.relatie_bedrijfsnaam}</p>
-                            <p className="text-[10px] text-gray-500 truncate">
-                              {order.ordernummer}
-                              {order.onderwerp && ` · ${order.onderwerp}`}
-                            </p>
-                          </div>
-                          <span className="text-xs font-medium text-gray-900 whitespace-nowrap">{formatCurrency(order.totaal)}</span>
-                        </div>
-                        <div className="mt-1.5">
-                          <Button
-                            size="sm"
-                            className="h-6 text-[10px] px-2"
-                            disabled={besteldLoading === order.id}
-                            onClick={async () => {
-                              setBesteldLoading(order.id)
-                              await markOrderBesteld(order.id)
-                              setBesteldLoading(null)
-                              router.refresh()
-                            }}
-                          >
-                            <CheckCircle className="h-3 w-3" />
-                            {besteldLoading === order.id ? '...' : 'Besteld'}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'klanten') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-gray-900">Organisaties</h2>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {data.organisaties.totaal}
-                  </span>
-                </div>
-                <CardContent className="p-3">
-                  <div className="grid grid-cols-3 divide-x divide-gray-100">
-                    <Link href="/relatiebeheer" className="text-center p-2 hover:bg-gray-50 transition-colors rounded-l-lg">
-                      <p className="text-[10px] text-gray-500 mb-0.5">Totaal</p>
-                      <p className="text-lg font-bold text-blue-600">{data.organisaties.totaal}</p>
-                    </Link>
-                    <Link href="/relatiebeheer" className="text-center p-2 hover:bg-gray-50 transition-colors">
-                      <p className="text-[10px] text-gray-500 mb-0.5">Particulier</p>
-                      <p className="text-lg font-bold text-green-600">{data.organisaties.particulier}</p>
-                    </Link>
-                    <Link href="/relatiebeheer" className="text-center p-2 hover:bg-gray-50 transition-colors rounded-r-lg">
-                      <p className="text-[10px] text-gray-500 mb-0.5">Zakelijk</p>
-                      <p className="text-lg font-bold text-purple-600">{data.organisaties.zakelijk}</p>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'offertesPerFase') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-gray-900">Offertes per fase</h2>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {data.totaalOffertes}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="grid grid-cols-2 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                    {data.offertesPerFase.filter(f => f.aantal > 0).map(f => (
-                      <div key={f.status} className="bg-white p-2">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] text-gray-500">{statusLabels[f.status] || f.status}</span>
-                          <span className="text-[10px] font-medium text-gray-400">{f.aantal}</span>
-                        </div>
-                        <p className="text-sm font-bold text-primary">{formatCurrency(f.bedrag)}</p>
-                      </div>
-                    ))}
-                  </div>
-                  {data.offertesPerFase.every(f => f.aantal === 0) && (
-                    <p className="text-sm text-gray-500 py-4 text-center">Geen offertes</p>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'facturenPerFase') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-gray-900">Facturen per fase</h2>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {data.totaalFacturen}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="grid grid-cols-2 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                    {data.facturenPerFase.filter(f => f.aantal > 0).map(f => (
-                      <div key={f.status} className="bg-white p-2">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] text-gray-500">{statusLabels[f.status] || f.status}</span>
-                          <span className="text-[10px] font-medium text-gray-400">{f.aantal}</span>
-                        </div>
-                        <p className="text-sm font-bold text-primary">{formatCurrency(f.bedrag)}</p>
-                      </div>
-                    ))}
-                  </div>
-                  {data.facturenPerFase.every(f => f.aantal === 0) && (
-                    <p className="text-sm text-gray-500 py-4 text-center">Geen facturen</p>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'takenPerCollega') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-gray-900">Open taken per collega</h2>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {data.takenPerCollega.reduce((sum, t) => sum + t.aantal, 0)}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  {data.takenPerCollega.length === 0 ? (
-                    <p className="text-xs text-gray-500 py-3 text-center">Geen open taken</p>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-px bg-gray-100 rounded-lg overflow-hidden">
-                      {data.takenPerCollega.map(t => (
-                        <div key={t.naam} className="bg-white p-2">
-                          <p className="text-[10px] text-gray-500 truncate mb-0.5">{t.naam}</p>
-                          <p className="text-lg font-bold text-primary">{t.aantal}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'berichten' && data.ongelezenBerichten > 0) {
-            cardContent = (
-              <Card>
-                <Link href="/offertes" className="block px-4 py-3 hover:bg-gray-50 transition-colors">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-red-50 text-red-600"><MessageCircle className="h-4 w-4" /></div>
-                    <div className="flex-1">
-                      <p className="text-xs font-medium text-gray-900">{data.ongelezenBerichten} ongelezen {data.ongelezenBerichten === 1 ? 'bericht' : 'berichten'}</p>
-                      <p className="text-[10px] text-gray-500">Van klanten via het portaal</p>
-                    </div>
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-red-500 text-white text-[10px] font-bold">{data.ongelezenBerichten}</span>
-                  </div>
-                </Link>
-              </Card>
-            )
-          } else if (cardId === 'tePlannen' && data.tePlannenOrders.length > 0) {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Truck className="h-3.5 w-3.5 text-green-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Te plannen</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold">
-                    {data.tePlannenOrders.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="space-y-1.5">
-                    {data.tePlannenOrders.map(order => (
-                      <div key={order.id} className="p-2 rounded-lg border border-green-100 bg-green-50/30">
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-900 truncate">
-                              {order.relatie_bedrijfsnaam}
-                            </p>
-                            <p className="text-[10px] text-gray-500 truncate">
-                              {order.ordernummer}
-                              {order.onderwerp && ` · ${order.onderwerp}`}
-                            </p>
-                          </div>
-                          <span className="text-xs font-medium text-gray-900 whitespace-nowrap">
-                            {formatCurrency(order.totaal)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5">
-                          <Button
-                            size="sm"
-                            className="h-6 text-[10px] px-2"
-                            onClick={() => setPlanningOrder(order)}
-                          >
-                            <CalendarDays className="h-3 w-3" />
-                            Plannen
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'geplandeLeveringen' && data.geplandeLeveringen.length > 0) {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Package className="h-3.5 w-3.5 text-blue-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Geplande leveringen</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">
-                    {data.geplandeLeveringen.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="space-y-1.5">
-                    {data.geplandeLeveringen.map(order => {
-                      const leverDate = new Date(order.leverdatum)
-                      const today = new Date()
-                      today.setHours(0, 0, 0, 0)
-                      const diffDays = Math.ceil((leverDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-                      const isPast = diffDays < 0
-                      const isToday = diffDays === 0
-                      const isSoon = diffDays > 0 && diffDays <= 3
-
-                      return (
-                        <Link
-                          key={order.id}
-                          href={`/offertes/orders/${order.id}`}
-                          className={`block p-2 rounded-lg hover:bg-gray-50 transition-colors border ${
-                            isPast ? 'border-red-200 bg-red-50/50' : isToday ? 'border-green-300 bg-green-50/50' : isSoon ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-gray-900 truncate">{order.relatie_bedrijfsnaam}</p>
-                              <p className="text-[10px] text-gray-500 truncate">
-                                {order.ordernummer}
-                                {order.onderwerp && ` · ${order.onderwerp}`}
-                              </p>
-                            </div>
-                            <span className="text-xs font-medium text-gray-900 whitespace-nowrap">{formatCurrency(order.totaal)}</span>
-                          </div>
-                          <div className="flex items-center gap-1 mt-1">
-                            <CalendarDays className={`h-2.5 w-2.5 ${isPast ? 'text-red-500' : isToday ? 'text-green-600' : isSoon ? 'text-orange-500' : 'text-gray-400'}`} />
-                            <span className={`text-[10px] font-medium ${
-                              isPast ? 'text-red-600' : isToday ? 'text-green-700' : isSoon ? 'text-orange-600' : 'text-gray-500'
-                            }`}>
-                              {isToday ? 'Vandaag' : isPast ? `${Math.abs(diffDays)} dagen geleden` : `${format(leverDate, 'EEEE d MMM', { locale: nl })}`}
-                              {isSoon && ` — Over ${diffDays} ${diffDays === 1 ? 'dag' : 'dagen'}`}
-                            </span>
-                          </div>
-                        </Link>
-                      )
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'openOffertes') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <FileText className="h-3.5 w-3.5 text-gray-500" />
-                    <h2 className="text-sm font-semibold text-gray-900">Open offertes</h2>
-                  </div>
-                  {data.openOffertesList.length > 0 && (
-                    <span className="text-[10px] font-medium text-gray-500">{data.openOffertesList.length} verzonden</span>
-                  )}
-                </div>
-                <CardContent className="p-2">
-                  {data.openOffertesList.length === 0 ? (
-                    <div className="py-4 text-center">
-                      <FileText className="h-6 w-6 text-gray-300 mx-auto mb-1" />
-                      <p className="text-xs text-gray-500">Geen openstaande offertes</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {data.openOffertesList.map(o => {
-                        const isUrgent = o.dagen_open > 14
-                        const isWarning = o.dagen_open > 7
-                        return (
-                          <Link
-                            key={o.id}
-                            href={`/offertes/${o.id}`}
-                            className={`block p-2 rounded-lg hover:bg-gray-50 transition-colors border ${
-                              isUrgent ? 'border-red-200 bg-red-50/50' : isWarning ? 'border-orange-200 bg-orange-50/50' : 'border-gray-100'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-1">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
-                                <p className="text-[10px] text-gray-500 truncate">
-                                  {o.offertenummer}
-                                  {o.project_naam && ` · ${o.project_naam}`}
-                                </p>
-                              </div>
-                              <span className="text-xs font-medium text-gray-900 whitespace-nowrap">{formatCurrency(o.totaal)}</span>
-                            </div>
-                            <div className="flex items-center gap-1 mt-0.5">
-                              <Clock className={`h-2.5 w-2.5 ${isUrgent ? 'text-red-500' : isWarning ? 'text-orange-500' : 'text-gray-400'}`} />
-                              <span className={`text-[10px] font-medium ${
-                                isUrgent ? 'text-red-600' : isWarning ? 'text-orange-600' : 'text-gray-500'
-                              }`}>
-                                {o.dagen_open}d open
-                                {isUrgent && ' — Opvolgen!'}
-                                {!isUrgent && isWarning && ' — Herinnering'}
-                              </span>
-                            </div>
-                          </Link>
-                        )
-                      })}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'geaccepteerdeOffertes' && data.geaccepteerdeOffertes.length > 0) {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <CheckCircle className="h-3.5 w-3.5 text-green-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Geaccepteerd</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-green-100 text-green-700 text-[10px] font-bold">
-                    {data.geaccepteerdeOffertes.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="space-y-1.5">
+          {/* 1. Geaccepteerde offertes — te verwerken */}
+          <div id="geaccepteerd">
+            <Section
+              title="Geaccepteerde offertes — te verwerken"
+              count={data.geaccepteerdeOffertes.length}
+              linkHref="/offertes"
+              linkLabel="Alle offertes"
+            >
+              {data.geaccepteerdeOffertes.length === 0 ? (
+                <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen geaccepteerde offertes te verwerken</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Offerte</th>
+                      <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Bedrag</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Datum</th>
+                      <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Actie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {data.geaccepteerdeOffertes.map(o => (
-                      <div key={o.id} className="p-2 rounded-lg border border-green-100 bg-green-50/30">
-                        <div className="flex items-start justify-between gap-1">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-medium text-gray-900 truncate">
-                              {o.relatie_bedrijfsnaam}
-                            </p>
-                            <p className="text-[10px] text-gray-500 truncate">
-                              {o.offertenummer}
-                              {o.onderwerp && ` · ${o.onderwerp}`}
-                            </p>
-                          </div>
-                          <span className="text-xs font-medium text-gray-900 whitespace-nowrap">
-                            {formatCurrency(o.totaal)}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 flex gap-1">
+                      <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                        <td className="px-6 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                        <td className="px-4 py-3">
+                          <Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline">
+                            {o.offertenummer}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{formatDateShort(o.datum)}</td>
+                        <td className="px-6 py-3 text-right">
                           <Button
                             size="sm"
-                            className="h-6 text-[10px] px-2"
-                            disabled={factuurLoading === o.id}
+                            className="h-7 text-xs bg-[#00a66e] hover:bg-[#008f5f]"
                             onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })}
+                            disabled={factuurLoading === o.id}
                           >
-                            <Receipt className="h-3 w-3" />
-                            {factuurLoading === o.id ? '...' : 'Factuur'}
+                            {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
                           </Button>
-                          <Link href={`/offertes/${o.id}`}>
-                            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2">
-                              <FileText className="h-3 w-3" />
-                              Bekijk
-                            </Button>
-                          </Link>
-                        </div>
-                      </div>
+                        </td>
+                      </tr>
                     ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'openstaandeFacturen' && data.openstaandeFacturen.length > 0) {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Receipt className="h-3.5 w-3.5 text-orange-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Openstaande facturen</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 text-orange-700 text-[10px] font-bold">
-                    {data.openstaandeFacturen.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  <div className="space-y-1.5">
+                  </tbody>
+                </table>
+              )}
+            </Section>
+          </div>
+
+          {/* 2. Openstaande facturen */}
+          <div id="facturen">
+            <Section
+              title="Openstaande facturen"
+              count={data.openstaandeFacturen.length}
+              linkHref="/facturatie"
+              linkLabel="Alle facturen"
+            >
+              {data.openstaandeFacturen.length === 0 ? (
+                <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen openstaande facturen</p>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Factuur</th>
+                      <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Openstaand</th>
+                      <th className="text-center text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Dagen</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
                     {data.openstaandeFacturen.map(f => {
                       const isVervallen = f.vervaldatum && new Date(f.vervaldatum) < new Date()
-                      const dagenTotVervaldatum = f.vervaldatum
-                        ? Math.ceil((new Date(f.vervaldatum).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                        : null
-                      const isDringend = dagenTotVervaldatum !== null && dagenTotVervaldatum > 0 && dagenTotVervaldatum <= 7
-
+                      const bijna = f.vervaldatum && !isVervallen && dagenVerschil(f.vervaldatum) <= 7
+                      const dagen = f.vervaldatum ? Math.abs(dagenVerschil(f.vervaldatum)) : null
                       return (
-                        <Link
-                          key={f.id}
-                          href={`/facturatie/${f.id}`}
-                          className={`block p-2 rounded-lg hover:bg-gray-50 transition-colors border ${
-                            isVervallen ? 'border-red-200 bg-red-50/30' : isDringend ? 'border-orange-200 bg-orange-50/30' : 'border-gray-100'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-xs font-medium text-gray-900 truncate">
-                                {f.relatie_bedrijfsnaam}
-                              </p>
-                              <p className="text-[10px] text-gray-500 truncate">
-                                {f.factuurnummer}
-                                {f.status !== 'verzonden' && ` · ${statusLabels[f.status] || f.status}`}
-                              </p>
-                            </div>
-                            <span className="text-xs font-medium text-gray-900 whitespace-nowrap">
-                              {formatCurrency(f.openstaand_bedrag)}
-                            </span>
-                          </div>
-                          {f.vervaldatum && (
-                            <p className={`text-[10px] mt-0.5 ${
-                              isVervallen ? 'text-red-600 font-medium' : isDringend ? 'text-orange-600 font-medium' : 'text-gray-400'
-                            }`}>
-                              {isVervallen
-                                ? `Vervallen sinds ${format(new Date(f.vervaldatum), 'd MMM', { locale: nl })}`
-                                : `Vervaldatum: ${format(new Date(f.vervaldatum), 'd MMM yyyy', { locale: nl })}`}
-                            </p>
-                          )}
-                        </Link>
+                        <tr key={f.id} className={`border-t border-gray-100 hover:bg-gray-50/50 ${isVervallen ? 'bg-red-50/30' : ''}`}>
+                          <td className="px-6 py-3 text-sm font-medium text-gray-900">{f.relatie_bedrijfsnaam}</td>
+                          <td className="px-4 py-3">
+                            <Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline">
+                              {f.factuurnummer}
+                            </Link>
+                          </td>
+                          <td className={`px-4 py-3 text-sm text-right font-medium ${isVervallen ? 'text-red-600' : ''}`}>
+                            {formatCurrency(f.openstaand_bedrag)}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {dagen !== null && (
+                              <span className={`text-xs font-medium ${isVervallen ? 'text-red-600' : bijna ? 'text-orange-600' : 'text-gray-500'}`}>
+                                {isVervallen ? `${dagen}d over` : `${dagen}d`}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge status={f.status} />
+                          </td>
+                        </tr>
                       )
                     })}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'mijnTaken') {
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold text-gray-900">Mijn taken</h2>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {data.mijnTaken.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  {data.mijnTaken.length === 0 ? (
-                    <div className="py-4 text-center">
-                      <CheckSquare className="h-6 w-6 text-gray-300 mx-auto mb-1" />
-                      <p className="text-xs text-gray-500">Geen openstaande taken</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {data.mijnTaken.map(t => (
-                        <Link key={t.id} href={`/taken/${t.id}`} className="block p-2 rounded-lg hover:bg-gray-50 transition-colors border border-gray-100">
-                          <div className="flex items-start gap-2">
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-gray-900">{t.titel}</p>
-                              {t.deadline && (
-                                <p className="text-[10px] text-gray-500 mt-0.5">
-                                  {new Date(t.deadline) < new Date() ? (
-                                    <span className="text-red-500 flex items-center gap-1">
-                                      <AlertCircle className="h-3 w-3" />
-                                      Verlopen: {new Date(t.deadline).toLocaleDateString('nl-NL')}
-                                    </span>
-                                  ) : (
-                                    `Deadline: ${new Date(t.deadline).toLocaleDateString('nl-NL')}`
-                                  )}
-                                </p>
-                              )}
-                            </div>
-                            <Badge status={t.prioriteit}>{t.prioriteit}</Badge>
-                          </div>
+                  </tbody>
+                </table>
+              )}
+            </Section>
+          </div>
+
+          {/* 3. Moet besteld worden */}
+          <Section
+            title="Moet besteld worden"
+            count={data.moetBesteldOrders.length}
+            linkHref="/orders"
+            linkLabel="Alle orders"
+          >
+            {data.moetBesteldOrders.length === 0 ? (
+              <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen orders om te bestellen</p>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Order</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Bedrag</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Datum</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Actie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.moetBesteldOrders.map(o => (
+                    <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline">
+                          {o.ordernummer}
                         </Link>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          } else if (cardId === 'topKlanten') {
-            const klanten = data.topKlanten
-            const getoond = topKlantenExpanded ? klanten : klanten.slice(0, 5)
-            cardContent = (
-              <Card>
-                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Trophy className="h-3.5 w-3.5 text-yellow-600" />
-                    <h2 className="text-sm font-semibold text-gray-900">Top klanten</h2>
-                  </div>
-                  <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                    {klanten.length}
-                  </span>
-                </div>
-                <CardContent className="p-2">
-                  {klanten.length === 0 ? (
-                    <p className="text-xs text-gray-500 py-3 text-center">Geen klantdata</p>
-                  ) : (
-                    <>
-                      <div className="space-y-0">
-                        <div className="grid grid-cols-[1.5rem_1fr_5rem_5rem] gap-1 px-1.5 py-1 text-[10px] font-medium text-gray-400 uppercase">
-                          <span>#</span>
-                          <span>Klant</span>
-                          <span className="text-right">Betaald</span>
-                          <span className="text-right">Offertes</span>
-                        </div>
-                        {getoond.map((k, i) => (
-                          <Link
-                            key={k.relatie_id}
-                            href={`/relatiebeheer/${k.relatie_id}`}
-                            className="grid grid-cols-[1.5rem_1fr_5rem_5rem] gap-1 px-1.5 py-1.5 rounded-lg hover:bg-gray-50 transition-colors items-center"
-                          >
-                            <span className={`text-[10px] font-bold ${i < 3 ? 'text-yellow-600' : 'text-gray-400'}`}>{i + 1}</span>
-                            <span className="text-xs font-medium text-gray-900 truncate">{k.bedrijfsnaam}</span>
-                            <span className="text-xs text-gray-700 text-right">{formatCurrency(k.betaald)}</span>
-                            <span className="text-xs text-gray-500 text-right">{formatCurrency(k.offerte_waarde)}</span>
-                          </Link>
-                        ))}
-                      </div>
-                      {klanten.length > 5 && (
-                        <button
-                          onClick={() => setTopKlantenExpanded(!topKlantenExpanded)}
-                          className="w-full mt-3 py-2 text-sm font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors flex items-center justify-center gap-1"
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{formatDateShort(o.datum)}</td>
+                      <td className="px-6 py-3 text-right">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-xs"
+                          onClick={async () => {
+                            setBesteldLoading(o.id)
+                            await markOrderBesteld(o.id)
+                            setBesteldLoading(null)
+                            router.refresh()
+                          }}
+                          disabled={besteldLoading === o.id}
                         >
-                          {topKlantenExpanded ? (
-                            <><ChevronUp className="h-4 w-4" /> Toon minder</>
-                          ) : (
-                            <><ChevronDown className="h-4 w-4" /> Toon alle {klanten.length}</>
-                          )}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          }
+                          {besteldLoading === o.id ? 'Bezig...' : 'Besteld markeren'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
 
-          if (!cardContent) return null
+          {/* 4. Open offertes */}
+          <Section
+            title="Open offertes"
+            count={data.openOffertesList.length}
+            linkHref="/offertes"
+            linkLabel="Alle offertes"
+          >
+            {data.openOffertesList.length === 0 ? (
+              <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen open offertes</p>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Offerte</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Bedrag</th>
+                    <th className="text-center text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Dagen open</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Actie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.openOffertesList.map(o => (
+                    <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline">
+                          {o.offertenummer}
+                        </Link>
+                        {o.project_naam && <span className="text-xs text-gray-400 ml-1.5">{o.project_naam}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`text-xs font-medium ${o.dagen_open > 14 ? 'text-orange-600' : 'text-gray-500'}`}>
+                          {o.dagen_open}d
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right">
+                        <Link href={`/offertes/${o.id}`}>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs text-[#00a66e]">
+                            Opvolgen
+                          </Button>
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
 
-          return (
-            <div
-              key={cardId}
-              draggable
-              onDragStart={(e) => handleCardDragStart(e, cardId)}
-              onDragOver={(e) => handleCardDragOver(e, cardId)}
-              onDrop={() => handleCardDrop(cardId)}
-              onDragEnd={handleCardDragEnd}
-              className={`break-inside-avoid mb-4 relative group ${draggedCard === cardId ? 'opacity-50' : ''} ${dragOverCard === cardId ? 'ring-2 ring-primary ring-offset-2 rounded-xl' : ''}`}
+          {/* 5. Geplande leveringen */}
+          <Section
+            title="Geplande leveringen"
+            count={data.geplandeLeveringen.length}
+            linkHref="/orders"
+            linkLabel="Alle orders"
+          >
+            {data.geplandeLeveringen.length === 0 ? (
+              <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen geplande leveringen</p>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Order</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Leverdatum</th>
+                    <th className="text-center text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Dagen</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.geplandeLeveringen.map(l => {
+                    const dagen = dagenVerschil(l.leverdatum)
+                    return (
+                      <tr key={l.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                        <td className="px-6 py-3 text-sm font-medium text-gray-900">{l.relatie_bedrijfsnaam}</td>
+                        <td className="px-4 py-3">
+                          <Link href={`/orders/${l.id}`} className="text-sm text-[#00a66e] hover:underline">
+                            {l.ordernummer}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{formatDateShort(l.leverdatum)}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-xs font-medium ${dagen <= 3 ? 'text-orange-600' : dagen < 0 ? 'text-red-600' : 'text-gray-500'}`}>
+                            {dagen < 0 ? `${Math.abs(dagen)}d over` : `${dagen}d`}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3"><Badge status={l.status} /></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </Section>
+
+          {/* 6. Te plannen leveringen */}
+          {data.tePlannenOrders.length > 0 && (
+            <Section
+              title="Te plannen leveringen"
+              count={data.tePlannenOrders.length}
+              linkHref="/orders"
+              linkLabel="Alle orders"
             >
-              {cardContent}
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Klant</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Order</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Bedrag</th>
+                    <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Actie</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.tePlannenOrders.map(o => (
+                    <tr key={o.id} className="border-t border-gray-100 hover:bg-gray-50/50">
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-4 py-3">
+                        <Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline">
+                          {o.ordernummer}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                      <td className="px-6 py-3 text-right">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 text-xs"
+                          onClick={() => setPlanningOrder(o)}
+                        >
+                          <Truck className="h-3 w-3 mr-1" />
+                          Levering plannen
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Section>
+          )}
+
+          {/* 7. Mijn taken */}
+          <Section
+            title="Mijn taken"
+            count={data.mijnTaken.length}
+            linkHref="/taken"
+            linkLabel="Alle taken"
+          >
+            {data.mijnTaken.length === 0 ? (
+              <p className="px-6 py-6 text-sm text-gray-400 text-center">Geen openstaande taken</p>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Taak</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-4 py-2.5">Deadline</th>
+                    <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-2.5">Prioriteit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.mijnTaken.map(t => (
+                    <tr
+                      key={t.id}
+                      className="border-t border-gray-100 hover:bg-gray-50/50 cursor-pointer"
+                      onClick={() => router.push(`/taken/${t.id}`)}
+                    >
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{t.titel}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">
+                        {t.deadline ? formatDateShort(t.deadline) : '-'}
+                      </td>
+                      <td className="px-6 py-3">
+                        <Badge status={t.prioriteit} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Section>
+        </div>
+
+        {/* Zijbalk rechts */}
+        <div className="hidden lg:block w-80 shrink-0 space-y-4">
+          {/* Omzetdoelen */}
+          <Card>
+            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Target className="h-3.5 w-3.5 text-[#00a66e]" />
+                <h3 className="text-sm font-semibold text-gray-900">Omzetdoelen</h3>
+              </div>
+              <div className="flex items-center gap-1">
+                {(['week', 'maand', 'jaar'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setDoelenTab(tab)}
+                    className={`px-2 py-1 text-[10px] rounded font-medium transition-colors ${
+                      doelenTab === tab ? 'bg-[#00a66e] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  </button>
+                ))}
+                <button onClick={() => { setShowDoelenEdit(true); setDoelenForm({ week_doel: doelen.week_doel.toString(), maand_doel: doelen.maand_doel.toString(), jaar_doel: doelen.jaar_doel.toString() }) }} className="p-1 text-gray-400 hover:text-gray-600">
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
             </div>
-          )
-        })}
+            <CardContent className="p-4">
+              {!doelen.heeft_doelen ? (
+                <div className="py-4 text-center">
+                  <Target className="h-6 w-6 text-gray-300 mx-auto mb-1" />
+                  <p className="text-xs text-gray-500">Geen doelen ingesteld</p>
+                  <Button size="sm" className="mt-2 h-6 text-[10px] bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => setShowDoelenEdit(true)}>Instellen</Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className={`text-2xl font-bold ${doelenPercentage >= 100 ? 'text-[#00a66e]' : doelenPercentage >= 80 ? 'text-green-600' : doelenPercentage >= 50 ? 'text-orange-500' : 'text-red-500'}`}>
+                      {doelenPercentage}%
+                    </span>
+                    <span className="text-xs text-gray-400">{activeDoel.label}doel</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                    <div
+                      className={`h-3 rounded-full transition-all duration-500 ${doelenPercentage >= 100 ? 'bg-[#00a66e]' : doelenPercentage >= 80 ? 'bg-green-500' : doelenPercentage >= 50 ? 'bg-orange-500' : 'bg-red-500'}`}
+                      style={{ width: `${Math.min(doelenPercentage, 100)}%` }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-center text-xs">
+                    <div>
+                      <p className="text-gray-400">Omzet</p>
+                      <p className="font-bold text-gray-900">{formatCurrency(activeDoel.omzet)}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-400">Doel</p>
+                      <p className="font-bold text-gray-900">{formatCurrency(activeDoel.doel)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Maandelijkse omzet chart */}
+          <Card>
+            <div className="px-4 py-3 border-b border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-900">Maandelijkse omzet</h3>
+            </div>
+            <CardContent className="p-4">
+              {data.gefactureerdPerMaand.length === 0 ? (
+                <p className="text-xs text-gray-400 text-center py-4">Geen data</p>
+              ) : (
+                <div className="flex items-end gap-1 h-32">
+                  {data.gefactureerdPerMaand.map((d, i) => {
+                    const maxVal = Math.max(...data.gefactureerdPerMaand.map(m => m.bedrag), 1)
+                    const pct = (d.bedrag / maxVal) * 100
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5 min-w-0">
+                        <div className="w-full flex flex-col items-center justify-end h-24">
+                          {d.bedrag > 0 && (
+                            <span className="text-[8px] text-gray-400 mb-0.5 truncate max-w-full">
+                              {d.bedrag >= 1000 ? `${(d.bedrag / 1000).toFixed(0)}K` : `€${d.bedrag}`}
+                            </span>
+                          )}
+                          <div
+                            className="w-full max-w-[28px] bg-[#00a66e] rounded-t transition-all"
+                            style={{ height: `${Math.max(pct, d.bedrag > 0 ? 4 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-[8px] text-gray-400 truncate max-w-full">{d.maand}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Snelle links */}
+          <Card>
+            <CardContent className="p-3 space-y-1">
+              <Link href="/offertes/nieuw" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 transition-colors">
+                <FileText className="h-4 w-4 text-[#00a66e]" /> Nieuwe offerte
+              </Link>
+              <Link href="/relatiebeheer" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 transition-colors">
+                <Package className="h-4 w-4 text-[#00a66e]" /> Relatiebeheer
+              </Link>
+              <Link href="/taken" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm text-gray-700 transition-colors">
+                <CheckSquare className="h-4 w-4 text-[#00a66e]" /> Taken
+              </Link>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
+      {/* Delivery planning dialog */}
       {planningOrder && (
         <DeliveryPlanningDialog
           open={!!planningOrder}
@@ -1226,11 +823,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             <h3 className="text-lg font-semibold mb-2">Offerte factureren</h3>
             <p className="text-sm text-gray-600 mb-6">Hoe wilt u deze offerte factureren?</p>
             <div className="space-y-3">
-              <button onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'volledig')} disabled={!!factuurLoading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all">
+              <button onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'volledig')} disabled={!!factuurLoading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-[#00a66e] hover:bg-green-50/50 transition-all">
                 <p className="font-medium">100% factureren</p>
                 <p className="text-sm text-gray-500">1 factuur voor het volledige bedrag van {formatCurrency(factuurDialogOfferte.totaal)}</p>
               </button>
-              <button onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split', 70)} disabled={!!factuurLoading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all">
+              <button onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split', 70)} disabled={!!factuurLoading} className="w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-[#00a66e] hover:bg-green-50/50 transition-all">
                 <p className="font-medium">70% / 30% splitsen</p>
                 <p className="text-sm text-gray-500">Aanbetaling: {formatCurrency(factuurDialogOfferte.totaal * 0.7)} &middot; Restbetaling: {formatCurrency(factuurDialogOfferte.totaal * 0.3)}</p>
               </button>
@@ -1244,11 +841,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       max="99"
                       value={customSplitPercentage}
                       onChange={(e) => setCustomSplitPercentage(Math.min(99, Math.max(1, parseInt(e.target.value) || 50)))}
-                      className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
                     />
                     <span className="text-sm text-gray-500">% / {100 - customSplitPercentage}%</span>
                   </div>
-                  <Button size="sm" onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split', customSplitPercentage)} disabled={!!factuurLoading}>
+                  <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split', customSplitPercentage)} disabled={!!factuurLoading}>
                     Factureren
                   </Button>
                 </div>
@@ -1274,7 +871,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   type="number"
                   value={doelenForm.week_doel}
                   onChange={(e) => setDoelenForm(f => ({ ...f, week_doel: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
                   placeholder="0"
                 />
               </div>
@@ -1284,7 +881,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   type="number"
                   value={doelenForm.maand_doel}
                   onChange={(e) => setDoelenForm(f => ({ ...f, maand_doel: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
                   placeholder="0"
                 />
               </div>
@@ -1294,14 +891,14 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   type="number"
                   value={doelenForm.jaar_doel}
                   onChange={(e) => setDoelenForm(f => ({ ...f, jaar_doel: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
                   placeholder="0"
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <Button variant="ghost" onClick={() => setShowDoelenEdit(false)}>Annuleren</Button>
-              <Button onClick={handleSaveDoelen} disabled={doelenSaving}>
+              <Button className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={handleSaveDoelen} disabled={doelenSaving}>
                 {doelenSaving ? 'Opslaan...' : 'Opslaan'}
               </Button>
             </div>

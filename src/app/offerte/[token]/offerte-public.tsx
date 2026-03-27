@@ -61,12 +61,12 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-black">
+      <div style={{ backgroundColor: '#00a66e' }}>
         <div className="max-w-4xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
-            <Image src="/images/logo-rebu.png" alt="Rebu Kozijnen" width={180} height={60} className="h-12 w-auto" />
+            <Image src="/images/logo-rebu-white.png" alt="Rebu Kozijnen" width={180} height={60} className="h-12 w-auto" />
             <div className="text-right">
-              <p className="text-sm text-gray-400">Offerte</p>
+              <p className="text-sm text-white/70">Offerte</p>
               <p className="text-lg font-semibold text-white">{offerte.offertenummer}</p>
             </div>
           </div>
@@ -126,7 +126,7 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
+                <tr className="border-b border-gray-200" style={{ backgroundColor: 'rgba(0, 166, 110, 0.06)' }}>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Omschrijving</th>
                   <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-3">Aantal</th>
                   <th className="text-right text-xs font-medium text-gray-500 uppercase px-4 py-3">Prijs</th>
@@ -154,9 +154,9 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
               <div className="w-64 space-y-2 text-sm">
                 <div className="flex justify-between"><span className="text-gray-600">Subtotaal</span><span>{formatCurrency(offerte.subtotaal)}</span></div>
                 <div className="flex justify-between"><span className="text-gray-600">BTW</span><span>{formatCurrency(offerte.btw_totaal)}</span></div>
-                <div className="flex justify-between font-bold text-lg border-t border-gray-300 pt-2 mt-2">
+                <div className="flex justify-between font-bold text-lg pt-2 mt-2" style={{ borderTop: '2px solid #00a66e' }}>
                   <span>Totaal</span>
-                  <span>{formatCurrency(offerte.totaal)}</span>
+                  <span style={{ color: '#00a66e' }}>{formatCurrency(offerte.totaal)}</span>
                 </div>
               </div>
             </div>
@@ -194,7 +194,8 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
             href={`/api/pdf/offerte/${offerte.id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 underline"
+            className="inline-flex items-center gap-2 text-sm underline"
+            style={{ color: '#00a66e' }}
           >
             <FileText className="h-4 w-4" />
             Offerte PDF downloaden
@@ -202,9 +203,10 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
         </div>
 
         {/* Footer */}
-        <div className="mt-12 text-center text-xs text-gray-400 pb-8">
-          <p>Rebu kozijnen B.V. | KVK: 907 204 74 | BTW: NL 865 427 926 B01</p>
-          <p>Samsonweg 26F, 1521 RM Wormerveer | +31 6 58 86 60 70 | info@rebukozijnen.nl</p>
+        <div className="mt-12 text-center pb-8">
+          <div className="w-16 h-0.5 mx-auto mb-4" style={{ backgroundColor: '#00a66e' }} />
+          <p className="text-xs text-gray-400">Rebu kozijnen B.V. | KVK: 907 204 74 | BTW: NL 865 427 926 B01</p>
+          <p className="text-xs text-gray-400">Samsonweg 26F, 1521 RM Wormerveer | +31 6 58 86 60 70 | info@rebukozijnen.nl</p>
         </div>
       </div>
     </div>
