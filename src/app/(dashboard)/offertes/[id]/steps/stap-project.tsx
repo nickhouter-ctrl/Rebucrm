@@ -9,8 +9,8 @@ import { ArrowLeft, Plus, Loader2, FolderKanban } from 'lucide-react'
 
 interface Regel {
   omschrijving: string
-  aantal: number
-  prijs: number
+  aantal: number | string
+  prijs: number | string
   btw_percentage: number
   product_id?: string
 }

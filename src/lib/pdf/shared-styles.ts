@@ -2,7 +2,7 @@ import { StyleSheet } from '@react-pdf/renderer'
 
 export const COLORS = {
   black: '#000000',
-  green: '#00a651',
+  green: '#00a66e',
   white: '#FFFFFF',
   gray: '#6B7280',
   lightGray: '#F3F4F6',
@@ -248,7 +248,7 @@ export const sharedStyles = StyleSheet.create({
 
   // Kozijn element pages
   elementHeaderBar: {
-    backgroundColor: '#00a651',
+    backgroundColor: COLORS.green,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,
@@ -282,7 +282,7 @@ export const sharedStyles = StyleSheet.create({
   elementPriceBelow: {
     fontSize: 13,
     fontFamily: 'Helvetica-Bold',
-    color: '#00a651',
+    color: COLORS.green,
   },
   elementImage: {
     maxWidth: '100%',

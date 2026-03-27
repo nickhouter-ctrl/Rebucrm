@@ -69,8 +69,8 @@ export async function updateSession(request: NextRequest) {
         url.pathname = '/'
         return NextResponse.redirect(url)
       }
-      // Bestaand gedrag: redirect weg van public paths
-      if (isPublicPath) {
+      // Bestaand gedrag: redirect weg van public paths (maar niet /offerte/ links)
+      if (isPublicPath && !request.nextUrl.pathname.startsWith('/offerte/')) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
         return NextResponse.redirect(url)

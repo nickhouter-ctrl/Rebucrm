@@ -15,6 +15,7 @@ import {
   Mail,
   UserSearch,
   HardHat,
+  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -40,6 +41,7 @@ export const navigationItems: NavItem[] = [
   { label: 'Aanvragen', href: '/aanvragen', icon: Inbox },
   { label: 'E-mail', href: '/email', icon: Mail },
   { label: 'Documenten inbox', href: '/documenten', icon: Inbox },
+  { label: 'Faalkosten', href: '/faalkosten', icon: AlertTriangle },
   { label: 'Rapportages', href: '/rapportages', icon: BarChart3 },
   { label: 'Beheer', href: '/beheer', icon: Settings },
 ]
@@ -50,7 +52,7 @@ export type RelatieType = (typeof relatieTypes)[number]
 export const offerteStatussen = ['concept', 'verzonden', 'geaccepteerd', 'afgewezen', 'verlopen'] as const
 export type OfferteStatus = (typeof offerteStatussen)[number]
 
-export const orderStatussen = ['nieuw', 'in_behandeling', 'geleverd', 'gefactureerd', 'geannuleerd'] as const
+export const orderStatussen = ['nieuw', 'moet_besteld', 'besteld', 'in_behandeling', 'geleverd', 'gefactureerd', 'geannuleerd'] as const
 export type OrderStatus = (typeof orderStatussen)[number]
 
 export const factuurStatussen = ['concept', 'verzonden', 'betaald', 'deels_betaald', 'vervallen', 'gecrediteerd'] as const
@@ -75,6 +77,8 @@ export const statusKleuren: Record<string, string> = {
   geleverd: 'bg-green-100 text-green-700',
   gefactureerd: 'bg-purple-100 text-purple-700',
   geannuleerd: 'bg-red-100 text-red-700',
+  moet_besteld: 'bg-amber-100 text-amber-700',
+  besteld: 'bg-cyan-100 text-cyan-700',
   betaald: 'bg-green-100 text-green-700',
   deels_betaald: 'bg-yellow-100 text-yellow-700',
   vervallen: 'bg-red-100 text-red-700',
@@ -109,3 +113,15 @@ export type LeadStatus = (typeof leadStatussen)[number]
 
 export const medewerkerTypes = ['werknemer', 'zzp'] as const
 export type MedewerkerType = (typeof medewerkerTypes)[number]
+
+export const faalkostenCategorieen = ['verkeerde_maat', 'verkeerd_kozijn', 'verkeerde_kleur', 'transport_schade', 'montage_fout', 'overig'] as const
+export type FaalkostenCategorie = (typeof faalkostenCategorieen)[number]
+
+export const faalkostenCategorieLabels: Record<string, string> = {
+  verkeerde_maat: 'Verkeerde maat',
+  verkeerd_kozijn: 'Verkeerd kozijn',
+  verkeerde_kleur: 'Verkeerde kleur',
+  transport_schade: 'Transportschade',
+  montage_fout: 'Montagefout',
+  overig: 'Overig',
+}

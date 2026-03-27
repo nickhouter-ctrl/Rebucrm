@@ -10,7 +10,7 @@ import { Users, UserPlus, CheckSquare, AlertCircle, FileText, Clock, Truck, Cale
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, updateAanvraagStatus } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, updateAanvraagStatus, markOrderBesteld } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 
 interface TePlannenOrder {
@@ -111,6 +111,24 @@ interface DashboardData {
     relatie_naam: string | null
     offerte_id: string | null
   }[]
+  recenteOffertes: {
+    id: string
+    offertenummer: string
+    relatie_bedrijfsnaam: string
+    project_naam: string | null
+    status: string
+    totaal: number
+    datum: string
+  }[]
+  moetBesteldOrders: {
+    id: string
+    ordernummer: string
+    relatie_bedrijfsnaam: string
+    offerte_nummer: string | null
+    onderwerp: string | null
+    totaal: number
+    datum: string
+  }[]
 }
 
 const statusLabels: Record<string, string> = {
@@ -142,6 +160,7 @@ const CARD_LABELS: Record<string, string> = {
   omzetdoelen: 'Omzetdoelen',
   openAanvragen: 'Openstaande aanvragen',
   topKlanten: 'Top 50 klanten',
+  moetBesteld: 'Moet besteld worden',
 }
 
 type PeriodFilter = 'week' | 'maand' | 'kwartaal' | 'jaar'
@@ -162,6 +181,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
   const [showSettings, setShowSettings] = useState(false)
   const [aanvraagLoading, setAanvraagLoading] = useState<string | null>(null)
+  const [besteldLoading, setBesteldLoading] = useState<string | null>(null)
 
   // Top klanten & omzetdoelen
   const [topKlantenExpanded, setTopKlantenExpanded] = useState(false)
@@ -181,7 +201,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   // Dashboard card order & visibility (drag & drop)
   const CARD_STORAGE_KEY = 'rebu-dashboard-card-order'
   const VISIBILITY_STORAGE_KEY = 'rebu-dashboard-visible-cards'
-  const DEFAULT_CARD_ORDER = ['omzetdoelen', 'gefactureerd', 'aangemaakteOffertes', 'openAanvragen', 'topKlanten', 'klanten', 'berichten', 'offertesPerFase', 'facturenPerFase', 'tePlannen', 'takenPerCollega', 'geplandeLeveringen', 'openOffertes', 'geaccepteerdeOffertes', 'openstaandeFacturen', 'mijnTaken']
+  const DEFAULT_CARD_ORDER = ['omzetdoelen', 'gefactureerd', 'aangemaakteOffertes', 'openAanvragen', 'moetBesteld', 'topKlanten', 'klanten', 'berichten', 'offertesPerFase', 'facturenPerFase', 'tePlannen', 'takenPerCollega', 'geplandeLeveringen', 'openOffertes', 'geaccepteerdeOffertes', 'openstaandeFacturen', 'mijnTaken']
   const [cardOrder, setCardOrder] = useState<string[]>(DEFAULT_CARD_ORDER)
   const [hiddenCards, setHiddenCards] = useState<Set<string>>(new Set())
 
@@ -406,30 +426,48 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               </Card>
             )
           } else if (cardId === 'aangemaakteOffertes') {
-            const chartData = filterChartData(data.offertesPerMaand, offertesPeriod)
-            const periodCount = chartData.reduce((sum, d) => sum + d.aantal, 0)
-            const periodBedrag = chartData.reduce((sum, d) => sum + d.bedrag, 0)
+            const offertes = data.recenteOffertes || []
+            const totaalBedrag = offertes.reduce((sum, o) => sum + o.totaal, 0)
             cardContent = (
               <Card>
                 <div className="px-4 py-3 border-b border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <FileText className="h-3.5 w-3.5 text-green-600" />
-                      <h2 className="text-sm font-semibold text-gray-900">Aangemaakte offertes</h2>
+                      <h2 className="text-sm font-semibold text-gray-900">Recente offertes</h2>
                       <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-bold">
-                        {periodCount}
+                        {offertes.length}
                       </span>
                     </div>
-                    <PeriodButtons value={offertesPeriod} onChange={setOffertesPeriod} />
+                    <span className="text-sm font-bold text-gray-900">{formatCurrency(totaalBedrag)}</span>
                   </div>
-                  <p className="text-lg font-bold text-gray-900">{formatCurrency(periodBedrag)}</p>
                 </div>
-                <CardContent className="p-3">
-                  <ChartBars
-                    data={chartData}
-                    valueKey="aantal"
-                    formatValue={(v) => String(v)}
-                  />
+                <CardContent className="p-2">
+                  {offertes.length === 0 ? (
+                    <p className="text-xs text-gray-500 py-4 text-center">Geen offertes</p>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="grid grid-cols-[1fr_4rem_5rem] gap-1 px-2 py-1 text-[10px] font-medium text-gray-400 uppercase">
+                        <span>Klant / Project</span>
+                        <span>Status</span>
+                        <span className="text-right">Bedrag</span>
+                      </div>
+                      {offertes.map(o => (
+                        <Link
+                          key={o.id}
+                          href={`/offertes/${o.id}`}
+                          className="grid grid-cols-[1fr_4rem_5rem] gap-1 px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors items-center"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
+                            <p className="text-[10px] text-gray-500 truncate">{o.offertenummer}{o.project_naam && ` · ${o.project_naam}`}</p>
+                          </div>
+                          <Badge status={o.status}>{statusLabels[o.status] || o.status}</Badge>
+                          <span className="text-xs font-medium text-gray-900 text-right">{formatCurrency(o.totaal)}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )
@@ -606,6 +644,54 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                         </div>
                       )
                     })}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          } else if (cardId === 'moetBesteld' && data.moetBesteldOrders && data.moetBesteldOrders.length > 0) {
+            cardContent = (
+              <Card>
+                <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Package className="h-3.5 w-3.5 text-amber-600" />
+                    <h2 className="text-sm font-semibold text-gray-900">Moet besteld worden</h2>
+                  </div>
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">
+                    {data.moetBesteldOrders.length}
+                  </span>
+                </div>
+                <CardContent className="p-2">
+                  <div className="space-y-1.5">
+                    {data.moetBesteldOrders.map(order => (
+                      <div key={order.id} className="p-2 rounded-lg border border-amber-100 bg-amber-50/30">
+                        <div className="flex items-start justify-between gap-1">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-900 truncate">{order.relatie_bedrijfsnaam}</p>
+                            <p className="text-[10px] text-gray-500 truncate">
+                              {order.ordernummer}
+                              {order.onderwerp && ` · ${order.onderwerp}`}
+                            </p>
+                          </div>
+                          <span className="text-xs font-medium text-gray-900 whitespace-nowrap">{formatCurrency(order.totaal)}</span>
+                        </div>
+                        <div className="mt-1.5">
+                          <Button
+                            size="sm"
+                            className="h-6 text-[10px] px-2"
+                            disabled={besteldLoading === order.id}
+                            onClick={async () => {
+                              setBesteldLoading(order.id)
+                              await markOrderBesteld(order.id)
+                              setBesteldLoading(null)
+                              router.refresh()
+                            }}
+                          >
+                            <CheckCircle className="h-3 w-3" />
+                            {besteldLoading === order.id ? '...' : 'Besteld'}
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </CardContent>
               </Card>

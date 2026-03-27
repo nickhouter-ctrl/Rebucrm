@@ -16,7 +16,7 @@ function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): 
   const ctaBlock = ctaLink ? `
         <tr>
           <td style="padding:8px 32px 32px 32px;text-align:center;">
-            <a href="${ctaLink}" style="display:inline-block;background-color:#00a651;color:#ffffff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;letter-spacing:0.3px;">
+            <a href="${ctaLink}" style="display:inline-block;background-color:#f97316;color:#ffffff;padding:14px 36px;text-decoration:none;border-radius:8px;font-weight:bold;font-size:15px;letter-spacing:0.3px;">
               ${ctaLabel || 'Bekijken'}
             </a>
           </td>
@@ -30,7 +30,7 @@ function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): 
     <tr><td align="center">
       <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
         <tr>
-          <td style="background-color:#00a651;padding:24px 32px;text-align:center;">
+          <td style="background-color:#00a66e;padding:24px 32px;text-align:center;">
             <img src="${logoUrl}" alt="Rebu Kozijnen" width="160" style="display:inline-block;" />
           </td>
         </tr>
@@ -49,7 +49,7 @@ function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): 
           <td style="padding:24px 32px;">
             <table cellpadding="0" cellspacing="0" border="0" width="100%">
               <tr>
-                <td style="vertical-align:top;padding-right:24px;border-right:2px solid #00a651;width:50%;">
+                <td style="vertical-align:top;padding-right:24px;border-right:2px solid #00a66e;width:50%;">
                   <p style="margin:0;font-size:14px;font-weight:bold;color:#111827;">Rebu kozijnen B.V.</p>
                   <p style="margin:6px 0 0;font-size:12px;color:#6b7280;line-height:1.7;">
                     Samsonweg 26F<br>1521 RM Wormerveer
@@ -57,9 +57,9 @@ function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): 
                 </td>
                 <td style="vertical-align:top;padding-left:24px;width:50%;">
                   <p style="margin:0;font-size:12px;color:#6b7280;line-height:1.7;">
-                    <a href="tel:+31658866070" style="color:#00a651;text-decoration:none;">+31 6 58 86 60 70</a><br>
-                    <a href="mailto:info@rebukozijnen.nl" style="color:#00a651;text-decoration:none;">info@rebukozijnen.nl</a><br>
-                    <a href="https://www.rebukozijnen.nl" style="color:#00a651;text-decoration:none;">www.rebukozijnen.nl</a>
+                    <a href="tel:+31658866070" style="color:#00a66e;text-decoration:none;">+31 6 58 86 60 70</a><br>
+                    <a href="mailto:info@rebukozijnen.nl" style="color:#00a66e;text-decoration:none;">info@rebukozijnen.nl</a><br>
+                    <a href="https://www.rebukozijnen.nl" style="color:#00a66e;text-decoration:none;">www.rebukozijnen.nl</a>
                   </p>
                 </td>
               </tr>
@@ -459,7 +459,7 @@ async function createOrderFromOfferte(offerteId: string, supabase: Awaited<Retur
       ordernummer,
       datum: new Date().toISOString().split('T')[0],
       leverdatum: null,
-      status: 'nieuw',
+      status: 'moet_besteld',
       onderwerp: offerte.onderwerp,
       subtotaal: offerte.subtotaal,
       btw_totaal: offerte.btw_totaal,
@@ -503,6 +503,17 @@ export async function acceptOfferte(id: string) {
   await createOrderFromOfferte(id, supabase, adminId)
 
   revalidatePath('/offertes')
+  revalidatePath('/')
+  return { success: true }
+}
+
+export async function markOrderBesteld(orderId: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('orders')
+    .update({ status: 'besteld' })
+    .eq('id', orderId)
+  if (error) return { error: error.message }
   revalidatePath('/')
   return { success: true }
 }
@@ -1098,16 +1109,19 @@ export async function getProjecten() {
   const supabase = await createClient()
   const { data } = await supabase
     .from('projecten')
-    .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, status, versie_nummer)')
+    .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, totaal)')
     .order('created_at', { ascending: false })
-  // Verrijk met offerte stats
+  // Per project alleen de laatste offerte tonen (hoogste versie_nummer)
   return (data || []).map(p => {
-    const offertes = (p.offertes || []) as { id: string; status: string; versie_nummer: number }[]
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; totaal: number }[]
     const laatsteOfferte = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
     return {
       ...p,
       aantal_offertes: offertes.length,
+      laatste_offerte_id: laatsteOfferte?.id || null,
+      laatste_offerte_nummer: laatsteOfferte?.offertenummer || null,
       laatste_offerte_status: laatsteOfferte?.status || null,
+      laatste_offerte_bedrag: laatsteOfferte?.totaal || null,
     }
   })
 }
@@ -1244,13 +1258,23 @@ export async function getTaak(id: string) {
   return data
 }
 
+export async function getTakenByRelatie(relatieId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('taken')
+    .select('id, titel, status, prioriteit, deadline')
+    .eq('relatie_id', relatieId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
 export async function saveTaak(formData: FormData) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
   const id = formData.get('id') as string
-  const record = {
+  const record: Record<string, unknown> = {
     administratie_id: adminId,
     titel: formData.get('titel') as string,
     omschrijving: formData.get('omschrijving') as string || null,
@@ -1259,6 +1283,8 @@ export async function saveTaak(formData: FormData) {
     prioriteit: formData.get('prioriteit') as string || 'normaal',
     deadline: formData.get('deadline') as string || null,
     medewerker_id: formData.get('medewerker_id') as string || null,
+    relatie_id: formData.get('relatie_id') as string || null,
+    offerte_id: formData.get('offerte_id') as string || null,
   }
 
   if (id) {
@@ -1355,9 +1381,9 @@ export async function getDashboardData() {
   if (!adminId || !user) return null
 
   const supabaseAdmin = createAdminClient()
-  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes] = await Promise.all([
+  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
     supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId),
-    supabase.from('offertes').select('totaal, status, datum, relatie_id').eq('administratie_id', adminId),
+    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId),
     supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan').eq('administratie_id', adminId),
     supabase.from('relaties').select('type').eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
@@ -1368,6 +1394,8 @@ export async function getDashboardData() {
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').order('datum', { ascending: false }),
     supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).in('status', ['verzonden', 'deels_betaald', 'vervallen']).order('vervaldatum', { ascending: true }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
   ])
 
   const facturenData = facturenRes.data || []
@@ -1425,14 +1453,29 @@ export async function getDashboardData() {
   const totaalGefactureerd = facturenData.filter(f => f.status !== 'concept').reduce((sum, f) => sum + (f.totaal || 0), 0)
   const totaalFacturen = facturenData.filter(f => f.status !== 'concept').length
 
-  // Aangemaakte offertes per maand
+  // Aangemaakte offertes per maand — per project alleen de laatste offerte meetellen
+  // Groepeer offertes per project_id: neem alleen de nieuwste per project
+  const laatstePerProject = new Map<string, typeof offertesData[0]>()
+  const offertesZonderProject: typeof offertesData = []
+  for (const o of offertesData) {
+    if (o.project_id) {
+      const bestaande = laatstePerProject.get(o.project_id)
+      if (!bestaande || new Date(o.datum) > new Date(bestaande.datum)) {
+        laatstePerProject.set(o.project_id, o)
+      }
+    } else {
+      offertesZonderProject.push(o)
+    }
+  }
+  const uniekOffertes = [...laatstePerProject.values(), ...offertesZonderProject]
+
   const offertesPerMaand: { maand: string; aantal: number; bedrag: number }[] = []
   for (let i = 11; i >= 0; i--) {
     const d = new Date(nu.getFullYear(), nu.getMonth() - i, 1)
     const maandStr = d.toLocaleDateString('nl-NL', { month: 'short', year: '2-digit' })
     const jaar = d.getFullYear()
     const maandNr = d.getMonth() + 1
-    const maandOffertes = offertesData.filter(o => {
+    const maandOffertes = uniekOffertes.filter(o => {
       if (!o.datum) return false
       const od = new Date(o.datum)
       return od.getFullYear() === jaar && od.getMonth() + 1 === maandNr
@@ -1443,7 +1486,34 @@ export async function getDashboardData() {
       bedrag: maandOffertes.reduce((sum, o) => sum + (o.totaal || 0), 0),
     })
   }
-  const totaalOffertes = offertesData.length
+  const totaalOffertes = uniekOffertes.length
+
+  // Recente offertes lijst (laatste per project, klikbaar)
+  const recenteOffertesData = recenteOffertesRes.data || []
+  const laatstePerProjectVoorLijst = new Map<string, typeof recenteOffertesData[0]>()
+  const offertesZonderProjectLijst: typeof recenteOffertesData = []
+  for (const o of recenteOffertesData) {
+    if (o.project_id) {
+      const bestaande = laatstePerProjectVoorLijst.get(o.project_id)
+      if (!bestaande || new Date(o.datum) > new Date(bestaande.datum)) {
+        laatstePerProjectVoorLijst.set(o.project_id, o)
+      }
+    } else {
+      offertesZonderProjectLijst.push(o)
+    }
+  }
+  const recenteOffertes = [...laatstePerProjectVoorLijst.values(), ...offertesZonderProjectLijst]
+    .sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
+    .slice(0, 15)
+    .map(o => ({
+      id: o.id,
+      offertenummer: o.offertenummer,
+      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      project_naam: (o.project as { naam: string } | null)?.naam || null,
+      status: o.status,
+      totaal: o.totaal || 0,
+      datum: o.datum,
+    }))
 
   // Organisaties
   const organisaties = {
@@ -1558,7 +1628,8 @@ export async function getDashboardData() {
     const entry = relatieMap.get(f.relatie_id)!
     if (f.status === 'betaald') entry.betaald += f.totaal || 0
   }
-  for (const o of offertesData) {
+  // Use uniekOffertes (latest per project) so duplicate offertes for same klus don't inflate totals
+  for (const o of uniekOffertes) {
     if (!o.relatie_id) continue
     if (!relatieMap.has(o.relatie_id)) {
       relatieMap.set(o.relatie_id, { relatie_id: o.relatie_id, bedrijfsnaam: relatieNamen.get(o.relatie_id) || 'Onbekend', betaald: 0, offerte_waarde: 0 })
@@ -1566,7 +1637,7 @@ export async function getDashboardData() {
     relatieMap.get(o.relatie_id)!.offerte_waarde += o.totaal || 0
   }
   const topKlanten = [...relatieMap.values()]
-    .sort((a, b) => b.betaald - a.betaald)
+    .sort((a, b) => (b.betaald + b.offerte_waarde) - (a.betaald + a.offerte_waarde))
     .slice(0, 50)
 
   // Omzetdoelen
@@ -1669,13 +1740,24 @@ export async function getDashboardData() {
     return { ...taak, relatie_id, relatie_naam, offerte_id }
   })
 
+  // Moet besteld orders
+  const moetBesteldOrders = (moetBesteldRes.data || []).map(o => ({
+    id: o.id,
+    ordernummer: o.ordernummer,
+    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+    offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
+    onderwerp: o.onderwerp,
+    totaal: o.totaal || 0,
+    datum: o.datum,
+  }))
+
   return {
     omzet, openstaand, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
     offertesPerMaand, totaalOffertes,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
-    topKlanten, omzetdoelen, triageEmails, openAanvragen,
+    topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders,
   }
 }
 
@@ -1703,6 +1785,69 @@ export async function saveOmzetdoelen(formData: FormData) {
 
   if (error) return { error: error.message }
   revalidatePath('/')
+  return { success: true }
+}
+
+// === FAALKOSTEN ===
+export async function getFaalkosten() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const { data } = await supabase
+    .from('faalkosten')
+    .select('*, project:projecten(naam), offerte:offertes(offertenummer)')
+    .eq('administratie_id', adminId)
+    .order('datum', { ascending: false })
+  return data || []
+}
+
+export async function getFaalkost(id: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('faalkosten')
+    .select('*, project:projecten(id, naam), offerte:offertes(id, offertenummer)')
+    .eq('id', id)
+    .single()
+  return data
+}
+
+export async function saveFaalkost(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const id = formData.get('id') as string | null
+  const record = {
+    administratie_id: adminId,
+    omschrijving: formData.get('omschrijving') as string,
+    categorie: formData.get('categorie') as string || null,
+    bedrag: parseFloat(formData.get('bedrag') as string) || 0,
+    datum: formData.get('datum') as string || new Date().toISOString().split('T')[0],
+    verantwoordelijke: formData.get('verantwoordelijke') as string || null,
+    opgelost: formData.get('opgelost') === 'true',
+    notities: formData.get('notities') as string || null,
+    project_id: formData.get('project_id') as string || null,
+    offerte_id: formData.get('offerte_id') as string || null,
+    order_id: formData.get('order_id') as string || null,
+  }
+
+  if (id) {
+    const { error } = await supabase.from('faalkosten').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('faalkosten').insert(record)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath('/faalkosten')
+  return { success: true }
+}
+
+export async function deleteFaalkost(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('faalkosten').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/faalkosten')
   return { success: true }
 }
 
@@ -2829,7 +2974,35 @@ export async function sendOfferteEmail(offerteId: string, options: {
     verstuurd_door: user?.id || null,
   })
 
+  // Auto-taak: "Offerte opvolgen" na 3 werkdagen
+  try {
+    const deadline = new Date()
+    let werkdagen = 0
+    while (werkdagen < 3) {
+      deadline.setDate(deadline.getDate() + 1)
+      const dag = deadline.getDay()
+      if (dag !== 0 && dag !== 6) werkdagen++
+    }
+    // Get relatie_id via project
+    let relatieId = offerte.relatie_id
+    await supabaseAdmin.from('taken').insert({
+      administratie_id: offerte.administratie_id,
+      titel: `Offerte opvolgen: ${offerte.offertenummer}`,
+      omschrijving: `Offerte ${offerte.offertenummer} is verzonden naar ${options.to}. Neem contact op om te checken of alles duidelijk is.`,
+      project_id: offerte.project_id || null,
+      relatie_id: relatieId || null,
+      offerte_id: offerteId,
+      deadline: deadline.toISOString().split('T')[0],
+      status: 'open',
+      prioriteit: 'normaal',
+      toegewezen_aan: user?.id || null,
+    })
+  } catch (err) {
+    console.error('Auto-taak aanmaken mislukt:', err)
+  }
+
   revalidatePath('/offertes')
+  revalidatePath('/taken')
   return { success: true, link }
 }
 
@@ -3350,9 +3523,10 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
   const taken = takenRes.data || []
   const afspraken = afsprakenRes.data || []
 
-  // Financiële samenvatting
+  // Financiële samenvatting — geoffreerd = alleen de laatste offerte (hoogste versie)
   const allFacturen = offertes.flatMap((o: Record<string, unknown>) => (o.facturen as Record<string, unknown>[]) || [])
-  const geoffreerd = offertes.reduce((sum: number, o: Record<string, unknown>) => sum + ((o.totaal as number) || 0), 0)
+  const laatsteOfferte = offertes[0] as Record<string, unknown> | undefined // al gesorteerd op versie_nummer desc
+  const geoffreerd = (laatsteOfferte?.totaal as number) || 0
   const gefactureerd = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.totaal as number) || 0), 0)
   const betaald = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.betaald_bedrag as number) || 0), 0)
   const openstaand = gefactureerd - betaald

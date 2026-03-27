@@ -1,4 +1,4 @@
-import { getRelatieDetail, getNotities, getKlantAccounts } from '@/lib/actions'
+import { getRelatieDetail, getNotities, getKlantAccounts, getTakenByRelatie } from '@/lib/actions'
 import { RelatieForm } from './relatie-form'
 import { RelatieDetail } from './relatie-detail'
 
@@ -9,15 +9,16 @@ export default async function RelatieDetailPage({ params }: { params: Promise<{ 
     return <RelatieForm relatie={null} />
   }
 
-  const [detail, notities, klantAccounts] = await Promise.all([
+  const [detail, notities, klantAccounts, relatieTaken] = await Promise.all([
     getRelatieDetail(id),
     getNotities(id),
     getKlantAccounts(id),
+    getTakenByRelatie(id),
   ])
 
   if (!detail.relatie) {
     return <RelatieForm relatie={null} />
   }
 
-  return <RelatieDetail detail={detail} notities={notities} klantAccounts={klantAccounts} />
+  return <RelatieDetail detail={detail} notities={notities} klantAccounts={klantAccounts} relatieTaken={relatieTaken} />
 }

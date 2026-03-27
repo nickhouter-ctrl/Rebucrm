@@ -12,8 +12,8 @@ import type { ParsedPdfResult, RenderedTekening } from './stap-tekeningen'
 
 interface Regel {
   omschrijving: string
-  aantal: number
-  prijs: number
+  aantal: number | string
+  prijs: number | string
   btw_percentage: number
   product_id?: string
 }
@@ -97,7 +97,7 @@ export function StapControleren({
     )
     if (!kozijnenRegel) return currentRegels
 
-    const kozijnenTotaal = kozijnenRegel.aantal * kozijnenRegel.prijs
+    const kozijnenTotaal = (parseFloat(String(kozijnenRegel.aantal)) || 0) * (parseFloat(String(kozijnenRegel.prijs)) || 0)
     const bezorgIndex = currentRegels.findIndex(r => r.omschrijving === BEZORGKOSTEN_LABEL)
     const heeftBezorgkosten = bezorgIndex !== -1
 
@@ -155,8 +155,9 @@ export function StapControleren({
     }
   }
 
-  const subtotaal = regels.reduce((sum, r) => sum + r.aantal * r.prijs, 0)
-  const btwTotaal = regels.reduce((sum, r) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
+  const numVal = (v: number | string) => parseFloat(String(v)) || 0
+  const subtotaal = regels.reduce((sum, r) => sum + numVal(r.aantal) * numVal(r.prijs), 0)
+  const btwTotaal = regels.reduce((sum, r) => sum + (numVal(r.aantal) * numVal(r.prijs) * r.btw_percentage) / 100, 0)
   const totaal = subtotaal + btwTotaal
 
   async function processAndUploadLeverancierPdf(file: File, offerteId: string) {
@@ -474,7 +475,7 @@ export function StapControleren({
     setError('')
     if (offerte) formData.set('id', offerte.id as string)
     formData.set('relatie_id', selectedRelatieId)
-    formData.set('regels', JSON.stringify(regels))
+    formData.set('regels', JSON.stringify(regels.map(r => ({ ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) }))))
     if (selectedProjectId) formData.set('project_id', selectedProjectId)
     const result = await saveOfferte(formData)
     if (result.error) {
@@ -542,7 +543,7 @@ export function StapControleren({
                 <Input id="offertenummer" name="offertenummer" label="Offertenummer" defaultValue={(offerte?.offertenummer as string) || ''} readOnly />
               )}
               <Input id="datum" name="datum" label="Datum *" type="date" defaultValue={(offerte?.datum as string) || new Date().toISOString().split('T')[0]} required />
-              <Input id="geldig_tot" name="geldig_tot" label="Geldig tot" type="date" defaultValue={(offerte?.geldig_tot as string) || ''} />
+              <Input id="geldig_tot" name="geldig_tot" label="Geldig tot" type="date" defaultValue={(offerte?.geldig_tot as string) || new Date(Date.now() + 60 * 86400000).toISOString().split('T')[0]} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select
@@ -581,6 +582,15 @@ export function StapControleren({
             )}
           </div>
           <CardContent>
+            <div className="grid grid-cols-12 gap-2 items-end mb-2 px-0 text-[10px] font-medium text-gray-400 uppercase tracking-wide">
+              <div className="col-span-1">Product</div>
+              <div className="col-span-4">Omschrijving</div>
+              <div className="col-span-2">Aantal</div>
+              <div className="col-span-2">Prijs</div>
+              <div className="col-span-1">BTW</div>
+              <div className="col-span-1 text-right">Totaal</div>
+              <div className="col-span-1"></div>
+            </div>
             <div className="space-y-3">
               {regels.map((regel, i) => {
                 const isBezorgkosten = regel.omschrijving === BEZORGKOSTEN_LABEL
@@ -596,10 +606,10 @@ export function StapControleren({
                       <input placeholder="Omschrijving" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.omschrijving} onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)} required readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', parseFloat(e.target.value) || 0)} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', e.target.value)} readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', parseFloat(e.target.value) || 0)} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', e.target.value)} readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-1">
                       <select className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs" value={regel.btw_percentage} onChange={(e) => updateRegel(i, 'btw_percentage', parseInt(e.target.value))} disabled={isBezorgkosten}>
@@ -609,7 +619,7 @@ export function StapControleren({
                       </select>
                     </div>
                     <div className="col-span-1 text-right text-sm font-medium">
-                      {formatCurrency(regel.aantal * regel.prijs)}
+                      {formatCurrency(numVal(regel.aantal) * numVal(regel.prijs))}
                     </div>
                     <div className="col-span-1">
                       {!isBezorgkosten && (

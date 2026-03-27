@@ -177,7 +177,7 @@ export function OffertePublic({ offerte, token }: { offerte: Offerte; token: str
               onClick={handleAccept}
               disabled={loading}
               className="inline-flex items-center gap-2 px-8 py-4 text-white font-semibold rounded-xl transition-all hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: '#00a651' }}
+              style={{ backgroundColor: '#00a66e' }}
             >
               <Check className="h-5 w-5" />
               {loading ? 'Bezig...' : 'Offerte accepteren'}

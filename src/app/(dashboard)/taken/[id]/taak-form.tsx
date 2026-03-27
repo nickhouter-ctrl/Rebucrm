@@ -10,19 +10,27 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Save, Trash2, ArrowLeft } from 'lucide-react'
 
-export function TaakForm({ taak, projecten, medewerkers }: {
+export function TaakForm({ taak, projecten, medewerkers, relaties, offertes }: {
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string }[]
   medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
+  relaties: { id: string; bedrijfsnaam: string }[]
+  offertes: { id: string; offertenummer: string; relatie_id: string }[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [selectedRelatieId, setSelectedRelatieId] = useState((taak?.relatie_id as string) || '')
   const isNew = !taak
+
+  const filteredOffertes = selectedRelatieId
+    ? offertes.filter(o => o.relatie_id === selectedRelatieId)
+    : offertes
 
   async function handleSubmit(formData: FormData) {
     setLoading(true); setError('')
     if (taak) formData.set('id', taak.id as string)
+    formData.set('relatie_id', selectedRelatieId)
     const result = await saveTaak(formData)
     if (result.error) { setError(result.error); setLoading(false) }
     else router.push('/taken')
@@ -55,6 +63,23 @@ export function TaakForm({ taak, projecten, medewerkers }: {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Select id="project_id" name="project_id" label="Project" defaultValue={(taak?.project_id as string) || ''} placeholder="Selecteer project..." options={projecten.map(p => ({ value: p.id, label: p.naam }))} />
               <Select id="medewerker_id" name="medewerker_id" label="Toegewezen aan" defaultValue={(taak?.medewerker_id as string) || ''} placeholder="Selecteer medewerker..." options={medewerkers.filter(m => m.actief).map(m => ({ value: m.id, label: `${m.naam} (${m.type})` }))} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="relatie_id" className="block text-sm font-medium text-gray-700 mb-1">Klant / Relatie</label>
+                <select
+                  id="relatie_id"
+                  value={selectedRelatieId}
+                  onChange={(e) => setSelectedRelatieId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                >
+                  <option value="">-- Geen relatie --</option>
+                  {relaties.map(r => (
+                    <option key={r.id} value={r.id}>{r.bedrijfsnaam}</option>
+                  ))}
+                </select>
+              </div>
+              <Select id="offerte_id" name="offerte_id" label="Offerte" defaultValue={(taak?.offerte_id as string) || ''} placeholder="Selecteer offerte..." options={filteredOffertes.map(o => ({ value: o.id, label: o.offertenummer }))} />
             </div>
             <div>
               <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>

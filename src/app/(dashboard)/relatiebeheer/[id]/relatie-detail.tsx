@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -83,6 +84,14 @@ interface KlantAccount {
   created_at: string
 }
 
+interface RelatieTaak {
+  id: string
+  titel: string
+  status: string
+  prioriteit: string
+  deadline: string | null
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
@@ -98,12 +107,13 @@ interface Props {
   }
   notities: Notitie[]
   klantAccounts: KlantAccount[]
+  relatieTaken?: RelatieTaak[]
 }
 
-export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts }: Props) {
+export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
+  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -210,6 +220,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     { key: 'projecten' as const, label: `Projecten (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
+    { key: 'taken' as const, label: `Taken (${relatieTaken.length})` },
     { key: 'notities' as const, label: `Notities (${notities.length})` },
     { key: 'portaal' as const, label: `Portaal (${klantAccounts.length})` },
     { key: 'gegevens' as const, label: 'Gegevens' },
@@ -418,6 +429,35 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                 )}
               </tbody>
             </table>
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'taken' && (
+        <Card>
+          <CardContent className="p-0">
+            {relatieTaken.length === 0 ? (
+              <div className="py-8 text-center text-gray-500 text-sm">Geen taken gekoppeld aan deze relatie</div>
+            ) : (
+              <table className="w-full">
+                <thead><tr className="border-b border-gray-200 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3">Titel</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Prioriteit</th>
+                  <th className="px-4 py-3">Deadline</th>
+                </tr></thead>
+                <tbody className="divide-y divide-gray-100">
+                  {relatieTaken.map(t => (
+                    <tr key={t.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3"><Link href={`/taken/${t.id}`} className="text-sm font-medium text-gray-900 hover:text-primary">{t.titel}</Link></td>
+                      <td className="px-4 py-3"><Badge status={t.status}>{t.status}</Badge></td>
+                      <td className="px-4 py-3"><Badge status={t.prioriteit}>{t.prioriteit}</Badge></td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{t.deadline ? new Date(t.deadline).toLocaleDateString('nl-NL') : '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
       )}

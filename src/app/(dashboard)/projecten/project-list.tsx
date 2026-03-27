@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
+import { formatCurrency } from '@/lib/utils'
 import { Plus, FolderKanban } from 'lucide-react'
 
 interface Project {
@@ -17,7 +18,10 @@ interface Project {
   uurtarief: number | null
   relatie: { bedrijfsnaam: string } | null
   aantal_offertes: number
+  laatste_offerte_id: string | null
+  laatste_offerte_nummer: string | null
   laatste_offerte_status: string | null
+  laatste_offerte_bedrag: number | null
 }
 
 const columns: ColumnDef<Project, unknown>[] = [
@@ -25,17 +29,19 @@ const columns: ColumnDef<Project, unknown>[] = [
   { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
   {
-    id: 'offertes',
-    header: 'Offertes',
-    accessorFn: (row) => row.aantal_offertes,
+    id: 'offerte',
+    header: 'Laatste offerte',
+    accessorFn: (row) => row.laatste_offerte_nummer,
     cell: ({ row }) => {
-      const aantal = row.original.aantal_offertes
-      const status = row.original.laatste_offerte_status
-      if (aantal === 0) return <span className="text-gray-400">-</span>
+      const { laatste_offerte_nummer, laatste_offerte_status, laatste_offerte_bedrag } = row.original
+      if (!laatste_offerte_nummer) return <span className="text-gray-400">-</span>
       return (
         <div className="flex items-center gap-2">
-          <span className="text-sm">{aantal}x</span>
-          {status && <Badge status={status} />}
+          <span className="text-sm font-medium">{laatste_offerte_nummer}</span>
+          {laatste_offerte_status && <Badge status={laatste_offerte_status} />}
+          {laatste_offerte_bedrag != null && laatste_offerte_bedrag > 0 && (
+            <span className="text-sm text-gray-500">{formatCurrency(laatste_offerte_bedrag)}</span>
+          )}
         </div>
       )
     },

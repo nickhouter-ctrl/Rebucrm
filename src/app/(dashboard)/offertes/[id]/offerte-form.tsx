@@ -23,8 +23,8 @@ import { StapVersturen } from './steps/stap-versturen'
 
 interface Regel {
   omschrijving: string
-  aantal: number
-  prijs: number
+  aantal: number | string
+  prijs: number | string
   btw_percentage: number
   product_id?: string
 }
@@ -512,8 +512,8 @@ function EditOfferteView({
     setPdfUploading(false)
   }
 
-  const subtotaal = regels.reduce((sum, r) => sum + r.aantal * r.prijs, 0)
-  const btwTotaal = regels.reduce((sum, r) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
+  const subtotaal = regels.reduce((sum, r) => sum + (parseFloat(String(r.aantal)) || 0) * (parseFloat(String(r.prijs)) || 0), 0)
+  const btwTotaal = regels.reduce((sum, r) => sum + ((parseFloat(String(r.aantal)) || 0) * (parseFloat(String(r.prijs)) || 0) * r.btw_percentage) / 100, 0)
   const totaal = subtotaal + btwTotaal
 
   return (
