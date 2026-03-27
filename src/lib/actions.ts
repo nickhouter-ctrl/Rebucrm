@@ -486,7 +486,7 @@ async function createOrderFromOfferte(offerteId: string, supabase: Awaited<Retur
       ordernummer,
       datum: new Date().toISOString().split('T')[0],
       leverdatum: null,
-      status: 'moet_besteld',
+      status: 'wacht_op_betaling',
       onderwerp: offerte.onderwerp,
       subtotaal: offerte.subtotaal,
       btw_totaal: offerte.btw_totaal,
@@ -917,6 +917,18 @@ export async function sendFactuurEmail(factuurId: string, options: {
 
   // Update status naar verzonden
   await supabase.from('facturen').update({ status: 'verzonden' }).eq('id', factuurId)
+
+  // Als deze factuur aan een order gekoppeld is die wacht op betaling → activeer de order (te plannen leveringen)
+  if (factuur.order_id) {
+    const { data: linkedOrder } = await supabase
+      .from('orders')
+      .select('id, status')
+      .eq('id', factuur.order_id)
+      .single()
+    if (linkedOrder && linkedOrder.status === 'wacht_op_betaling') {
+      await supabase.from('orders').update({ status: 'nieuw' }).eq('id', linkedOrder.id)
+    }
+  }
 
   // Log email
   const { data: { user } } = await supabase.auth.getUser()
