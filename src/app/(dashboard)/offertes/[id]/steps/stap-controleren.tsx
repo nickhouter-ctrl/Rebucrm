@@ -193,7 +193,8 @@ export function StapControleren({
       const totalPages = pdf.numPages
 
       // Scan all pages for element names and drawing markers
-      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+|Positie\s*\d{3}/i
+      // Match element headers — Positie must be followed by exactly 3 digits and then non-digit (prevents matching "908" from prices like "908,16")
+      const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+\d+|Positie\s*\d{3}(?!\d|[.,]\d)/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
       for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
