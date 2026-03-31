@@ -106,18 +106,18 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     // K-Vision PDFs have varying formats:
     // Format A: "001\nBinnenzicht\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm\n1\n"
     // Format B: "001\nKozijnmerk D\n1\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm"
-    // Use flexible pattern: 3-digit pos, then within a few lines: Systeem + Afmeting
-    const elementPattern = /(\d{3})\n([\s\S]*?)Systeem\s*:\s*([^\n]+)\nAfmeting?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm/g
+    // Use ^ with m flag to anchor position number at start of line (prevents matching "200" from "1200")
+    const elementPattern = /^(\d{3})\n([\s\S]{0,300}?)Systeem\s*:\s*([^\n]+)\nAfmeting(?:en)?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm/gm
     while ((match = elementPattern.exec(text)) !== null) {
       // Extract hoeveelheid from the lines between position number and Systeem
       const middleLines = match[2]
       const hoevMatch = middleLines.match(/(?:^|\n)(\d+)\n/) || middleLines.match(/(\d+)\s*$/)
       const hoeveelheid = hoevMatch ? parseInt(hoevMatch[1]) : 1
 
-      const nextPattern = new RegExp('(?:^|\\n)(\\d{3})\\n[\\s\\S]*?Systeem\\s*:', 'g')
+      const nextPattern = new RegExp('^(\\d{3})\\n[\\s\\S]{0,300}?Systeem\\s*:', 'gm')
       nextPattern.lastIndex = match.index + match[0].length
       const nextPosMatch = nextPattern.exec(text)
-      const sectionEnd = nextPosMatch ? nextPosMatch.index + 1 : text.length
+      const sectionEnd = nextPosMatch ? nextPosMatch.index : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Buiten\s+([^\n]+(?:\n[^\n]*glad[^\n]*)?)/)
       headers.push({
