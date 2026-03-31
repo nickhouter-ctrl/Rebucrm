@@ -4023,6 +4023,29 @@ export async function processLeverancierPdf(offerteId: string, formData: FormDat
     return { error: `Database fout: ${insertError.message}` }
   }
 
+  // Save parsed element data (prices) immediately so the PDF route always has them
+  const parsedPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
+  for (const e of elementen) {
+    parsedPrijzen[e.naam] = { prijs: e.prijs, hoeveelheid: e.hoeveelheid }
+  }
+  await supabaseAdmin
+    .from('documenten')
+    .delete()
+    .eq('entiteit_type', 'offerte_leverancier_parsed')
+    .eq('entiteit_id', offerteId)
+  await supabaseAdmin
+    .from('documenten')
+    .insert({
+      administratie_id: adminId,
+      naam: 'Leverancier parsed data',
+      bestandsnaam: 'parsed.json',
+      bestandstype: 'application/json',
+      bestandsgrootte: 0,
+      storage_path: JSON.stringify({ totaal, prijzen: parsedPrijzen }),
+      entiteit_type: 'offerte_leverancier_parsed',
+      entiteit_id: offerteId,
+    })
+
   return {
     totaal,
     elementen: elementen.map(e => ({

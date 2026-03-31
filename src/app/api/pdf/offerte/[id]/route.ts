@@ -84,6 +84,22 @@ export async function GET(
           }
         }
 
+        // Also load prices saved at PDF upload time (most reliable source)
+        if (Object.keys(savedPrijzen).length === 0) {
+          const { data: parsedDoc } = await supabaseAdmin
+            .from('documenten')
+            .select('*')
+            .eq('entiteit_type', 'offerte_leverancier_parsed')
+            .eq('entiteit_id', id)
+            .maybeSingle()
+          if (parsedDoc) {
+            try {
+              const parsedData = JSON.parse(parsedDoc.storage_path)
+              savedPrijzen = parsedData.prijzen || {}
+            } catch { /* ignore */ }
+          }
+        }
+
         // Download tekening images and group by element name
         const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
         const elementOrder: string[] = []
