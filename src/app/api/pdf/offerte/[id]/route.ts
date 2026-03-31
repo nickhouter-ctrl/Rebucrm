@@ -5,6 +5,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { OfferteDocument, KozijnElement } from '@/lib/pdf/offerte-template'
 import { parseLeverancierPdfText } from '@/lib/pdf-parser'
 
+function normalizeName(name: string): string {
+  return name.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -23,7 +27,6 @@ export async function GET(
   }
 
   try {
-    // Check for leverancier PDF data
     const supabaseAdmin = createAdminClient()
     let kozijnElementen: KozijnElement[] | undefined
     let leverancierTotaal: number | undefined
@@ -36,129 +39,147 @@ export async function GET(
       .maybeSingle()
 
     if (leverancierDoc) {
-      // Get tekening metadata
-      const { data: metaDoc } = await supabaseAdmin
-        .from('documenten')
-        .select('*')
-        .eq('entiteit_type', 'offerte_leverancier_data')
-        .eq('entiteit_id', id)
-        .maybeSingle()
+      try {
+        // Parse leverancier PDF for element data
+        const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
+        const { data: pdfFile } = await supabaseAdmin.storage
+          .from('documenten')
+          .download(leverancierDoc.storage_path)
 
-      if (metaDoc) {
-        try {
-          // Support both old format (array) and new format (object with tekeningen + margePercentage)
-          const rawMeta = JSON.parse(metaDoc.storage_path)
-          let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[]
+        if (pdfFile) {
+          const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
+          const parsed = await pdfParse(pdfBuffer)
+          const parsedPdf = parseLeverancierPdfText(parsed.text)
+          const elementData = parsedPdf.elementen
+          const leverancierTotaalRaw = parsedPdf.totaal
+
+          // Load tekening metadata + marge data (if available)
+          const { data: metaDoc } = await supabaseAdmin
+            .from('documenten')
+            .select('*')
+            .eq('entiteit_type', 'offerte_leverancier_data')
+            .eq('entiteit_id', id)
+            .maybeSingle()
+
+          let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[] = []
           let margePercentage = 0
           let perElementMarges: Record<string, number> = {}
-          if (Array.isArray(rawMeta)) {
-            tekeningData = rawMeta
-          } else {
-            tekeningData = rawMeta.tekeningen || []
-            margePercentage = rawMeta.margePercentage || 0
-            perElementMarges = rawMeta.marges || {}
-          }
 
-          // Parse original PDF for element data
-          const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
-          const { data: pdfFile } = await supabaseAdmin.storage
-            .from('documenten')
-            .download(leverancierDoc.storage_path)
-
-          if (pdfFile) {
-            const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
-            const parsed = await pdfParse(pdfBuffer)
-
-            // Extract element data and total from text (use shared parser from actions.ts)
-            const parsedPdf = parseLeverancierPdfText(parsed.text)
-            const elementData = parsedPdf.elementen
-            const leverancierTotaalRaw = parsedPdf.totaal
-
-            // Download tekening images and convert to base64
-            // Group by element name to support multi-page elements
-            const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
-            const elementOrder: string[] = []
-
-            for (const tekening of tekeningData) {
-              const { data: imgFile } = await supabaseAdmin.storage
-                .from('documenten')
-                .download(tekening.tekeningPath)
-
-              let tekeningUrl = ''
-              if (imgFile) {
-                const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
-                tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
-              }
-
-              const pageIndex = tekening.pageIndex ?? 0
-              const totalPages = tekening.totalPages ?? 1
-
-              if (!elementTekeningen.has(tekening.naam)) {
-                elementTekeningen.set(tekening.naam, [])
-                elementOrder.push(tekening.naam)
-              }
-              elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
-            }
-
-            kozijnElementen = []
-            for (const naam of elementOrder) {
-              const pages = elementTekeningen.get(naam)!
-              const matchingElement = elementData.find(e => e.naam === naam)
-              const inkoopPrijs = matchingElement?.prijs || 0
-              const elementMarge = perElementMarges[naam] !== undefined ? perElementMarges[naam] : margePercentage
-              const verkoopPrijs = elementMarge > 0 ? Math.round(inkoopPrijs * (1 + elementMarge / 100) * 100) / 100 : inkoopPrijs
-
-              kozijnElementen.push({
-                naam: matchingElement?.naam || naam,
-                hoeveelheid: matchingElement?.hoeveelheid || 1,
-                systeem: matchingElement?.systeem || '',
-                kleur: matchingElement?.kleur || '',
-                afmetingen: matchingElement?.afmetingen || '',
-                type: matchingElement?.type || '',
-                prijs: verkoopPrijs,
-                glasType: matchingElement?.glasType || '',
-                beslag: matchingElement?.beslag || '',
-                uwWaarde: matchingElement?.uwWaarde || '',
-                drapirichting: matchingElement?.drapirichting || '',
-                dorpel: matchingElement?.dorpel || '',
-                sluiting: matchingElement?.sluiting || '',
-                scharnieren: matchingElement?.scharnieren || '',
-                gewicht: matchingElement?.gewicht || '',
-                omtrek: matchingElement?.omtrek || '',
-                paneel: matchingElement?.paneel || '',
-                commentaar: matchingElement?.commentaar || '',
-                hoekverbinding: matchingElement?.hoekverbinding || '',
-                montageGaten: matchingElement?.montageGaten || '',
-                afwatering: matchingElement?.afwatering || '',
-                scharnierenKleur: matchingElement?.scharnierenKleur || '',
-                lakKleur: matchingElement?.lakKleur || '',
-                sluitcilinder: matchingElement?.sluitcilinder || '',
-                aantalSleutels: matchingElement?.aantalSleutels || '',
-                gelijksluitend: matchingElement?.gelijksluitend || '',
-                krukBinnen: matchingElement?.krukBinnen || '',
-                krukBuiten: matchingElement?.krukBuiten || '',
-                tekeningUrl: pages[0]?.url || '',
-                tekeningUrls: pages,
-              })
-            }
-
-            // Calculate leverancier totaal with marge applied
-            if (leverancierTotaalRaw > 0) {
-              // When per-element marges exist, sum individual element prices (already marge-applied)
-              if (Object.keys(perElementMarges).length > 0 && kozijnElementen && kozijnElementen.length > 0) {
-                leverancierTotaal = kozijnElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-              } else {
-                const totaalMetMarge = margePercentage > 0
-                  ? Math.round(leverancierTotaalRaw * (1 + margePercentage / 100) * 100) / 100
-                  : leverancierTotaalRaw
-                leverancierTotaal = totaalMetMarge
-              }
+          if (metaDoc) {
+            const rawMeta = JSON.parse(metaDoc.storage_path)
+            if (Array.isArray(rawMeta)) {
+              tekeningData = rawMeta
+            } else {
+              tekeningData = rawMeta.tekeningen || []
+              margePercentage = rawMeta.margePercentage || 0
+              perElementMarges = rawMeta.marges || {}
             }
           }
-        } catch (parseErr) {
-          console.error('Error parsing leverancier data:', parseErr)
-          // Continue without kozijn elements
+
+          // Download tekening images and group by element name
+          const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
+
+          for (const tekening of tekeningData) {
+            const { data: imgFile } = await supabaseAdmin.storage
+              .from('documenten')
+              .download(tekening.tekeningPath)
+
+            let tekeningUrl = ''
+            if (imgFile) {
+              const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
+              tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
+            }
+
+            const pageIndex = tekening.pageIndex ?? 0
+            const totalPages = tekening.totalPages ?? 1
+
+            if (!elementTekeningen.has(tekening.naam)) {
+              elementTekeningen.set(tekening.naam, [])
+            }
+            elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
+          }
+
+          // Build kozijnElementen from ALL parsed elements (not just those with tekeningen)
+          kozijnElementen = []
+          for (const el of elementData) {
+            // Find matching tekening by exact name or normalized name
+            let pages = elementTekeningen.get(el.naam)
+            if (!pages) {
+              // Fuzzy match: try normalized names
+              const normalizedElNaam = normalizeName(el.naam)
+              for (const [tekNaam, tekPages] of elementTekeningen.entries()) {
+                if (normalizeName(tekNaam) === normalizedElNaam) {
+                  pages = tekPages
+                  break
+                }
+              }
+            }
+
+            // Find marge: try exact key, then normalized key
+            let elementMarge = perElementMarges[el.naam]
+            if (elementMarge === undefined) {
+              const normalizedElNaam = normalizeName(el.naam)
+              for (const [key, val] of Object.entries(perElementMarges)) {
+                if (normalizeName(key) === normalizedElNaam) {
+                  elementMarge = val
+                  break
+                }
+              }
+            }
+            if (elementMarge === undefined) elementMarge = margePercentage
+
+            const inkoopPrijs = el.prijs
+            const verkoopPrijs = elementMarge > 0
+              ? Math.round(inkoopPrijs * (1 + elementMarge / 100) * 100) / 100
+              : inkoopPrijs
+
+            kozijnElementen.push({
+              naam: el.naam,
+              hoeveelheid: el.hoeveelheid,
+              systeem: el.systeem,
+              kleur: el.kleur,
+              afmetingen: el.afmetingen,
+              type: el.type,
+              prijs: verkoopPrijs,
+              glasType: el.glasType,
+              beslag: el.beslag,
+              uwWaarde: el.uwWaarde,
+              drapirichting: el.drapirichting,
+              dorpel: el.dorpel,
+              sluiting: el.sluiting,
+              scharnieren: el.scharnieren,
+              gewicht: el.gewicht,
+              omtrek: el.omtrek,
+              paneel: el.paneel,
+              commentaar: el.commentaar,
+              hoekverbinding: el.hoekverbinding,
+              montageGaten: el.montageGaten,
+              afwatering: el.afwatering,
+              scharnierenKleur: el.scharnierenKleur,
+              lakKleur: el.lakKleur,
+              sluitcilinder: el.sluitcilinder,
+              aantalSleutels: el.aantalSleutels,
+              gelijksluitend: el.gelijksluitend,
+              krukBinnen: el.krukBinnen,
+              krukBuiten: el.krukBuiten,
+              tekeningUrl: pages?.[0]?.url || '',
+              tekeningUrls: pages,
+            })
+          }
+
+          // Calculate leverancier totaal with marge applied
+          if (leverancierTotaalRaw > 0) {
+            if (Object.keys(perElementMarges).length > 0 && kozijnElementen.length > 0) {
+              leverancierTotaal = kozijnElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+            } else {
+              leverancierTotaal = margePercentage > 0
+                ? Math.round(leverancierTotaalRaw * (1 + margePercentage / 100) * 100) / 100
+                : leverancierTotaalRaw
+            }
+          }
         }
+      } catch (parseErr) {
+        console.error('Error parsing leverancier data:', parseErr)
       }
     }
 
