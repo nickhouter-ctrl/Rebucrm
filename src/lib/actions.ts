@@ -1263,11 +1263,28 @@ export async function deleteUur(id: string) {
 // === TAKEN ===
 export async function getTaken() {
   const supabase = await createClient()
-  const { data } = await supabase
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { taken: [] as never[], rol: 'medewerker' }
+
+  const { data: profiel } = await supabase
+    .from('profielen')
+    .select('rol')
+    .eq('id', user.id)
+    .single()
+  const rol = profiel?.rol || 'medewerker'
+
+  let query = supabase
     .from('taken')
     .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam)')
     .order('created_at', { ascending: false })
-  return data || []
+
+  // Medewerkers zien alleen eigen taken
+  if (rol === 'medewerker') {
+    query = query.eq('toegewezen_aan', user.id)
+  }
+
+  const { data } = await query
+  return { taken: data || [], rol }
 }
 
 export async function getAgendaLeveringen() {
@@ -1313,6 +1330,19 @@ export async function saveTaak(formData: FormData) {
   if (!adminId) return { error: 'Niet ingelogd' }
 
   const id = formData.get('id') as string
+  const medewerkerId = formData.get('medewerker_id') as string || null
+
+  // Lookup profiel_id van medewerker → opslaan als toegewezen_aan
+  let toegewezenAan: string | null = null
+  if (medewerkerId) {
+    const { data: mw } = await supabase
+      .from('medewerkers')
+      .select('profiel_id')
+      .eq('id', medewerkerId)
+      .single()
+    if (mw?.profiel_id) toegewezenAan = mw.profiel_id
+  }
+
   const record: Record<string, unknown> = {
     administratie_id: adminId,
     titel: formData.get('titel') as string,
@@ -1321,9 +1351,10 @@ export async function saveTaak(formData: FormData) {
     status: formData.get('status') as string || 'open',
     prioriteit: formData.get('prioriteit') as string || 'normaal',
     deadline: formData.get('deadline') as string || null,
-    medewerker_id: formData.get('medewerker_id') as string || null,
+    medewerker_id: medewerkerId,
     relatie_id: formData.get('relatie_id') as string || null,
     offerte_id: formData.get('offerte_id') as string || null,
+    toegewezen_aan: toegewezenAan,
   }
 
   if (id) {
@@ -1583,11 +1614,27 @@ export async function getDashboardData() {
     aantal: takenData.filter(t => t.toegewezen_aan === p.id && t.status !== 'afgerond').length,
   })).filter(t => t.aantal > 0)
 
-  // Mijn openstaande taken
+  // Rol ophalen voor taken filter
+  const { data: userProfiel } = await supabase
+    .from('profielen')
+    .select('rol')
+    .eq('id', user.id)
+    .single()
+  const userRol = userProfiel?.rol || 'medewerker'
+  const isAdmin = userRol === 'admin' || userRol === 'gebruiker'
+
+  // Mijn openstaande taken (admin ziet alles met naam)
+  const profielNaamMap = new Map(profielenData.map(p => [p.id, p.naam]))
   const mijnTaken = takenData
-    .filter(t => t.toegewezen_aan === user.id && t.status !== 'afgerond')
+    .filter(t => t.status !== 'afgerond' && (isAdmin || t.toegewezen_aan === user.id))
     .slice(0, 10)
-    .map(t => ({ id: t.id, titel: t.titel, deadline: t.deadline, prioriteit: t.prioriteit }))
+    .map(t => ({
+      id: t.id,
+      titel: t.titel,
+      deadline: t.deadline,
+      prioriteit: t.prioriteit,
+      toegewezen_naam: isAdmin ? (profielNaamMap.get(t.toegewezen_aan) || null) : null,
+    }))
 
   // Open offertes (verzonden) met dagen_open
   const vandaag = new Date()
@@ -4107,14 +4154,32 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }
     } else if (isKochs) {
-      // Extract unit price from "Totaal elementen" row (only non-zero €-prices in section)
-      const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*€/g)]
-        .map(m => parseFloat(m[1].replace(/\./g, '').replace(',', '.')))
-        .filter(p => p > 0)
-      if (sectionPrices.length >= 2) {
-        prijs = Math.round(Math.min(...sectionPrices) * kochsTzMultiplier * 100) / 100
-      } else if (sectionPrices.length === 1) {
-        prijs = Math.round(sectionPrices[0] * kochsTzMultiplier * 100) / 100
+      // Extract unit price for Kochs/K-Vision elements
+      // First try: look for "Totaal elementen" line specifically
+      const totaalElementenMatch = searchText.match(/Totaal\s*element(?:en)?\s*[\s\S]*?([\d.]+,\d{2})\s*€(?:\s*([\d.]+,\d{2})\s*€)?/)
+      if (totaalElementenMatch) {
+        if (totaalElementenMatch[2]) {
+          // Two prices on line: unit and total → use smaller (unit price)
+          const p1 = parseFloat(totaalElementenMatch[1].replace(/\./g, '').replace(',', '.'))
+          const p2 = parseFloat(totaalElementenMatch[2].replace(/\./g, '').replace(',', '.'))
+          prijs = Math.round(Math.min(p1, p2) * kochsTzMultiplier * 100) / 100
+        } else {
+          // Single price on Totaal elementen → divide by hoeveelheid for unit price
+          const totalPrice = parseFloat(totaalElementenMatch[1].replace(/\./g, '').replace(',', '.'))
+          prijs = Math.round((totalPrice / header.hoeveelheid) * kochsTzMultiplier * 100) / 100
+        }
+      } else {
+        // Fallback: all non-zero €-prices in section
+        const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*€/g)]
+          .map(m => parseFloat(m[1].replace(/\./g, '').replace(',', '.')))
+          .filter(p => p > 0)
+        if (sectionPrices.length >= 2) {
+          // Two prices → smaller is likely unit price, larger is total
+          prijs = Math.round(Math.min(...sectionPrices) * kochsTzMultiplier * 100) / 100
+        } else if (sectionPrices.length === 1) {
+          // Single price → assume total, divide by hoeveelheid
+          prijs = Math.round((sectionPrices[0] / header.hoeveelheid) * kochsTzMultiplier * 100) / 100
+        }
       }
     } else if (isEkoOkna) {
       // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
@@ -4336,6 +4401,17 @@ function parseLeverancierPdfText(text: string): { totaal: number; elementen: Koz
       krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen'),
       krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten'),
     })
+  }
+
+  // Vangnet: als element-som significant afwijkt van PDF totaal, schaal prijzen proportioneel
+  if (totaal > 0 && elementen.length > 0) {
+    const elementSum = elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+    if (elementSum > 0 && Math.abs(elementSum - totaal) / totaal > 0.05) {
+      const factor = totaal / elementSum
+      for (const e of elementen) {
+        e.prijs = Math.round(e.prijs * factor * 100) / 100
+      }
+    }
   }
 
   return { totaal, elementen }

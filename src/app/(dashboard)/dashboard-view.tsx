@@ -41,7 +41,7 @@ interface DashboardData {
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
   takenPerCollega: { naam: string; aantal: number }[]
-  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string }[]
+  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null }[]
   openOffertesList: {
     id: string
     offertenummer: string
@@ -781,11 +781,15 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           )}
 
           {/* 7. Mijn taken */}
-          <Section title="Mijn taken" icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={data.mijnTaken.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
+          {(() => {
+            const toonToegewezen = data.mijnTaken.some(t => t.toegewezen_naam)
+            return (
+          <Section title={toonToegewezen ? "Alle taken" : "Mijn taken"} icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={data.mijnTaken.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
             <table className="w-full hidden md:table">
               <thead>
                 <tr className="bg-gray-50/70">
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Taak</th>
+                  {toonToegewezen && <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Toegewezen aan</th>}
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Deadline</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Prioriteit</th>
                 </tr>
@@ -796,6 +800,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   return (
                     <tr key={t.id} className="border-t border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onClick={() => router.push(`/taken/${t.id}`)}>
                       <td className="px-5 py-3 text-sm font-medium text-gray-900">{t.titel}</td>
+                      {toonToegewezen && <td className="px-3 py-3 text-sm text-gray-500">{t.toegewezen_naam || '-'}</td>}
                       <td className="px-3 py-3">
                         {t.deadline ? (
                           <span className={`inline-flex items-center gap-1 text-sm ${deadlineDagen !== null && deadlineDagen < 0 ? 'text-red-600' : deadlineDagen !== null && deadlineDagen <= 2 ? 'text-amber-600' : 'text-gray-500'}`}>
@@ -815,7 +820,10 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 return (
                   <div key={t.id} className="px-4 py-3 cursor-pointer active:bg-gray-50" onClick={() => router.push(`/taken/${t.id}`)}>
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-gray-900 min-w-0">{t.titel}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900">{t.titel}</p>
+                        {toonToegewezen && t.toegewezen_naam && <p className="text-xs text-gray-400">{t.toegewezen_naam}</p>}
+                      </div>
                       <Badge status={t.prioriteit} />
                     </div>
                     {t.deadline && (
@@ -828,6 +836,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               })}
             </div>
           </Section>
+            )
+          })()}
         </div>
 
         {/* Zijbalk rechts - alleen desktop */}

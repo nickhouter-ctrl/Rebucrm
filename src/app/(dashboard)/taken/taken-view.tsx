@@ -20,15 +20,21 @@ interface Taak {
   toegewezen: { naam: string } | null
 }
 
-const columns: ColumnDef<Taak, unknown>[] = [
-  { accessorKey: 'titel', header: 'Titel' },
-  { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
-  { accessorKey: 'prioriteit', header: 'Prioriteit', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
-  { id: 'project', header: 'Project', accessorFn: (row) => row.project?.naam || '-' },
-  { accessorKey: 'deadline', header: 'Deadline', cell: ({ getValue }) => getValue() ? formatDateShort(getValue() as string) : '-' },
-]
+function getColumns(isAdmin: boolean): ColumnDef<Taak, unknown>[] {
+  const cols: ColumnDef<Taak, unknown>[] = [
+    { accessorKey: 'titel', header: 'Titel' },
+    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
+    { accessorKey: 'prioriteit', header: 'Prioriteit', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
+    { id: 'project', header: 'Project', accessorFn: (row) => row.project?.naam || '-' },
+    { accessorKey: 'deadline', header: 'Deadline', cell: ({ getValue }) => getValue() ? formatDateShort(getValue() as string) : '-' },
+  ]
+  if (isAdmin) {
+    cols.push({ id: 'toegewezen', header: 'Toegewezen aan', accessorFn: (row) => row.toegewezen?.naam || '-' })
+  }
+  return cols
+}
 
-export function TakenView({ taken }: { taken: Taak[] }) {
+export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean }) {
   const router = useRouter()
 
   return (
@@ -47,7 +53,7 @@ export function TakenView({ taken }: { taken: Taak[] }) {
       {taken.length === 0 ? (
         <EmptyState icon={CheckSquare} title="Geen taken" description="U heeft nog geen taken." action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
       ) : (
-        <DataTable columns={columns} data={taken} searchPlaceholder="Zoek taak..." onRowClick={(row) => router.push(`/taken/${row.id}`)} />
+        <DataTable columns={getColumns(isAdmin)} data={taken} searchPlaceholder="Zoek taak..." onRowClick={(row) => router.push(`/taken/${row.id}`)} />
       )}
     </div>
   )
