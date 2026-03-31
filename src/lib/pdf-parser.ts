@@ -103,18 +103,15 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else if (isKochs) {
-    // K-Vision PDFs have varying formats:
-    // Format A: "001\nBinnenzicht\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm\n1\n"
-    // Format B: "001\nKozijnmerk D\n1\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm"
-    // Use ^ with m flag to anchor position number at start of line (prevents matching "200" from "1200")
-    const elementPattern = /^(\d{3})\n([\s\S]{0,300}?)Systeem\s*:\s*([^\n]+)\nAfmeting(?:en)?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm/gm
+    // K-Vision PDF format (from actual text extraction):
+    // "001 Kozijnmerk D\nBinnenzicht\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm\n1\n"
+    // Position number + description on SAME line, hoeveelheid AFTER Afmeting line
+    const elementPattern = /^(\d{3})\s+[^\n]+\n[\s\S]{0,300}?Systeem\s*:\s*([^\n]+)\nAfmeting(?:en)?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n(\d+)\n/gm
     while ((match = elementPattern.exec(text)) !== null) {
-      // Extract hoeveelheid from the lines between position number and Systeem
-      const middleLines = match[2]
-      const hoevMatch = middleLines.match(/(?:^|\n)(\d+)\n/) || middleLines.match(/(\d+)\s*$/)
-      const hoeveelheid = hoevMatch ? parseInt(hoevMatch[1]) : 1
+      const hoeveelheid = parseInt(match[5]) || 1
 
-      const nextPattern = new RegExp('^(\\d{3})\\n[\\s\\S]{0,300}?Systeem\\s*:', 'gm')
+      // Find next element to determine section boundary
+      const nextPattern = /^\d{3}\s+[^\n]+\n[\s\S]{0,300}?Systeem\s*:/gm
       nextPattern.lastIndex = match.index + match[0].length
       const nextPosMatch = nextPattern.exec(text)
       const sectionEnd = nextPosMatch ? nextPosMatch.index : text.length
@@ -123,7 +120,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       headers.push({
         naam: 'Positie ' + match[1],
         hoeveelheid,
-        systeem: match[3].trim(),
+        systeem: match[2].trim(),
         kleur: kleurMatch ? kleurMatch[1].replace(/\n/g, ' ').trim() : '',
         idx: match.index,
         endIdx: match.index + match[0].length,
@@ -230,30 +227,24 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
       }
     } else if (isKochs) {
-      // Extract unit price for Kochs/K-Vision elements
-      // First try: look for "Totaal elementen" line specifically
-      const totaalElementenMatch = searchText.match(/Totaal\s*element(?:en)?\s*[\s\S]*?([\d.]+,\d{2})\s*€(?:\s*([\d.]+,\d{2})\s*€)?/)
+      // K-Vision price format (from actual PDF text extraction):
+      // "464,49 €464,49 €1Totaal elementen :."  (unit €, total €, hvh, then "Totaal elementen")
+      // "77,16 €38,58 €2Totaal elementen :."    (total=77.16, unit=38.58, hvh=2)
+      // Price is BEFORE "Totaal elementen", format: TOTAL €UNIT €HVHTotaal elementen
+      const totaalElementenMatch = searchText.match(/([\d.,]+)\s*€([\d.,]+)\s*€(\d+)Totaal\s*elementen/)
       if (totaalElementenMatch) {
-        if (totaalElementenMatch[2]) {
-          // Two prices on line: unit and total → use smaller (unit price)
-          const p1 = parseFloat(totaalElementenMatch[1].replace(/\./g, '').replace(',', '.'))
-          const p2 = parseFloat(totaalElementenMatch[2].replace(/\./g, '').replace(',', '.'))
-          prijs = Math.round(Math.min(p1, p2) * kochsTzMultiplier * 100) / 100
-        } else {
-          // Single price on Totaal elementen → divide by hoeveelheid for unit price
-          const totalPrice = parseFloat(totaalElementenMatch[1].replace(/\./g, '').replace(',', '.'))
-          prijs = Math.round((totalPrice / header.hoeveelheid) * kochsTzMultiplier * 100) / 100
-        }
+        const totalPrice = parseFloat(totaalElementenMatch[1].replace(/\./g, '').replace(',', '.'))
+        const unitPrice = parseFloat(totaalElementenMatch[2].replace(/\./g, '').replace(',', '.'))
+        // Use unit price (the smaller one), apply TZ surcharge
+        prijs = Math.round(Math.min(totalPrice, unitPrice) * kochsTzMultiplier * 100) / 100
       } else {
-        // Fallback: all non-zero €-prices in section
-        const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*€/g)]
+        // Fallback: look for prices with € or EUR
+        const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*(?:€|EUR)/g)]
           .map(m => parseFloat(m[1].replace(/\./g, '').replace(',', '.')))
           .filter(p => p > 0)
         if (sectionPrices.length >= 2) {
-          // Two prices → smaller is likely unit price, larger is total
           prijs = Math.round(Math.min(...sectionPrices) * kochsTzMultiplier * 100) / 100
         } else if (sectionPrices.length === 1) {
-          // Single price → assume total, divide by hoeveelheid
           prijs = Math.round((sectionPrices[0] / header.hoeveelheid) * kochsTzMultiplier * 100) / 100
         }
       }
