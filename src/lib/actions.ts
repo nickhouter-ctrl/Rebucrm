@@ -4195,9 +4195,36 @@ export async function getLeverancierPdfData(offerteId: string) {
         hoeveelheid: e.hoeveelheid,
         prijs: e.prijs,
       }))
+      console.error(`[getLeverancierPdfData] Parsed: totaal=${pdfTotaal}, elementen=${pdfElementen.length}, textLen=${parsed.text.length}`)
+    } else {
+      console.error(`[getLeverancierPdfData] pdfFile is null for path: ${pdfDoc.storage_path}`)
     }
   } catch (err) {
-    console.error('Error parsing leverancier PDF for edit mode:', err)
+    console.error('[getLeverancierPdfData] Error parsing leverancier PDF:', err)
+  }
+
+  // Fallback: if re-parsing failed, try loading from saved parsed data
+  if (parsedElementen.length === 0) {
+    try {
+      const { data: parsedDoc } = await supabaseAdmin
+        .from('documenten')
+        .select('*')
+        .eq('entiteit_type', 'offerte_leverancier_parsed')
+        .eq('entiteit_id', offerteId)
+        .maybeSingle()
+      if (parsedDoc) {
+        const parsedData = JSON.parse(parsedDoc.storage_path)
+        if (parsedData.prijzen) {
+          parsedElementen = Object.entries(parsedData.prijzen).map(([naam, data]) => ({
+            naam,
+            hoeveelheid: (data as { hoeveelheid: number }).hoeveelheid || 1,
+            prijs: (data as { prijs: number }).prijs || 0,
+          }))
+          if (!leverancierTotaal && parsedData.totaal) leverancierTotaal = parsedData.totaal
+          console.error(`[getLeverancierPdfData] Fallback: loaded ${parsedElementen.length} elements from saved parsed data`)
+        }
+      }
+    } catch { /* ignore */ }
   }
 
   return {
