@@ -4065,7 +4065,7 @@ export async function uploadLeverancierTekening(offerteId: string, pageNum: numb
   return { path }
 }
 
-export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[], margePercentage?: number, elementMarges?: Record<string, number>) {
+export async function saveLeverancierTekeningen(offerteId: string, elementen: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[], margePercentage?: number, elementMarges?: Record<string, number>, elementPrijzen?: Record<string, { prijs: number; hoeveelheid: number }>) {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
@@ -4081,13 +4081,16 @@ export async function saveLeverancierTekeningen(offerteId: string, elementen: { 
 
   if (!doc) return { error: 'Geen leverancier PDF gevonden' }
 
-  // Store tekening data + optional marge as JSON in storage_path field
-  const metadata: { tekeningen: typeof elementen; margePercentage?: number; marges?: Record<string, number> } = { tekeningen: elementen }
+  // Store tekening data + optional marge + element prices as JSON
+  const metadata: { tekeningen: typeof elementen; margePercentage?: number; marges?: Record<string, number>; prijzen?: Record<string, { prijs: number; hoeveelheid: number }> } = { tekeningen: elementen }
   if (margePercentage && margePercentage > 0) {
     metadata.margePercentage = margePercentage
   }
   if (elementMarges && Object.keys(elementMarges).length > 0) {
     metadata.marges = elementMarges
+  }
+  if (elementPrijzen && Object.keys(elementPrijzen).length > 0) {
+    metadata.prijzen = elementPrijzen
   }
 
   await supabaseAdmin

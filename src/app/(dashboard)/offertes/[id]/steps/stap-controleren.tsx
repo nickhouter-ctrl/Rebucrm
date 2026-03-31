@@ -178,7 +178,7 @@ export function StapControleren({
 
       const { totaal: pdfTotaal, elementen } = result as {
         totaal: number
-        elementen: { naam: string }[]
+        elementen: { naam: string; prijs: number; hoeveelheid: number }[]
         aantalElementen: number
         pdfPath: string
       }
@@ -365,7 +365,11 @@ export function StapControleren({
       }
 
       setPdfProgress('Opslaan...')
-      await saveLeverancierTekeningen(offerteId, tekeningData)
+      const elPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
+      for (const el of elementen) {
+        elPrijzen[el.naam] = { prijs: el.prijs, hoeveelheid: el.hoeveelheid }
+      }
+      await saveLeverancierTekeningen(offerteId, tekeningData, undefined, undefined, elPrijzen)
 
       if (pdfTotaal > 0) {
         const kozijnRegelIndex = regels.findIndex(r =>
@@ -435,9 +439,15 @@ export function StapControleren({
         tekeningData.push({ naam, tekeningPath: path, pageIndex: pageIndex ?? 0, totalPages: totalPages ?? 1 })
       }
 
-      // Step 3: Save tekening mappings + marge (per-element)
+      // Step 3: Save tekening mappings + marge (per-element) + element prices
       setPdfProgress('Opslaan...')
-      await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage, elementMarges)
+      const elementPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
+      if (parsed?.elementen) {
+        for (const el of parsed.elementen) {
+          elementPrijzen[el.naam] = { prijs: el.prijs, hoeveelheid: el.hoeveelheid }
+        }
+      }
+      await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage, elementMarges, elementPrijzen)
 
       setLeverancierPdf({
         bestandsnaam: file.name,

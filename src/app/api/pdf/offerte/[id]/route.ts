@@ -68,6 +68,7 @@ export async function GET(
         let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[] = []
         let margePercentage = 0
         let perElementMarges: Record<string, number> = {}
+        let savedPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
 
         if (metaDoc) {
           const rawMeta = JSON.parse(metaDoc.storage_path)
@@ -77,6 +78,7 @@ export async function GET(
             tekeningData = rawMeta.tekeningen || []
             margePercentage = rawMeta.margePercentage || 0
             perElementMarges = rawMeta.marges || {}
+            savedPrijzen = rawMeta.prijzen || {}
           }
         }
 
@@ -132,6 +134,16 @@ export async function GET(
           return margePercentage
         }
 
+        // Helper: find saved price by exact or normalized name
+        function findSavedPrijs(naam: string): { prijs: number; hoeveelheid: number } | null {
+          if (savedPrijzen[naam]) return savedPrijzen[naam]
+          const normalized = normalizeName(naam)
+          for (const [key, val] of Object.entries(savedPrijzen)) {
+            if (normalizeName(key) === normalized) return val
+          }
+          return null
+        }
+
         // Helper: build KozijnElement from tekening name + optional parsed data
         function buildElement(
           naam: string,
@@ -139,14 +151,17 @@ export async function GET(
           parsed: typeof elementData[0] | null,
         ): KozijnElement {
           const marge = findMarge(naam)
-          const inkoopPrijs = parsed?.prijs || 0
+          // Use parsed price, fallback to saved price from metadata
+          const saved = findSavedPrijs(naam)
+          const inkoopPrijs = parsed?.prijs || saved?.prijs || 0
+          const hoeveelheid = parsed?.hoeveelheid || saved?.hoeveelheid || 1
           const verkoopPrijs = marge > 0
             ? Math.round(inkoopPrijs * (1 + marge / 100) * 100) / 100
             : inkoopPrijs
 
           return {
             naam: parsed?.naam || naam,
-            hoeveelheid: parsed?.hoeveelheid || 1,
+            hoeveelheid,
             systeem: parsed?.systeem || '',
             kleur: parsed?.kleur || '',
             afmetingen: parsed?.afmetingen || '',
