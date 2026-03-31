@@ -14,6 +14,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
+  const url = new URL(_request.url)
+  const debug = url.searchParams.get('debug') === '1'
   const supabase = await createClient()
 
   const { data: offerte, error } = await supabase
@@ -215,6 +217,21 @@ export async function GET(
           for (const el of elementData) {
             kozijnElementen.push(buildElement(el.naam, undefined, el))
           }
+        }
+
+        // Debug: return JSON with all data instead of PDF
+        if (debug) {
+          return NextResponse.json({
+            leverancierTotaalRaw,
+            parsedElementCount: elementData.length,
+            parsedElements: elementData.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
+            tekeningCount: tekeningData.length,
+            tekeningNames: elementOrder,
+            savedPrijzen,
+            perElementMarges,
+            margePercentage,
+            kozijnElementen: kozijnElementen?.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
+          })
         }
 
         // Calculate leverancier totaal with marge applied
