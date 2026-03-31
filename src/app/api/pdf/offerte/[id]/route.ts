@@ -40,142 +40,176 @@ export async function GET(
 
     if (leverancierDoc) {
       try {
-        // Parse leverancier PDF for element data
+        // Parse leverancier PDF for element prices/specs
         const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
         const { data: pdfFile } = await supabaseAdmin.storage
           .from('documenten')
           .download(leverancierDoc.storage_path)
 
+        let elementData: ReturnType<typeof parseLeverancierPdfText>['elementen'] = []
+        let leverancierTotaalRaw = 0
+
         if (pdfFile) {
           const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
           const parsed = await pdfParse(pdfBuffer)
           const parsedPdf = parseLeverancierPdfText(parsed.text)
-          const elementData = parsedPdf.elementen
-          const leverancierTotaalRaw = parsedPdf.totaal
+          elementData = parsedPdf.elementen
+          leverancierTotaalRaw = parsedPdf.totaal
+        }
 
-          // Load tekening metadata + marge data (if available)
-          const { data: metaDoc } = await supabaseAdmin
+        // Load tekening metadata + marge data
+        const { data: metaDoc } = await supabaseAdmin
+          .from('documenten')
+          .select('*')
+          .eq('entiteit_type', 'offerte_leverancier_data')
+          .eq('entiteit_id', id)
+          .maybeSingle()
+
+        let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[] = []
+        let margePercentage = 0
+        let perElementMarges: Record<string, number> = {}
+
+        if (metaDoc) {
+          const rawMeta = JSON.parse(metaDoc.storage_path)
+          if (Array.isArray(rawMeta)) {
+            tekeningData = rawMeta
+          } else {
+            tekeningData = rawMeta.tekeningen || []
+            margePercentage = rawMeta.margePercentage || 0
+            perElementMarges = rawMeta.marges || {}
+          }
+        }
+
+        // Download tekening images and group by element name
+        const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
+        const elementOrder: string[] = []
+
+        for (const tekening of tekeningData) {
+          const { data: imgFile } = await supabaseAdmin.storage
             .from('documenten')
-            .select('*')
-            .eq('entiteit_type', 'offerte_leverancier_data')
-            .eq('entiteit_id', id)
-            .maybeSingle()
+            .download(tekening.tekeningPath)
 
-          let tekeningData: { naam: string; tekeningPath: string; pageIndex?: number; totalPages?: number }[] = []
-          let margePercentage = 0
-          let perElementMarges: Record<string, number> = {}
-
-          if (metaDoc) {
-            const rawMeta = JSON.parse(metaDoc.storage_path)
-            if (Array.isArray(rawMeta)) {
-              tekeningData = rawMeta
-            } else {
-              tekeningData = rawMeta.tekeningen || []
-              margePercentage = rawMeta.margePercentage || 0
-              perElementMarges = rawMeta.marges || {}
-            }
+          let tekeningUrl = ''
+          if (imgFile) {
+            const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
+            tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
           }
 
-          // Download tekening images and group by element name
-          const elementTekeningen = new Map<string, { url: string; pageIndex: number; totalPages: number }[]>()
+          const pageIndex = tekening.pageIndex ?? 0
+          const totalPages = tekening.totalPages ?? 1
 
-          for (const tekening of tekeningData) {
-            const { data: imgFile } = await supabaseAdmin.storage
-              .from('documenten')
-              .download(tekening.tekeningPath)
+          if (!elementTekeningen.has(tekening.naam)) {
+            elementTekeningen.set(tekening.naam, [])
+            elementOrder.push(tekening.naam)
+          }
+          elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
+        }
 
-            let tekeningUrl = ''
-            if (imgFile) {
-              const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
-              tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
-            }
+        // Helper: find matching parsed element by exact or normalized name
+        const usedParsedIndices = new Set<number>()
+        function findParsedElement(naam: string) {
+          // Exact match first
+          let idx = elementData.findIndex((e, i) => !usedParsedIndices.has(i) && e.naam === naam)
+          if (idx === -1) {
+            // Normalized match
+            const normalized = normalizeName(naam)
+            idx = elementData.findIndex((e, i) => !usedParsedIndices.has(i) && normalizeName(e.naam) === normalized)
+          }
+          if (idx >= 0) {
+            usedParsedIndices.add(idx)
+            return elementData[idx]
+          }
+          return null
+        }
 
-            const pageIndex = tekening.pageIndex ?? 0
-            const totalPages = tekening.totalPages ?? 1
+        // Helper: find marge for element by exact or normalized name
+        function findMarge(naam: string): number {
+          if (perElementMarges[naam] !== undefined) return perElementMarges[naam]
+          const normalized = normalizeName(naam)
+          for (const [key, val] of Object.entries(perElementMarges)) {
+            if (normalizeName(key) === normalized) return val
+          }
+          return margePercentage
+        }
 
-            if (!elementTekeningen.has(tekening.naam)) {
-              elementTekeningen.set(tekening.naam, [])
-            }
-            elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
+        // Helper: build KozijnElement from tekening name + optional parsed data
+        function buildElement(
+          naam: string,
+          pages: { url: string; pageIndex: number; totalPages: number }[] | undefined,
+          parsed: typeof elementData[0] | null,
+        ): KozijnElement {
+          const marge = findMarge(naam)
+          const inkoopPrijs = parsed?.prijs || 0
+          const verkoopPrijs = marge > 0
+            ? Math.round(inkoopPrijs * (1 + marge / 100) * 100) / 100
+            : inkoopPrijs
+
+          return {
+            naam: parsed?.naam || naam,
+            hoeveelheid: parsed?.hoeveelheid || 1,
+            systeem: parsed?.systeem || '',
+            kleur: parsed?.kleur || '',
+            afmetingen: parsed?.afmetingen || '',
+            type: parsed?.type || '',
+            prijs: verkoopPrijs,
+            glasType: parsed?.glasType || '',
+            beslag: parsed?.beslag || '',
+            uwWaarde: parsed?.uwWaarde || '',
+            drapirichting: parsed?.drapirichting || '',
+            dorpel: parsed?.dorpel || '',
+            sluiting: parsed?.sluiting || '',
+            scharnieren: parsed?.scharnieren || '',
+            gewicht: parsed?.gewicht || '',
+            omtrek: parsed?.omtrek || '',
+            paneel: parsed?.paneel || '',
+            commentaar: parsed?.commentaar || '',
+            hoekverbinding: parsed?.hoekverbinding || '',
+            montageGaten: parsed?.montageGaten || '',
+            afwatering: parsed?.afwatering || '',
+            scharnierenKleur: parsed?.scharnierenKleur || '',
+            lakKleur: parsed?.lakKleur || '',
+            sluitcilinder: parsed?.sluitcilinder || '',
+            aantalSleutels: parsed?.aantalSleutels || '',
+            gelijksluitend: parsed?.gelijksluitend || '',
+            krukBinnen: parsed?.krukBinnen || '',
+            krukBuiten: parsed?.krukBuiten || '',
+            tekeningUrl: pages?.[0]?.url || '',
+            tekeningUrls: pages,
+          }
+        }
+
+        kozijnElementen = []
+
+        if (elementOrder.length > 0) {
+          // PRIMARY PATH: build from tekening metadata, enrich with parsed data
+          for (const naam of elementOrder) {
+            const pages = elementTekeningen.get(naam)!
+            const parsed = findParsedElement(naam)
+            kozijnElementen.push(buildElement(naam, pages, parsed))
           }
 
-          // Build kozijnElementen from ALL parsed elements (not just those with tekeningen)
-          kozijnElementen = []
+          // Also add any parsed elements that had no tekening match
+          for (let i = 0; i < elementData.length; i++) {
+            if (!usedParsedIndices.has(i)) {
+              const el = elementData[i]
+              kozijnElementen.push(buildElement(el.naam, undefined, el))
+            }
+          }
+        } else if (elementData.length > 0) {
+          // FALLBACK: no tekeningen at all, use parsed elements directly
           for (const el of elementData) {
-            // Find matching tekening by exact name or normalized name
-            let pages = elementTekeningen.get(el.naam)
-            if (!pages) {
-              // Fuzzy match: try normalized names
-              const normalizedElNaam = normalizeName(el.naam)
-              for (const [tekNaam, tekPages] of elementTekeningen.entries()) {
-                if (normalizeName(tekNaam) === normalizedElNaam) {
-                  pages = tekPages
-                  break
-                }
-              }
-            }
-
-            // Find marge: try exact key, then normalized key
-            let elementMarge = perElementMarges[el.naam]
-            if (elementMarge === undefined) {
-              const normalizedElNaam = normalizeName(el.naam)
-              for (const [key, val] of Object.entries(perElementMarges)) {
-                if (normalizeName(key) === normalizedElNaam) {
-                  elementMarge = val
-                  break
-                }
-              }
-            }
-            if (elementMarge === undefined) elementMarge = margePercentage
-
-            const inkoopPrijs = el.prijs
-            const verkoopPrijs = elementMarge > 0
-              ? Math.round(inkoopPrijs * (1 + elementMarge / 100) * 100) / 100
-              : inkoopPrijs
-
-            kozijnElementen.push({
-              naam: el.naam,
-              hoeveelheid: el.hoeveelheid,
-              systeem: el.systeem,
-              kleur: el.kleur,
-              afmetingen: el.afmetingen,
-              type: el.type,
-              prijs: verkoopPrijs,
-              glasType: el.glasType,
-              beslag: el.beslag,
-              uwWaarde: el.uwWaarde,
-              drapirichting: el.drapirichting,
-              dorpel: el.dorpel,
-              sluiting: el.sluiting,
-              scharnieren: el.scharnieren,
-              gewicht: el.gewicht,
-              omtrek: el.omtrek,
-              paneel: el.paneel,
-              commentaar: el.commentaar,
-              hoekverbinding: el.hoekverbinding,
-              montageGaten: el.montageGaten,
-              afwatering: el.afwatering,
-              scharnierenKleur: el.scharnierenKleur,
-              lakKleur: el.lakKleur,
-              sluitcilinder: el.sluitcilinder,
-              aantalSleutels: el.aantalSleutels,
-              gelijksluitend: el.gelijksluitend,
-              krukBinnen: el.krukBinnen,
-              krukBuiten: el.krukBuiten,
-              tekeningUrl: pages?.[0]?.url || '',
-              tekeningUrls: pages,
-            })
+            kozijnElementen.push(buildElement(el.naam, undefined, el))
           }
+        }
 
-          // Calculate leverancier totaal with marge applied
-          if (leverancierTotaalRaw > 0) {
-            if (Object.keys(perElementMarges).length > 0 && kozijnElementen.length > 0) {
-              leverancierTotaal = kozijnElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-            } else {
-              leverancierTotaal = margePercentage > 0
-                ? Math.round(leverancierTotaalRaw * (1 + margePercentage / 100) * 100) / 100
-                : leverancierTotaalRaw
-            }
+        // Calculate leverancier totaal with marge applied
+        if (leverancierTotaalRaw > 0) {
+          if (Object.keys(perElementMarges).length > 0 && kozijnElementen.length > 0) {
+            leverancierTotaal = kozijnElementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
+          } else {
+            leverancierTotaal = margePercentage > 0
+              ? Math.round(leverancierTotaalRaw * (1 + margePercentage / 100) * 100) / 100
+              : leverancierTotaalRaw
           }
         }
       } catch (parseErr) {
