@@ -40,7 +40,7 @@ interface DashboardData {
   organisaties: { totaal: number; particulier: number; zakelijk: number }
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
-  takenPerCollega: { naam: string; aantal: number }[]
+  takenPerCollega: { naam: string; profiel_id: string; aantal: number; perTitel: { titel: string; aantal: number }[] }[]
   mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null }[]
   openOffertesList: {
     id: string
@@ -206,6 +206,42 @@ function Section({ title, icon: Icon, iconColor, count, children, defaultOpen, l
         </div>
       )}
     </div>
+  )
+}
+
+function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega'] }) {
+  const [selected, setSelected] = useState<string | null>(null)
+  const totaal = data.reduce((s, c) => s + c.aantal, 0)
+  const selectedCollega = data.find(c => c.profiel_id === selected)
+
+  return (
+    <Section title="Taken per collega" icon={Users} iconColor="bg-violet-50 text-violet-600" count={totaal} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-violet-100 text-violet-700">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-gray-100">
+        {data.map(c => (
+          <button
+            key={c.profiel_id}
+            onClick={() => setSelected(selected === c.profiel_id ? null : c.profiel_id)}
+            className={`text-left px-4 py-3 transition-colors ${selected === c.profiel_id ? 'bg-[#00a66e] text-white' : 'bg-white hover:bg-gray-50'}`}
+          >
+            <p className={`text-xs truncate ${selected === c.profiel_id ? 'text-white/80' : 'text-gray-500'}`}>{c.naam}</p>
+            <p className={`text-xl font-bold mt-0.5 ${selected === c.profiel_id ? 'text-white' : 'text-gray-900'}`}>{c.aantal}</p>
+          </button>
+        ))}
+      </div>
+      {selectedCollega && (
+        <div className="border-t border-gray-100 px-4 sm:px-5 py-3">
+          <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-2">Taken van {selectedCollega.naam}</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {selectedCollega.perTitel.map(t => (
+              <div key={t.titel} className="bg-gray-50 rounded-lg px-3 py-2">
+                <p className="text-xs text-gray-500 truncate">{t.titel}</p>
+                <p className="text-lg font-bold text-gray-900">{t.aantal}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Section>
   )
 }
 
@@ -782,16 +818,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
 
           {/* Openstaande taken per collega */}
           {data.takenPerCollega.length > 0 && (
-            <Section title="Taken per collega" icon={Users} iconColor="bg-violet-50 text-violet-600" count={data.takenPerCollega.reduce((s, c) => s + c.aantal, 0)} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-violet-100 text-violet-700">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-gray-100">
-                {data.takenPerCollega.map(c => (
-                  <div key={c.naam} className="bg-white px-4 py-3">
-                    <p className="text-xs text-gray-500 truncate">{c.naam}</p>
-                    <p className="text-xl font-bold text-gray-900 mt-0.5">{c.aantal}</p>
-                  </div>
-                ))}
-              </div>
-            </Section>
+            <TakenPerCollegaSection data={data.takenPerCollega} />
           )}
 
           {/* 7. Mijn taken */}

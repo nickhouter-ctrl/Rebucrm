@@ -1608,11 +1608,21 @@ export async function getDashboardData() {
     bedrag: facturenData.filter(f => f.status === status).reduce((sum, f) => sum + (f.totaal || 0), 0),
   }))
 
-  // Taken per collega
-  const takenPerCollega = profielenData.map(p => ({
-    naam: p.naam,
-    aantal: takenData.filter(t => t.toegewezen_aan === p.id && t.status !== 'afgerond').length,
-  })).filter(t => t.aantal > 0)
+  // Taken per collega (met breakdown per titel)
+  const takenPerCollega = profielenData.map(p => {
+    const openTaken = takenData.filter(t => t.toegewezen_aan === p.id && t.status !== 'afgerond')
+    const perTitel: Record<string, number> = {}
+    for (const t of openTaken) {
+      const titel = t.titel || 'Overig'
+      perTitel[titel] = (perTitel[titel] || 0) + 1
+    }
+    return {
+      naam: p.naam,
+      profiel_id: p.id,
+      aantal: openTaken.length,
+      perTitel: Object.entries(perTitel).map(([titel, aantal]) => ({ titel, aantal })).sort((a, b) => b.aantal - a.aantal),
+    }
+  }).filter(t => t.aantal > 0)
 
   // Rol ophalen voor taken filter
   const { data: userProfiel } = await supabase
