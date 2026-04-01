@@ -116,6 +116,7 @@ export async function getRelaties() {
     .from('relaties')
     .select('*')
     .order('bedrijfsnaam')
+    .limit(5000)
   return data || []
 }
 
@@ -1275,7 +1276,7 @@ export async function getTaken() {
 
   let query = supabase
     .from('taken')
-    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam)')
+    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal)')
     .order('created_at', { ascending: false })
 
   // Medewerkers zien alleen eigen taken
@@ -1405,6 +1406,16 @@ export async function deleteDocument(id: string) {
   return { success: true }
 }
 
+export async function completeTaak(id: string) {
+  'use server'
+  const supabase = await createClient()
+  const { error } = await supabase.from('taken').update({ status: 'afgerond' }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/taken')
+  revalidatePath('/')
+  return { success: true }
+}
+
 // === BEHEER ===
 export async function getAdministratie() {
   const supabase = await createClient()
@@ -1452,10 +1463,10 @@ export async function getDashboardData() {
 
   const supabaseAdmin = createAdminClient()
   const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
-    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId),
-    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId),
-    supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan').eq('administratie_id', adminId),
-    supabase.from('relaties').select('type').eq('administratie_id', adminId),
+    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).limit(5000),
+    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).limit(5000),
+    supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).limit(5000),
+    supabase.from('relaties').select('type').eq('administratie_id', adminId).limit(5000),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
@@ -1644,6 +1655,8 @@ export async function getDashboardData() {
       deadline: t.deadline,
       prioriteit: t.prioriteit,
       toegewezen_naam: isAdmin ? (profielNaamMap.get(t.toegewezen_aan) || null) : null,
+      bedrag: (t.offerte as unknown as { totaal: number } | null)?.totaal || null,
+      relatie_naam: (t.relatie as unknown as { bedrijfsnaam: string } | null)?.bedrijfsnaam || null,
     }))
 
   // Open offertes (verzonden) met dagen_open
@@ -1720,7 +1733,7 @@ export async function getDashboardData() {
   const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
   // Build name lookup from relatiesData (we need full relaties for names)
   const relatieNamen = new Map<string, string>()
-  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId)
+  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId).limit(5000)
   for (const r of relatieNaamData || []) {
     relatieNamen.set(r.id, r.bedrijfsnaam || 'Onbekend')
   }

@@ -10,7 +10,7 @@ import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Penc
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, markOrderBesteld } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 
 interface TePlannenOrder {
@@ -41,7 +41,7 @@ interface DashboardData {
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
   takenPerCollega: { naam: string; profiel_id: string; aantal: number; perTitel: { titel: string; aantal: number }[] }[]
-  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null }[]
+  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null; bedrag: number | null; relatie_naam: string | null }[]
   openOffertesList: {
     id: string
     offertenummer: string
@@ -209,10 +209,29 @@ function Section({ title, icon: Icon, iconColor, count, children, defaultOpen, l
   )
 }
 
+function categoriseerTaak(titel: string): 'bellen' | 'uitwerken' {
+  const t = titel.toLowerCase()
+  if (t.includes('bellen') || t.includes('opbellen') || t.includes('nabellen')) return 'bellen'
+  return 'uitwerken'
+}
+
 function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega'] }) {
   const [selected, setSelected] = useState<string | null>(null)
   const totaal = data.reduce((s, c) => s + c.aantal, 0)
   const selectedCollega = data.find(c => c.profiel_id === selected)
+
+  // Groepeer per categorie
+  const categorieën = selectedCollega ? (() => {
+    let bellen = 0, uitwerken = 0
+    for (const t of selectedCollega.perTitel) {
+      if (categoriseerTaak(t.titel) === 'bellen') bellen += t.aantal
+      else uitwerken += t.aantal
+    }
+    return [
+      { key: 'uitwerken' as const, label: 'Uitwerken', aantal: uitwerken },
+      { key: 'bellen' as const, label: 'Bellen', aantal: bellen },
+    ].filter(c => c.aantal > 0)
+  })() : []
 
   return (
     <Section title="Taken per collega" icon={Users} iconColor="bg-violet-50 text-violet-600" count={totaal} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-violet-100 text-violet-700">
@@ -231,12 +250,16 @@ function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega
       {selectedCollega && (
         <div className="border-t border-gray-100 px-4 sm:px-5 py-3">
           <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-2">Taken van {selectedCollega.naam}</p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-            {selectedCollega.perTitel.map(t => (
-              <div key={t.titel} className="bg-gray-50 rounded-lg px-3 py-2">
-                <p className="text-xs text-gray-500 truncate">{t.titel}</p>
-                <p className="text-lg font-bold text-gray-900">{t.aantal}</p>
-              </div>
+          <div className="grid grid-cols-2 gap-2">
+            {categorieën.map(cat => (
+              <Link
+                key={cat.key}
+                href={`/taken?collega=${selectedCollega.profiel_id}&categorie=${cat.key}`}
+                className="bg-gray-50 hover:bg-gray-100 rounded-lg px-4 py-3 transition-colors block"
+              >
+                <p className="text-xs text-gray-500">{cat.label}</p>
+                <p className="text-2xl font-bold text-gray-900">{cat.aantal}</p>
+              </Link>
             ))}
           </div>
         </div>
@@ -260,6 +283,13 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     maand_doel: data?.omzetdoelen?.maand_doel?.toString() || '0',
     jaar_doel: data?.omzetdoelen?.jaar_doel?.toString() || '0',
   })
+  const [takenLijst, setTakenLijst] = useState(data?.mijnTaken || [])
+
+  async function handleCompleteTaak(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    setTakenLijst(prev => prev.filter(t => t.id !== id))
+    await completeTaak(id)
+  }
 
   async function handleConvertToFactuur(offerteId: string, splitType: 'volledig' | 'split', percentage = 70) {
     setFactuurLoading(offerteId)
@@ -823,25 +853,33 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
 
           {/* 7. Mijn taken */}
           {(() => {
-            const toonToegewezen = data.mijnTaken.some(t => t.toegewezen_naam)
+            const toonToegewezen = takenLijst.some(t => t.toegewezen_naam)
             return (
-          <Section title={toonToegewezen ? "Alle taken" : "Mijn taken"} icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={data.mijnTaken.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
+          <Section title={toonToegewezen ? "Alle taken" : "Mijn taken"} icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={takenLijst.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
             <table className="w-full hidden md:table">
               <thead>
                 <tr className="bg-gray-50/70">
-                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Taak</th>
+                  <th className="w-10 px-3 py-2"></th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Taak</th>
                   {toonToegewezen && <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Toegewezen aan</th>}
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Relatie</th>
+                  <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Bedrag</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Deadline</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Prioriteit</th>
                 </tr>
               </thead>
               <tbody>
-                {data.mijnTaken.map(t => {
+                {takenLijst.map(t => {
                   const deadlineDagen = t.deadline ? dagenVerschil(t.deadline) : null
                   return (
                     <tr key={t.id} className="border-t border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onClick={() => router.push(`/taken/${t.id}`)}>
-                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{t.titel}</td>
+                      <td className="px-3 py-3 text-center">
+                        <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer" onClick={(e) => handleCompleteTaak(t.id, e)} readOnly checked={false} />
+                      </td>
+                      <td className="px-3 py-3 text-sm font-medium text-gray-900">{t.titel}</td>
                       {toonToegewezen && <td className="px-3 py-3 text-sm text-gray-500">{t.toegewezen_naam || '-'}</td>}
+                      <td className="px-3 py-3 text-sm text-gray-500">{t.relatie_naam || '-'}</td>
+                      <td className="px-3 py-3 text-sm text-right font-medium text-gray-900">{t.bedrag ? formatCurrency(t.bedrag) : '-'}</td>
                       <td className="px-3 py-3">
                         {t.deadline ? (
                           <span className={`inline-flex items-center gap-1 text-sm ${deadlineDagen !== null && deadlineDagen < 0 ? 'text-red-600' : deadlineDagen !== null && deadlineDagen <= 2 ? 'text-amber-600' : 'text-gray-500'}`}>
@@ -856,22 +894,29 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               </tbody>
             </table>
             <div className="md:hidden divide-y divide-gray-50">
-              {data.mijnTaken.map(t => {
+              {takenLijst.map(t => {
                 const deadlineDagen = t.deadline ? dagenVerschil(t.deadline) : null
                 return (
-                  <div key={t.id} className="px-4 py-3 cursor-pointer active:bg-gray-50" onClick={() => router.push(`/taken/${t.id}`)}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900">{t.titel}</p>
-                        {toonToegewezen && t.toegewezen_naam && <p className="text-xs text-gray-400">{t.toegewezen_naam}</p>}
+                  <div key={t.id} className="px-4 py-3 cursor-pointer active:bg-gray-50 flex items-start gap-3" onClick={() => router.push(`/taken/${t.id}`)}>
+                    <input type="checkbox" className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer mt-0.5 shrink-0" onClick={(e) => handleCompleteTaak(t.id, e)} readOnly checked={false} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900">{t.titel}</p>
+                          {toonToegewezen && t.toegewezen_naam && <p className="text-xs text-gray-400">{t.toegewezen_naam}</p>}
+                          {t.relatie_naam && <p className="text-xs text-gray-400">{t.relatie_naam}</p>}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <Badge status={t.prioriteit} />
+                          {t.bedrag && <p className="text-xs font-medium text-gray-900 mt-1">{formatCurrency(t.bedrag)}</p>}
+                        </div>
                       </div>
-                      <Badge status={t.prioriteit} />
+                      {t.deadline && (
+                        <p className={`text-xs mt-1 flex items-center gap-1 ${deadlineDagen !== null && deadlineDagen < 0 ? 'text-red-600' : deadlineDagen !== null && deadlineDagen <= 2 ? 'text-amber-600' : 'text-gray-400'}`}>
+                          <Clock className="h-3 w-3" />{formatDateShort(t.deadline)}
+                        </p>
+                      )}
                     </div>
-                    {t.deadline && (
-                      <p className={`text-xs mt-1 flex items-center gap-1 ${deadlineDagen !== null && deadlineDagen < 0 ? 'text-red-600' : deadlineDagen !== null && deadlineDagen <= 2 ? 'text-amber-600' : 'text-gray-400'}`}>
-                        <Clock className="h-3 w-3" />{formatDateShort(t.deadline)}
-                      </p>
-                    )}
                   </div>
                 )
               })}
