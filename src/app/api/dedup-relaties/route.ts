@@ -11,18 +11,27 @@ function normalize(naam: string): string {
     .trim()
 }
 
+async function fetchAll(supabase: ReturnType<typeof createAdminClient>, table: string, select: string, filters?: (q: any) => any) {
+  const allData: any[] = []
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    let query = supabase.from(table).select(select).range(from, from + PAGE - 1)
+    if (filters) query = filters(query)
+    const { data } = await query
+    if (!data || data.length === 0) break
+    allData.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return allData
+}
+
 export async function GET() {
   const supabase = createAdminClient()
 
-  // Haal ALLE relaties op (admin client, geen RLS)
-  const { data: relaties, error } = await supabase
-    .from('relaties')
-    .select('id, bedrijfsnaam, administratie_id, created_at')
-    .order('created_at', { ascending: true })
-    .range(0, 9999)
-
-  if (error) return NextResponse.json({ error: error.message })
-  if (!relaties) return NextResponse.json({ error: 'Geen data' })
+  const relaties = await fetchAll(supabase, 'relaties', 'id, bedrijfsnaam, administratie_id, created_at',
+    q => q.order('created_at', { ascending: true }))
 
   // Groepeer imports per dag
   const perDag = new Map<string, number>()
@@ -76,43 +85,39 @@ export async function GET() {
 export async function POST() {
   const supabase = createAdminClient()
 
-  // Haal alle relaties op
-  const { data: relaties } = await supabase
-    .from('relaties')
-    .select('id, bedrijfsnaam, administratie_id, created_at')
-    .order('created_at', { ascending: true })
-    .range(0, 9999)
+  const relaties = await fetchAll(supabase, 'relaties', 'id, bedrijfsnaam, administratie_id, created_at',
+    q => q.order('created_at', { ascending: true }))
 
-  if (!relaties) return NextResponse.json({ error: 'Geen data' })
+  if (relaties.length === 0) return NextResponse.json({ error: 'Geen data' })
 
-  // Haal gekoppelde relatie_ids op (alle administraties)
-  const [offertesRes, ordersRes, facturenRes, projectenRes, takenRes] = await Promise.all([
-    supabase.from('offertes').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
-    supabase.from('orders').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
-    supabase.from('facturen').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
-    supabase.from('projecten').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
-    supabase.from('taken').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
+  // Haal gekoppelde relatie_ids op
+  const [offRes, ordRes, facRes, prjRes, takRes] = await Promise.all([
+    fetchAll(supabase, 'offertes', 'relatie_id', q => q.not('relatie_id', 'is', null)),
+    fetchAll(supabase, 'orders', 'relatie_id', q => q.not('relatie_id', 'is', null)),
+    fetchAll(supabase, 'facturen', 'relatie_id', q => q.not('relatie_id', 'is', null)),
+    fetchAll(supabase, 'projecten', 'relatie_id', q => q.not('relatie_id', 'is', null)),
+    fetchAll(supabase, 'taken', 'relatie_id', q => q.not('relatie_id', 'is', null)),
   ])
   const gekoppeldeIds = new Set([
-    ...(offertesRes.data || []).map(r => r.relatie_id),
-    ...(ordersRes.data || []).map(r => r.relatie_id),
-    ...(facturenRes.data || []).map(r => r.relatie_id),
-    ...(projectenRes.data || []).map(r => r.relatie_id),
-    ...(takenRes.data || []).map(r => r.relatie_id),
+    ...offRes.map(r => r.relatie_id),
+    ...ordRes.map(r => r.relatie_id),
+    ...facRes.map(r => r.relatie_id),
+    ...prjRes.map(r => r.relatie_id),
+    ...takRes.map(r => r.relatie_id),
   ])
 
   // Groepeer per administratie + genormaliseerde naam
-  const perAdmin = new Map<string, typeof relaties>()
+  const groepen = new Map<string, typeof relaties>()
   for (const r of relaties) {
     const key = `${r.administratie_id}::${normalize(r.bedrijfsnaam || '')}`
     if (!normalize(r.bedrijfsnaam || '')) continue
-    if (!perAdmin.has(key)) perAdmin.set(key, [])
-    perAdmin.get(key)!.push(r)
+    if (!groepen.has(key)) groepen.set(key, [])
+    groepen.get(key)!.push(r)
   }
 
   // Per groep: behoud degene met koppelingen of de oudste
   const teVerwijderen: string[] = []
-  for (const [, groep] of perAdmin) {
+  for (const [, groep] of groepen) {
     if (groep.length <= 1) continue
     groep.sort((a, b) => {
       const aK = gekoppeldeIds.has(a.id) ? 0 : 1

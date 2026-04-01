@@ -5,6 +5,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { sendEmail } from '@/lib/email'
 
+// Helper: pagineer Supabase queries die door de 1000-rij limiet heen moeten
+async function fetchAllRows<T>(queryFn: (from: number, to: number) => PromiseLike<{ data: T[] | null }>): Promise<T[]> {
+  const all: T[] = []
+  let from = 0
+  const PAGE = 1000
+  while (true) {
+    const { data } = await queryFn(from, from + PAGE - 1)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
 function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): string {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const logoUrl = `${baseUrl}/images/logo-rebu-white.png`
@@ -112,12 +127,9 @@ export async function getVolgendeNummer(type: string): Promise<string> {
 // === RELATIES ===
 export async function getRelaties() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('relaties')
-    .select('*')
-    .order('bedrijfsnaam')
-    .range(0, 4999)
-  return data || []
+  return fetchAllRows((from, to) =>
+    supabase.from('relaties').select('*').order('bedrijfsnaam').range(from, to)
+  )
 }
 
 export async function getRelatie(id: string) {
@@ -183,18 +195,16 @@ export async function importRelaties(rows: {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
-  // Fetch existing relaties for duplicate check
-  const { data: existing } = await supabase
-    .from('relaties')
-    .select('bedrijfsnaam, kvk_nummer')
-    .eq('administratie_id', adminId)
-    .range(0, 4999)
+  // Fetch existing relaties for duplicate check (pagineer voor >1000)
+  const existing = await fetchAllRows((from, to) =>
+    supabase.from('relaties').select('bedrijfsnaam, kvk_nummer').eq('administratie_id', adminId).range(from, to)
+  )
 
   const existingNames = new Set(
-    (existing || []).map(r => r.bedrijfsnaam.toLowerCase().trim())
+    existing.map(r => r.bedrijfsnaam.toLowerCase().trim())
   )
   const existingKvk = new Set(
-    (existing || []).filter(r => r.kvk_nummer).map(r => r.kvk_nummer!.trim())
+    existing.filter(r => r.kvk_nummer).map(r => r.kvk_nummer!.trim())
   )
 
   const toInsert: typeof rows = []
@@ -275,15 +285,12 @@ export async function deduplicateRelaties() {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
-  // Haal alle relaties op
-  const { data: relaties } = await supabase
-    .from('relaties')
-    .select('id, bedrijfsnaam, created_at')
-    .eq('administratie_id', adminId)
-    .order('created_at', { ascending: true })
-    .range(0, 9999)
+  // Haal alle relaties op (gepagineerd)
+  const relaties = await fetchAllRows((from, to) =>
+    supabase.from('relaties').select('id, bedrijfsnaam, created_at').eq('administratie_id', adminId).order('created_at', { ascending: true }).range(from, to)
+  )
 
-  if (!relaties || relaties.length === 0) return { removed: 0 }
+  if (relaties.length === 0) return { removed: 0 }
 
   // Haal relatie_ids op die gekoppeld zijn aan andere tabellen
   const [offertesRes, ordersRes, facturenRes, projectenRes, takenRes] = await Promise.all([
@@ -1535,10 +1542,15 @@ export async function getDashboardData() {
   if (!adminId || !user) return null
 
   const supabaseAdmin = createAdminClient()
-  const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
-    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(0, 4999),
-    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(0, 4999),
-    supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(0, 4999),
+
+  // Grote tabellen pagineren (Supabase max-rows = 1000)
+  const [facturenData, offertesData, takenData] = await Promise.all([
+    fetchAllRows((from, to) => supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
+  ])
+
+  const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
     supabase.from('relaties').select('type', { count: 'exact' }).eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
@@ -1552,9 +1564,6 @@ export async function getDashboardData() {
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
   ])
 
-  const facturenData = facturenRes.data || []
-  const offertesData = offertesRes.data || []
-  const takenData = takenRes.data || []
   const relatiesData = relatiesRes.data || []
   const profielenData = profielenRes.data || []
 
@@ -1806,8 +1815,8 @@ export async function getDashboardData() {
   const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
   // Build name lookup from relatiesData (we need full relaties for names)
   const relatieNamen = new Map<string, string>()
-  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId).range(0, 4999)
-  for (const r of relatieNaamData || []) {
+  const relatieNaamData = await fetchAllRows((from, to) => supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId).range(from, to))
+  for (const r of relatieNaamData) {
     relatieNamen.set(r.id, r.bedrijfsnaam || 'Onbekend')
   }
   for (const f of facturenData) {
