@@ -11,6 +11,8 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
+import { format } from 'date-fns'
+import { nl } from 'date-fns/locale'
 import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
@@ -129,7 +131,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [klantWachtwoord, setKlantWachtwoord] = useState('')
   const [klantLoading, setKlantLoading] = useState(false)
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
-  const [showNotitieForm, setShowNotitieForm] = useState(false)
+  const [showNotitieForm, setShowNotitieForm] = useState(false) // legacy, unused
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -503,49 +505,40 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
       {tab === 'notities' && (
         <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-semibold text-gray-900">Notities</h3>
-            <Button variant="secondary" size="sm" onClick={() => setShowNotitieForm(true)}>
-              <Plus className="h-3 w-3" />
-              Nieuwe notitie
-            </Button>
-          </div>
-
-          {showNotitieForm && (
-            <Card>
-              <CardContent className="pt-6 space-y-3">
-                <textarea
-                  placeholder="Schrijf een notitie..."
-                  value={notitieText}
-                  onChange={e => setNotitieText(e.target.value)}
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  autoFocus
-                />
+          {/* Notitie invoer */}
+          <Card>
+            <CardContent className="pt-4 pb-3 space-y-3">
+              <textarea
+                placeholder="Schrijf een notitie..."
+                value={notitieText}
+                onChange={e => setNotitieText(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent resize-none"
+              />
+              {notitieText.trim() && (
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <Bell className="h-4 w-4 text-gray-400" />
-                    <label className="text-sm text-gray-600">Herinnering:</label>
+                    <Bell className="h-3.5 w-3.5 text-gray-400" />
                     <input
                       type="date"
                       value={notitieHerinnering}
                       onChange={e => setNotitieHerinnering(e.target.value)}
-                      className="px-2 py-1 border border-gray-300 rounded-md text-sm"
+                      className="px-2 py-1 border border-gray-200 rounded-md text-xs text-gray-600"
                     />
                   </div>
                   <div className="flex gap-2 ml-auto">
-                    <Button variant="ghost" size="sm" onClick={() => setShowNotitieForm(false)}>Annuleren</Button>
-                    <Button size="sm" onClick={handleSaveNotitie} disabled={loading || !notitieText.trim()}>
-                      <Save className="h-3 w-3" />
+                    <Button variant="ghost" size="sm" onClick={() => setNotitieText('')}>Annuleren</Button>
+                    <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={handleSaveNotitie} disabled={loading || !notitieText.trim()}>
                       Opslaan
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </CardContent>
+          </Card>
 
-          {notities.length === 0 && !showNotitieForm ? (
+          {/* Notities tijdlijn */}
+          {notities.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-gray-500 text-sm">
                 <MessageSquare className="h-8 w-8 mx-auto mb-2 text-gray-300" />
@@ -553,33 +546,52 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               </CardContent>
             </Card>
           ) : (
-            notities.map(n => (
-              <Card key={n.id}>
-                <CardContent className="pt-4 pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900 whitespace-pre-wrap">{n.tekst}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                        <span>{n.gebruiker?.naam || 'Onbekend'}</span>
-                        <span>{formatDateShort(n.created_at)}</span>
-                        {n.herinnering_datum && (
-                          <span className={`flex items-center gap-1 ${n.herinnering_verstuurd ? 'text-green-600' : 'text-orange-600'}`}>
-                            <Clock className="h-3 w-3" />
-                            {n.herinnering_verstuurd ? 'Herinnerd' : `Herinnering: ${formatDateShort(n.herinnering_datum)}`}
-                          </span>
-                        )}
+            <div className="relative">
+              {/* Tijdlijn lijn */}
+              <div className="absolute left-4 top-0 bottom-0 w-px bg-gray-200" />
+
+              <div className="space-y-0">
+                {notities.map((n, i) => {
+                  const datum = new Date(n.created_at)
+                  const datumStr = format(datum, "EEEE d MMMM yyyy 'om' HH:mm", { locale: nl })
+                  return (
+                    <div key={n.id} className="relative pl-10 py-3 group">
+                      {/* Tijdlijn dot */}
+                      <div className="absolute left-[11px] top-[18px] h-2.5 w-2.5 rounded-full border-2 border-[#00a66e] bg-white z-10" />
+
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          {/* Gebruiker + datum */}
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-gray-900">{n.gebruiker?.naam || 'Onbekend'}</span>
+                            <span className="text-xs text-gray-400">{datumStr}</span>
+                          </div>
+                          {/* Notitietekst */}
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{n.tekst}</p>
+                          {/* Herinnering */}
+                          {n.herinnering_datum && (
+                            <span className={`inline-flex items-center gap-1 text-xs mt-1.5 ${n.herinnering_verstuurd ? 'text-green-600' : 'text-orange-500'}`}>
+                              <Bell className="h-3 w-3" />
+                              {n.herinnering_verstuurd ? 'Herinnerd' : `Herinnering: ${formatDateShort(n.herinnering_datum)}`}
+                            </span>
+                          )}
+                        </div>
+                        {/* Verwijder knop */}
+                        <button
+                          onClick={() => handleDeleteNotitie(n.id)}
+                          className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
+
+                      {/* Scheidingslijn tussen notities */}
+                      {i < notities.length - 1 && <div className="border-b border-gray-100 mt-3" />}
                     </div>
-                    <button
-                      onClick={() => handleDeleteNotitie(n.id)}
-                      className="p-1 text-gray-400 hover:text-red-500 shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                  )
+                })}
+              </div>
+            </div>
           )}
         </div>
       )}
