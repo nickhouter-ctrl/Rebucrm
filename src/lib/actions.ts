@@ -188,6 +188,7 @@ export async function importRelaties(rows: {
     .from('relaties')
     .select('bedrijfsnaam, kvk_nummer')
     .eq('administratie_id', adminId)
+    .range(0, 4999)
 
   const existingNames = new Set(
     (existing || []).map(r => r.bedrijfsnaam.toLowerCase().trim())
@@ -266,6 +267,78 @@ export async function importRelaties(rows: {
     invalid: invalid.length,
     errors,
   }
+}
+
+export async function deduplicateRelaties() {
+  'use server'
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  // Haal alle relaties op
+  const { data: relaties } = await supabase
+    .from('relaties')
+    .select('id, bedrijfsnaam, created_at')
+    .eq('administratie_id', adminId)
+    .order('created_at', { ascending: true })
+    .range(0, 9999)
+
+  if (!relaties || relaties.length === 0) return { removed: 0 }
+
+  // Haal relatie_ids op die gekoppeld zijn aan andere tabellen
+  const [offertesRes, ordersRes, facturenRes, projectenRes, takenRes] = await Promise.all([
+    supabase.from('offertes').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
+    supabase.from('orders').select('relatie_id').not('relatie_id', 'is', null),
+    supabase.from('facturen').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
+    supabase.from('projecten').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
+    supabase.from('taken').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
+  ])
+  const gekoppeldeIds = new Set([
+    ...(offertesRes.data || []).map(r => r.relatie_id),
+    ...(ordersRes.data || []).map(r => r.relatie_id),
+    ...(facturenRes.data || []).map(r => r.relatie_id),
+    ...(projectenRes.data || []).map(r => r.relatie_id),
+    ...(takenRes.data || []).map(r => r.relatie_id),
+  ])
+
+  // Groepeer op bedrijfsnaam (case-insensitive)
+  const groepen = new Map<string, typeof relaties>()
+  for (const r of relaties) {
+    const key = r.bedrijfsnaam?.toLowerCase().trim() || ''
+    if (!key) continue
+    if (!groepen.has(key)) groepen.set(key, [])
+    groepen.get(key)!.push(r)
+  }
+
+  // Bepaal welke te verwijderen: behoud de oudste of degene met koppelingen
+  const teVerwijderen: string[] = []
+  for (const [, groep] of groepen) {
+    if (groep.length <= 1) continue
+    // Sorteer: gekoppelde eerst, dan op created_at (oudste eerst)
+    groep.sort((a, b) => {
+      const aKoppeling = gekoppeldeIds.has(a.id) ? 0 : 1
+      const bKoppeling = gekoppeldeIds.has(b.id) ? 0 : 1
+      if (aKoppeling !== bKoppeling) return aKoppeling - bKoppeling
+      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    })
+    // Behoud de eerste, verwijder de rest
+    for (let i = 1; i < groep.length; i++) {
+      teVerwijderen.push(groep[i].id)
+    }
+  }
+
+  // Verwijder in batches
+  let removed = 0
+  const BATCH = 100
+  for (let i = 0; i < teVerwijderen.length; i += BATCH) {
+    const batch = teVerwijderen.slice(i, i + BATCH)
+    const { error } = await supabase.from('relaties').delete().in('id', batch)
+    if (!error) removed += batch.length
+  }
+
+  revalidatePath('/relatiebeheer')
+  revalidatePath('/')
+  return { removed, total: relaties.length, remaining: relaties.length - removed }
 }
 
 export async function deleteRelatie(id: string) {
