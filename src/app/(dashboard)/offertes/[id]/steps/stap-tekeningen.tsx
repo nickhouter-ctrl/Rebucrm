@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { parseLeverancierPdfOnly } from '@/lib/actions'
+import { parseLeverancierPdfText } from '@/lib/pdf-parser'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Upload, FileText, Trash2, ArrowRight, Loader2, CheckCircle } from 'lucide-react'
 
@@ -61,39 +61,59 @@ export function StapTekeningen({
     setError('')
 
     try {
-      // Step 1: Server-side text parsing
-      setProgress('PDF tekst analyseren...')
-      let parsed: ParsedPdfResult
-      try {
-        const formData = new FormData()
-        formData.set('pdf', file)
-        const result = await parseLeverancierPdfOnly(formData)
-
-        if ('error' in result && result.error) {
-          setError(result.error as string)
-          setProcessing(false)
-          setProgress('')
-          return
-        }
-
-        parsed = result as ParsedPdfResult
-      } catch (serverErr) {
-        console.error('Server action error:', serverErr)
-        setError(`Fout bij analyseren van PDF: ${serverErr instanceof Error ? serverErr.message : String(serverErr)}`)
-        setProcessing(false)
-        setProgress('')
-        return
-      }
-
-      // Step 2: Client-side page rendering with pdfjs-dist
-      setProgress(`Tekeningen extraheren (0/${parsed.aantalElementen})...`)
-
+      // Step 1: Load PDF with pdfjs (used for text extraction + tekening rendering)
+      setProgress('PDF laden...')
       const pdfjsLib = await import('pdfjs-dist')
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
 
       const arrayBuffer = await file.arrayBuffer()
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
       const totalPages = pdf.numPages
+
+      // Step 2: Extract text from all pages with proper line breaks
+      // Uses pdfjs directly (instead of server-side unpdf) for consistent text format
+      setProgress('PDF tekst analyseren...')
+      let fullText = ''
+      for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        const page = await pdf.getPage(pageNum)
+        const tc = await page.getTextContent()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const items = (tc.items as any[]).filter((it: any) => 'str' in it)
+        let pageText = ''
+        let lastY: number | null = null
+        for (const item of items) {
+          if (!item.str) continue
+          const y = Math.round(item.transform[5])
+          const newLine = lastY !== null && Math.abs(y - lastY) > 3
+          pageText += newLine ? '\n' : (pageText && !pageText.endsWith('\n') ? ' ' : '')
+          pageText += item.str
+          lastY = y
+          if (item.hasEOL) { pageText += '\n'; lastY = null }
+        }
+        fullText += pageText + '\n\n'
+      }
+
+      // Step 3: Parse leverancier text client-side (consistent with pdfjs extraction)
+      const { totaal, elementen } = parseLeverancierPdfText(fullText)
+      const parsed: ParsedPdfResult = {
+        totaal,
+        elementen: elementen.map(e => ({
+          naam: e.naam, hoeveelheid: e.hoeveelheid, systeem: e.systeem, kleur: e.kleur,
+          afmetingen: e.afmetingen, type: e.type, prijs: e.prijs, glasType: e.glasType,
+          beslag: e.beslag, uwWaarde: e.uwWaarde, drapirichting: e.drapirichting,
+          dorpel: e.dorpel, sluiting: e.sluiting, scharnieren: e.scharnieren,
+          gewicht: e.gewicht, omtrek: e.omtrek, paneel: e.paneel, commentaar: e.commentaar,
+          hoekverbinding: e.hoekverbinding, montageGaten: e.montageGaten,
+          afwatering: e.afwatering, scharnierenKleur: e.scharnierenKleur,
+          lakKleur: e.lakKleur, sluitcilinder: e.sluitcilinder,
+          aantalSleutels: e.aantalSleutels, gelijksluitend: e.gelijksluitend,
+          krukBinnen: e.krukBinnen, krukBuiten: e.krukBuiten,
+        })),
+        aantalElementen: elementen.length,
+      }
+
+      // Step 4: Render tekeningen from pages
+      setProgress(`Tekeningen extraheren (0/${parsed.aantalElementen})...`)
 
       // Scan all pages for element names and drawing markers
       // Match element headers — Positie must be followed by exactly 3 digits and then non-digit (prevents matching "908" from prices like "908,16")
@@ -377,7 +397,7 @@ export function StapTekeningen({
             <div className="flex-1 min-w-0">
               <p className="font-medium text-gray-900 truncate">{pendingPdfFile.name}</p>
               <p className="text-sm text-green-700 mt-1">
-                {parsedPdfResult!.aantalElementen} kozijntekeningen gevonden
+                {parsedPdfResult!.aantalElementen} kozijntekeningen gevonden &middot; {parsedPdfResult!.elementen.length} elementen met prijs
                 {parsedPdfResult!.totaal > 0 && <> &middot; Totaalprijs: <strong>{formatCurrency(parsedPdfResult!.totaal)}</strong></>}
               </p>
             </div>
