@@ -1,22 +1,27 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
-// GET = analyse, POST = verwijder
+function normalize(naam: string): string {
+  return naam
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,\-_]/g, '')
+    .replace(/\b(bv|nv|vof)\b/gi, '')
+    .trim()
+}
+
 export async function GET() {
   const supabase = createAdminClient()
 
-  const { data: admins } = await supabase.from('administraties').select('id')
-  if (!admins?.[0]) return NextResponse.json({ error: 'Geen administraties' })
-  const adminId = admins[0].id
-
-  // Haal alle relaties op
-  const { data: relaties } = await supabase
+  // Haal ALLE relaties op (admin client, geen RLS)
+  const { data: relaties, error } = await supabase
     .from('relaties')
-    .select('id, bedrijfsnaam, created_at')
-    .eq('administratie_id', adminId)
+    .select('id, bedrijfsnaam, administratie_id, created_at')
     .order('created_at', { ascending: true })
     .range(0, 9999)
 
+  if (error) return NextResponse.json({ error: error.message })
   if (!relaties) return NextResponse.json({ error: 'Geen data' })
 
   // Groepeer imports per dag
@@ -26,67 +31,67 @@ export async function GET() {
     perDag.set(dag, (perDag.get(dag) || 0) + 1)
   }
 
-  // Zoek fuzzy duplicaten (normaliseer naam)
-  function normalize(naam: string): string {
-    return naam
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, ' ')
-      .replace(/[.,\-_]/g, '')
-      .replace(/\b(bv|b\.v\.|nv|n\.v\.|vof|v\.o\.f\.)\b/gi, '')
-      .trim()
-  }
-
-  const groepen = new Map<string, typeof relaties>()
+  // Zoek fuzzy duplicaten per administratie
+  const perAdmin = new Map<string, typeof relaties>()
   for (const r of relaties) {
-    const key = normalize(r.bedrijfsnaam || '')
-    if (!key) continue
-    if (!groepen.has(key)) groepen.set(key, [])
-    groepen.get(key)!.push(r)
+    const aid = r.administratie_id || 'none'
+    if (!perAdmin.has(aid)) perAdmin.set(aid, [])
+    perAdmin.get(aid)!.push(r)
   }
 
-  const dubbeleGroepen = [...groepen.entries()]
-    .filter(([, g]) => g.length > 1)
-    .map(([key, g]) => ({
-      naam: key,
-      aantal: g.length,
-      varianten: g.map(r => ({ id: r.id, bedrijfsnaam: r.bedrijfsnaam, created_at: r.created_at })),
-    }))
-    .sort((a, b) => b.aantal - a.aantal)
+  let totaalDubbelen = 0
+  const voorbeelden: { naam: string; aantal: number; varianten: { bedrijfsnaam: string; created_at: string }[] }[] = []
+
+  for (const [, adminRelaties] of perAdmin) {
+    const groepen = new Map<string, typeof relaties>()
+    for (const r of adminRelaties) {
+      const key = normalize(r.bedrijfsnaam || '')
+      if (!key) continue
+      if (!groepen.has(key)) groepen.set(key, [])
+      groepen.get(key)!.push(r)
+    }
+
+    for (const [key, groep] of groepen) {
+      if (groep.length <= 1) continue
+      totaalDubbelen += groep.length - 1
+      if (voorbeelden.length < 30) {
+        voorbeelden.push({
+          naam: key,
+          aantal: groep.length,
+          varianten: groep.map(r => ({ bedrijfsnaam: r.bedrijfsnaam, created_at: r.created_at })),
+        })
+      }
+    }
+  }
 
   return NextResponse.json({
     totaal: relaties.length,
-    importPerDag: Object.fromEntries(perDag),
-    aantalDubbeleGroepen: dubbeleGroepen.length,
-    totaalDubbelen: dubbeleGroepen.reduce((s, g) => s + g.aantal - 1, 0),
-    voorbeelden: dubbeleGroepen.slice(0, 20),
+    administraties: [...perAdmin.entries()].map(([aid, rs]) => ({ id: aid, aantal: rs.length })),
+    importPerDag: Object.fromEntries([...perDag.entries()].sort()),
+    totaalDubbelen,
+    voorbeelden: voorbeelden.sort((a, b) => b.aantal - a.aantal),
   })
 }
 
 export async function POST() {
   const supabase = createAdminClient()
 
-  const { data: admins } = await supabase.from('administraties').select('id')
-  if (!admins?.[0]) return NextResponse.json({ error: 'Geen administraties' })
-  const adminId = admins[0].id
-
   // Haal alle relaties op
   const { data: relaties } = await supabase
     .from('relaties')
-    .select('id, bedrijfsnaam, created_at')
-    .eq('administratie_id', adminId)
+    .select('id, bedrijfsnaam, administratie_id, created_at')
     .order('created_at', { ascending: true })
     .range(0, 9999)
 
   if (!relaties) return NextResponse.json({ error: 'Geen data' })
 
-  // Haal gekoppelde relatie_ids op
+  // Haal gekoppelde relatie_ids op (alle administraties)
   const [offertesRes, ordersRes, facturenRes, projectenRes, takenRes] = await Promise.all([
-    supabase.from('offertes').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
-    supabase.from('orders').select('relatie_id').not('relatie_id', 'is', null),
-    supabase.from('facturen').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
-    supabase.from('projecten').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
-    supabase.from('taken').select('relatie_id').eq('administratie_id', adminId).not('relatie_id', 'is', null),
+    supabase.from('offertes').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
+    supabase.from('orders').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
+    supabase.from('facturen').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
+    supabase.from('projecten').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
+    supabase.from('taken').select('relatie_id').not('relatie_id', 'is', null).range(0, 9999),
   ])
   const gekoppeldeIds = new Set([
     ...(offertesRes.data || []).map(r => r.relatie_id),
@@ -96,28 +101,18 @@ export async function POST() {
     ...(takenRes.data || []).map(r => r.relatie_id),
   ])
 
-  // Normaliseer en groepeer
-  function normalize(naam: string): string {
-    return naam
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, ' ')
-      .replace(/[.,\-_]/g, '')
-      .replace(/\b(bv|b\.v\.|nv|n\.v\.|vof|v\.o\.f\.)\b/gi, '')
-      .trim()
-  }
-
-  const groepen = new Map<string, typeof relaties>()
+  // Groepeer per administratie + genormaliseerde naam
+  const perAdmin = new Map<string, typeof relaties>()
   for (const r of relaties) {
-    const key = normalize(r.bedrijfsnaam || '')
-    if (!key) continue
-    if (!groepen.has(key)) groepen.set(key, [])
-    groepen.get(key)!.push(r)
+    const key = `${r.administratie_id}::${normalize(r.bedrijfsnaam || '')}`
+    if (!normalize(r.bedrijfsnaam || '')) continue
+    if (!perAdmin.has(key)) perAdmin.set(key, [])
+    perAdmin.get(key)!.push(r)
   }
 
   // Per groep: behoud degene met koppelingen of de oudste
   const teVerwijderen: string[] = []
-  for (const [, groep] of groepen) {
+  for (const [, groep] of perAdmin) {
     if (groep.length <= 1) continue
     groep.sort((a, b) => {
       const aK = gekoppeldeIds.has(a.id) ? 0 : 1
