@@ -217,6 +217,10 @@ export function BeheerView({ administratie, nummering, gebruikers }: {
                     { value: 'readonly', label: 'Alleen lezen' },
                   ]}
                 />
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input type="checkbox" name="stuur_email" value="true" defaultChecked className="rounded border-gray-300" />
+                  Stuur inloggegevens per e-mail
+                </label>
               </div>
               <div className="flex justify-end gap-2 mt-6">
                 <Button type="button" variant="secondary" onClick={() => setShowNewUser(false)}>

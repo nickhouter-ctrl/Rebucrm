@@ -334,6 +334,10 @@ export function MedewerkerDetail({
               minLength={6}
               required
             />
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" name="stuur_email" value="true" defaultChecked className="rounded border-gray-300" />
+              Stuur inloggegevens per e-mail
+            </label>
             {accountError && (
               <div className="p-3 bg-red-50 text-red-700 text-sm rounded-md">{accountError}</div>
             )}

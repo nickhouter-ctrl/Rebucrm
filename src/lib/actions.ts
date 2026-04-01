@@ -2618,6 +2618,30 @@ export async function createGebruiker(formData: FormData) {
 
   if (profielError) return { error: profielError.message }
 
+  // Optioneel: stuur welkomstmail met inloggegevens
+  if (formData.get('stuur_email') === 'true') {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const welkomBody = `Beste ${naam},
+
+Er is een account voor u aangemaakt bij Rebu Kozijnen.
+
+Uw inloggegevens:
+- E-mail: ${email}
+- Wachtwoord: ${wachtwoord}
+
+Wij raden u aan uw wachtwoord na de eerste login te wijzigen.`
+
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Uw account — Rebu Kozijnen',
+        html: buildRebuEmailHtml(welkomBody, `${baseUrl}/login`, 'Inloggen'),
+      })
+    } catch (err) {
+      console.error('Welkomstmail versturen mislukt:', err)
+    }
+  }
+
   revalidatePath('/beheer')
   return { success: true }
 }
@@ -4916,6 +4940,30 @@ export async function createMedewerkerAccount(medewerkerId: string, formData: Fo
     .from('medewerkers')
     .update({ profiel_id: userData.user.id })
     .eq('id', medewerkerId)
+
+  // Optioneel: stuur welkomstmail met inloggegevens
+  if (formData.get('stuur_email') === 'true') {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const welkomBody = `Beste ${naam},
+
+Er is een medewerker-account voor u aangemaakt bij Rebu Kozijnen. Via het dashboard kunt u uw taken, planning en uren bekijken.
+
+Uw inloggegevens:
+- E-mail: ${email}
+- Wachtwoord: ${wachtwoord}
+
+Wij raden u aan uw wachtwoord na de eerste login te wijzigen.`
+
+    try {
+      await sendEmail({
+        to: email,
+        subject: 'Uw medewerker-account — Rebu Kozijnen',
+        html: buildRebuEmailHtml(welkomBody, `${baseUrl}/login`, 'Inloggen op het dashboard'),
+      })
+    } catch (err) {
+      console.error('Welkomstmail versturen mislukt:', err)
+    }
+  }
 
   revalidatePath('/medewerkers')
   return { success: true }

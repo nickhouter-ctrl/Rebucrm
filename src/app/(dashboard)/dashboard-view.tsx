@@ -780,6 +780,20 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             </Section>
           )}
 
+          {/* Openstaande taken per collega */}
+          {data.takenPerCollega.length > 0 && (
+            <Section title="Taken per collega" icon={Users} iconColor="bg-violet-50 text-violet-600" count={data.takenPerCollega.reduce((s, c) => s + c.aantal, 0)} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-violet-100 text-violet-700">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-px bg-gray-100">
+                {data.takenPerCollega.map(c => (
+                  <div key={c.naam} className="bg-white px-4 py-3">
+                    <p className="text-xs text-gray-500 truncate">{c.naam}</p>
+                    <p className="text-xl font-bold text-gray-900 mt-0.5">{c.aantal}</p>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
+
           {/* 7. Mijn taken */}
           {(() => {
             const toonToegewezen = data.mijnTaken.some(t => t.toegewezen_naam)
