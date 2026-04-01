@@ -116,7 +116,7 @@ export async function getRelaties() {
     .from('relaties')
     .select('*')
     .order('bedrijfsnaam')
-    .limit(5000)
+    .range(0, 4999)
   return data || []
 }
 
@@ -1463,10 +1463,10 @@ export async function getDashboardData() {
 
   const supabaseAdmin = createAdminClient()
   const [facturenRes, offertesRes, takenRes, relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
-    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).limit(5000),
-    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).limit(5000),
-    supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).limit(5000),
-    supabase.from('relaties').select('type').eq('administratie_id', adminId).limit(5000),
+    supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(0, 4999),
+    supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(0, 4999),
+    supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(0, 4999),
+    supabase.from('relaties').select('type', { count: 'exact' }).eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
@@ -1598,7 +1598,7 @@ export async function getDashboardData() {
 
   // Organisaties
   const organisaties = {
-    totaal: relatiesData.length,
+    totaal: relatiesRes.count ?? relatiesData.length,
     particulier: relatiesData.filter(r => r.type === 'particulier').length,
     zakelijk: relatiesData.filter(r => r.type === 'zakelijk').length,
   }
@@ -1733,7 +1733,7 @@ export async function getDashboardData() {
   const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
   // Build name lookup from relatiesData (we need full relaties for names)
   const relatieNamen = new Map<string, string>()
-  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId).limit(5000)
+  const { data: relatieNaamData } = await supabase.from('relaties').select('id, bedrijfsnaam').eq('administratie_id', adminId).range(0, 4999)
   for (const r of relatieNaamData || []) {
     relatieNamen.set(r.id, r.bedrijfsnaam || 'Onbekend')
   }
