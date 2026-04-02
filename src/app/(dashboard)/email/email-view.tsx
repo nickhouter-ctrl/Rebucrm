@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -24,6 +24,7 @@ interface Email {
   richting: 'inkomend' | 'uitgaand'
   relatie: { id: string; bedrijfsnaam: string } | null
   offerte: { id: string; offertenummer: string } | null
+  medewerker: { id: string; naam: string } | null
   gelezen: boolean
   labels: string[]
 }
@@ -73,6 +74,10 @@ export function EmailView({
   const [toonIrrelevant, setToonIrrelevant] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [assigningEmail, setAssigningEmail] = useState<string | null>(null)
+  const [assignStep, setAssignStep] = useState<'medewerker' | 'project'>('medewerker')
+  const [selectedMedewerker, setSelectedMedewerker] = useState<string | null>(null)
+  const [assignProjecten, setAssignProjecten] = useState<{ id: string; naam: string; status: string }[]>([])
+  const [assignLoading, setAssignLoading] = useState(false)
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null)
   const [projectZoek, setProjectZoek] = useState('')
 
@@ -141,9 +146,27 @@ export function EmailView({
     }
   }
 
-  async function handleAssign(emailId: string, medewerkerId: string) {
+  async function handleSelectMedewerker(emailId: string, medewerkerId: string) {
+    setSelectedMedewerker(medewerkerId)
+    setAssignLoading(true)
+    // Check of er bestaande verkoopkansen zijn voor deze email's relatie
+    const projecten = await getActiveProjectsForEmail(emailId)
+    setAssignLoading(false)
+    if (projecten.length > 0) {
+      setAssignProjecten(projecten)
+      setAssignStep('project')
+    } else {
+      // Geen bestaande projecten → direct toewijzen (maakt automatisch nieuwe aan)
+      await finalizeAssign(emailId, medewerkerId, undefined)
+    }
+  }
+
+  async function finalizeAssign(emailId: string, medewerkerId: string, projectId?: string | 'nieuw') {
     setAssigningEmail(null)
-    const result = await assignEmailToMedewerker(emailId, medewerkerId)
+    setAssignStep('medewerker')
+    setSelectedMedewerker(null)
+    setAssignProjecten([])
+    const result = await assignEmailToMedewerker(emailId, medewerkerId, projectId)
     if (result.success) {
       setEmails(prev => prev.map(e => e.id === emailId ? { ...e, gelezen: true, labels: [...(e.labels || []), 'verwerkt'] } : e))
     }
@@ -296,6 +319,12 @@ export function EmailView({
                                 {email.offerte.offertenummer}
                               </span>
                             )}
+                            {email.medewerker && (
+                              <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">
+                                <UserPlus className="h-3 w-3" />
+                                {email.medewerker.naam}
+                              </span>
+                            )}
                             {email.labels?.includes('offerte_aanvraag') && (
                               <span className="inline-flex items-center text-[10px] font-semibold bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
                                 Offerte aanvraag
@@ -343,7 +372,20 @@ export function EmailView({
                               return <p className="text-sm text-gray-400 animate-pulse">Inhoud laden...</p>
                             }
                             if (bodyHtml) {
-                              return <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+                              return (
+                                <iframe
+                                  sandbox=""
+                                  srcDoc={bodyHtml}
+                                  className="w-full border-0 min-h-[200px]"
+                                  style={{ height: 'auto' }}
+                                  onLoad={(e) => {
+                                    const frame = e.target as HTMLIFrameElement
+                                    if (frame.contentDocument) {
+                                      frame.style.height = frame.contentDocument.body.scrollHeight + 20 + 'px'
+                                    }
+                                  }}
+                                />
+                              )
                             }
                             return <pre className="whitespace-pre-wrap text-gray-700 font-sans">{bodyText || '(geen inhoud)'}</pre>
                           })()}
@@ -370,22 +412,52 @@ export function EmailView({
                               <Button
                                 size="sm"
                                 variant="secondary"
-                                onClick={(e) => { e.stopPropagation(); setAssigningEmail(assigningEmail === email.id ? null : email.id); setLinkingEmail(null) }}
+                                onClick={(e) => { e.stopPropagation(); setAssigningEmail(assigningEmail === email.id ? null : email.id); setAssignStep('medewerker'); setSelectedMedewerker(null); setAssignProjecten([]); setLinkingEmail(null) }}
                               >
                                 <UserPlus className="h-3.5 w-3.5" />
                                 Toewijzen
                               </Button>
                               {assigningEmail === email.id && (
-                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[200px]">
-                                  {medewerkers.filter(m => m.actief).map(m => (
-                                    <button
-                                      key={m.id}
-                                      onClick={(e) => { e.stopPropagation(); handleAssign(email.id, m.id) }}
-                                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
-                                    >
-                                      {m.naam}
-                                    </button>
-                                  ))}
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[280px]">
+                                  {assignStep === 'medewerker' && (
+                                    <>
+                                      <div className="px-4 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">Kies medewerker</div>
+                                      {assignLoading ? (
+                                        <div className="px-4 py-3 text-sm text-gray-400">Laden...</div>
+                                      ) : (
+                                        medewerkers.filter(m => m.actief).map(m => (
+                                          <button
+                                            key={m.id}
+                                            onClick={(e) => { e.stopPropagation(); handleSelectMedewerker(email.id, m.id) }}
+                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                          >
+                                            {m.naam}
+                                          </button>
+                                        ))
+                                      )}
+                                    </>
+                                  )}
+                                  {assignStep === 'project' && selectedMedewerker && (
+                                    <>
+                                      <div className="px-4 py-2 text-xs font-medium text-gray-500 border-b border-gray-100">Koppel aan verkoopkans</div>
+                                      {assignProjecten.map(p => (
+                                        <button
+                                          key={p.id}
+                                          onClick={(e) => { e.stopPropagation(); finalizeAssign(email.id, selectedMedewerker, p.id) }}
+                                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                        >
+                                          <span>{p.naam}</span>
+                                          <span className="ml-2 text-xs text-gray-400">{p.status}</span>
+                                        </button>
+                                      ))}
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); finalizeAssign(email.id, selectedMedewerker, 'nieuw') }}
+                                        className="block w-full text-left px-4 py-2 text-sm text-primary font-medium hover:bg-gray-50 border-t border-gray-100"
+                                      >
+                                        + Nieuwe verkoopkans aanmaken
+                                      </button>
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>

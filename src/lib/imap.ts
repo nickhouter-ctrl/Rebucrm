@@ -1,4 +1,5 @@
 import { ImapFlow } from 'imapflow'
+import { simpleParser } from 'mailparser'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export function createImapClient() {
@@ -262,6 +263,25 @@ export async function syncEmails(administratieId: string) {
     }
   }
 
+  // Pre-load meest recente actieve verkoopkans per relatie voor project_id matching
+  const relatieIds = [...new Set([...relatieEmailMap.values()])]
+  const relatieProjectMap = new Map<string, string>()
+  if (relatieIds.length > 0) {
+    const { data: actieveProjecten } = await supabase
+      .from('projecten')
+      .select('id, relatie_id')
+      .eq('administratie_id', administratieId)
+      .eq('status', 'actief')
+      .in('relatie_id', relatieIds)
+      .order('created_at', { ascending: false })
+    for (const p of actieveProjecten || []) {
+      // Alleen de eerste (meest recente) per relatie opslaan
+      if (!relatieProjectMap.has(p.relatie_id)) {
+        relatieProjectMap.set(p.relatie_id, p.id)
+      }
+    }
+  }
+
   // Build insert batch
   const inserts = newEmails.map(email => {
     const richting = onzeAdressen.has(email.van_email.toLowerCase()) ? 'uitgaand' : 'inkomend'
@@ -290,6 +310,9 @@ export async function syncEmails(administratieId: string) {
 
     if (email.imap_uid > maxUid) maxUid = email.imap_uid
 
+    // Match project_id via relatie
+    const matchedProjectId = relatieId ? (relatieProjectMap.get(relatieId) || null) : null
+
     return {
       administratie_id: administratieId,
       message_id: email.message_id,
@@ -305,6 +328,7 @@ export async function syncEmails(administratieId: string) {
       richting,
       relatie_id: relatieId,
       offerte_id: null as string | null,
+      project_id: matchedProjectId,
       labels,
       imap_uid: email.imap_uid,
       imap_folder: 'INBOX',
@@ -384,18 +408,11 @@ export async function fetchEmailBody(imapUid: number): Promise<{ text: string | 
     await client.connect()
     const lock = await client.getMailboxLock('INBOX')
     try {
-      // Download the message source for this specific UID
       const msg = await client.fetchOne(String(imapUid), { source: true }, { uid: true }) as { source?: Buffer } | false
       if (msg && 'source' in msg && msg.source) {
-        const source = msg.source.toString()
-        const textMatch = source.match(/Content-Type: text\/plain[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n([\s\S]*?)(?:\r\n--)/i)
-        const htmlMatch = source.match(/Content-Type: text\/html[^\r\n]*\r\n(?:[^\r\n]+\r\n)*\r\n([\s\S]*?)(?:\r\n--)/i)
-        text = textMatch?.[1]?.trim() || null
-        html = htmlMatch?.[1]?.trim() || null
-        if (!text && !html) {
-          const plainBody = source.split('\r\n\r\n').slice(1).join('\r\n\r\n')
-          text = plainBody?.trim() || null
-        }
+        const parsed = await simpleParser(msg.source)
+        text = parsed.text || null
+        html = (typeof parsed.html === 'string' ? parsed.html : null)
       }
     } finally {
       lock.release()

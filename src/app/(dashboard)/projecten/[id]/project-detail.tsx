@@ -15,12 +15,24 @@ import { Dialog } from '@/components/ui/dialog'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 
-export function ProjectDetail({ timeline, relaties, isNew }: {
+interface ProjectEmail {
+  id: string
+  van_email: string
+  van_naam: string | null
+  aan_email: string
+  onderwerp: string | null
+  datum: string
+  richting: 'inkomend' | 'uitgaand'
+  labels: string[]
+}
+
+export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
   timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
   isNew: boolean
+  emails?: ProjectEmail[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -266,6 +278,38 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
 
           {/* Timeline */}
           <Timeline items={timeline.items} onEmailClick={handleEmailClick} />
+
+          {/* Gekoppelde emails */}
+          {emails.length > 0 && (
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Mail className="h-4 w-4 text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-900">E-mails ({emails.length})</h3>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {emails.map(em => (
+                    <div key={em.id} className="flex items-center gap-3 py-2.5">
+                      {em.richting === 'inkomend' ? (
+                        <ArrowDownLeft className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      ) : (
+                        <ArrowUpRight className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900 truncate">{em.onderwerp || '(geen onderwerp)'}</p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {em.richting === 'inkomend' ? (em.van_naam || em.van_email) : em.aan_email}
+                        </p>
+                      </div>
+                      <span className="text-xs text-gray-400 shrink-0">
+                        {formatDateShort(em.datum)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

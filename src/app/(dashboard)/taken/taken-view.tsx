@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
 import { completeTaak, uncompleteTaak } from '@/lib/actions'
-import { Plus, CheckSquare, X } from 'lucide-react'
+import { Plus, CheckSquare, X, Phone, FileText, ListTodo } from 'lucide-react'
 
 interface Taak {
   id: string
@@ -28,10 +28,14 @@ interface Taak {
   relatie: { bedrijfsnaam: string } | null
 }
 
-function categoriseerTaak(titel: string): 'bellen' | 'uitwerken' {
+type TabType = 'alle' | 'opvolgen' | 'offerte' | 'afgerond'
+
+function categorieTaak(titel: string, status: string): TabType {
+  if (status === 'afgerond') return 'afgerond'
   const t = titel.toLowerCase()
-  if (t.includes('bellen') || t.includes('opbellen') || t.includes('nabellen')) return 'bellen'
-  return 'uitwerken'
+  if (t.includes('offerte') || t.includes('uitwerken') || t.includes('opmeten') || t.includes('nacalcul')) return 'offerte'
+  if (t.includes('bellen') || t.includes('opbellen') || t.includes('nabellen') || t.includes('opvolgen') || t.includes('terugbellen') || t.includes('mailen')) return 'opvolgen'
+  return 'alle'
 }
 
 function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: string) => void): ColumnDef<Taak, unknown>[] {
@@ -73,6 +77,7 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
   const filterCollega = searchParams.get('collega')
   const filterCategorie = searchParams.get('categorie') as 'bellen' | 'uitwerken' | null
   const [filterMedewerker, setFilterMedewerker] = useState('')
+  const [activeTab, setActiveTab] = useState<TabType>('alle')
 
   // Unieke medewerkers voor dropdown
   const medewerkers = useMemo(() => {
@@ -85,18 +90,38 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
     return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
   }, [taken])
 
-  // Filter op basis van URL params + medewerker dropdown
+  // Tel per categorie (alleen open taken)
+  const counts = useMemo(() => {
+    const openTaken = taken.filter(t => t.status !== 'afgerond')
+    return {
+      alle: openTaken.length,
+      opvolgen: openTaken.filter(t => categorieTaak(t.titel, t.status) === 'opvolgen').length,
+      offerte: openTaken.filter(t => categorieTaak(t.titel, t.status) === 'offerte').length,
+      afgerond: taken.filter(t => t.status === 'afgerond').length,
+    }
+  }, [taken])
+
+  // Filter op basis van tab + URL params + medewerker dropdown
   const gefilterd = taken.filter(t => {
     if (filterCollega && t.toegewezen_aan !== filterCollega) return false
-    if (filterCategorie && categoriseerTaak(t.titel) !== filterCategorie) return false
+    if (filterCategorie && {
+      bellen: 'opvolgen' as TabType,
+      uitwerken: 'offerte' as TabType,
+    }[filterCategorie] && categorieTaak(t.titel, t.status) !== { bellen: 'opvolgen' as TabType, uitwerken: 'offerte' as TabType }[filterCategorie]) return false
     if (filterMedewerker && (t.medewerker_id || t.toegewezen_aan) !== filterMedewerker) return false
+
+    // Tab filter
+    if (activeTab === 'afgerond') return t.status === 'afgerond'
+    if (activeTab === 'alle') return t.status !== 'afgerond'
+    if (activeTab === 'opvolgen') return t.status !== 'afgerond' && categorieTaak(t.titel, t.status) === 'opvolgen'
+    if (activeTab === 'offerte') return t.status !== 'afgerond' && categorieTaak(t.titel, t.status) === 'offerte'
     return true
   })
 
   const [takenLijst, setTakenLijst] = useState(gefilterd)
 
   // Sync bij filter-wijziging
-  const filteredKey = `${filterCollega}-${filterCategorie}-${filterMedewerker}`
+  const filteredKey = `${filterCollega}-${filterCategorie}-${filterMedewerker}-${activeTab}`
   const [prevKey, setPrevKey] = useState(filteredKey)
   if (filteredKey !== prevKey) {
     setPrevKey(filteredKey)
@@ -120,6 +145,13 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
     }
   }
 
+  const tabs: { key: TabType; label: string; icon: typeof ListTodo; count: number }[] = [
+    { key: 'alle', label: 'Alle open', icon: ListTodo, count: counts.alle },
+    { key: 'opvolgen', label: 'Opvolgen', icon: Phone, count: counts.opvolgen },
+    { key: 'offerte', label: 'Offertes / Uitwerken', icon: FileText, count: counts.offerte },
+    { key: 'afgerond', label: 'Afgerond', icon: CheckSquare, count: counts.afgerond },
+  ]
+
   return (
     <div>
       <PageHeader
@@ -132,6 +164,32 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
           </Button>
         }
       />
+
+      {/* Tabs */}
+      <div className="mb-4 flex gap-1 border-b border-gray-200">
+        {tabs.map(tab => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab.key
+                  ? 'border-[#00a66e] text-[#00a66e]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+              <span className={`ml-1 text-xs px-1.5 py-0.5 rounded-full ${
+                activeTab === tab.key ? 'bg-[#00a66e]/10 text-[#00a66e]' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {tab.count}
+              </span>
+            </button>
+          )
+        })}
+      </div>
 
       {/* Filters */}
       <div className="mb-4 flex items-center gap-3 flex-wrap">
@@ -157,11 +215,11 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
           </span>
         )}
 
-        <span className="text-sm text-gray-400">{takenLijst.filter(t => t.status !== 'afgerond').length} open</span>
+        <span className="text-sm text-gray-400">{takenLijst.length} {activeTab === 'afgerond' ? 'afgerond' : 'open'}</span>
       </div>
 
       {takenLijst.length === 0 ? (
-        <EmptyState icon={CheckSquare} title="Geen taken" description="U heeft nog geen taken." action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
+        <EmptyState icon={CheckSquare} title="Geen taken" description={activeTab === 'afgerond' ? 'Geen afgeronde taken.' : 'Geen taken in deze categorie.'} action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
       ) : (
         <DataTable columns={getColumns(isAdmin, handleToggle)} data={takenLijst} searchPlaceholder="Zoek taak..." onRowClick={(row) => router.push(`/taken/${row.id}`)} />
       )}

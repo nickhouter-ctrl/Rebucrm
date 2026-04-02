@@ -2071,7 +2071,7 @@ export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaan
 
   let query = supabase
     .from('emails')
-    .select('*, relatie:relaties(id, bedrijfsnaam), offerte:offertes(id, offertenummer)', { count: 'exact' })
+    .select('*, relatie:relaties(id, bedrijfsnaam), offerte:offertes(id, offertenummer), medewerker:medewerkers(id, naam)', { count: 'exact' })
     .eq('administratie_id', adminId)
 
   if (filter === 'inkomend') query = query.eq('richting', 'inkomend')
@@ -2096,7 +2096,43 @@ export async function markEmailGelezen(emailId: string) {
   revalidatePath('/email')
 }
 
-export async function assignEmailToMedewerker(emailId: string, medewerkerId: string) {
+export async function getActiveProjectsForEmail(emailId: string) {
+  'use server'
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+
+  // Haal email op
+  const { data: email } = await supabase.from('emails').select('van_email, relatie_id, offerte_id, in_reply_to').eq('id', emailId).single()
+  if (!email) return []
+
+  // Zoek relatie_id
+  let relatieId = email.relatie_id
+  if (!relatieId && email.van_email) {
+    const { data: relatie } = await supabase
+      .from('relaties')
+      .select('id')
+      .eq('administratie_id', adminId)
+      .ilike('email', email.van_email)
+      .maybeSingle()
+    if (relatie) relatieId = relatie.id
+  }
+
+  if (!relatieId) return []
+
+  // Haal actieve verkoopkansen op voor deze relatie
+  const { data: projecten } = await supabase
+    .from('projecten')
+    .select('id, naam, status')
+    .eq('administratie_id', adminId)
+    .eq('relatie_id', relatieId)
+    .in('status', ['actief', 'on_hold'])
+    .order('created_at', { ascending: false })
+
+  return projecten || []
+}
+
+export async function assignEmailToMedewerker(emailId: string, medewerkerId: string, projectId?: string | 'nieuw') {
   'use server'
   const supabase = await createClient()
   const adminId = await getAdministratieId()
@@ -2138,20 +2174,79 @@ export async function assignEmailToMedewerker(emailId: string, medewerkerId: str
     }
   }
 
-  // Maak verkoopkans (project) aan
-  let projectId: string | null = null
-  if (relatieId) {
-    const { data: project } = await supabase
-      .from('projecten')
-      .insert({
-        administratie_id: adminId,
-        naam: email.onderwerp || 'Nieuw vanuit e-mail',
-        relatie_id: relatieId,
-        status: 'actief',
-      })
-      .select('id')
-      .single()
-    if (project) projectId = project.id
+  // Zoek of maak verkoopkans (project)
+  let finalProjectId: string | null = null
+
+  if (projectId && projectId !== 'nieuw') {
+    // Expliciet gekozen project
+    finalProjectId = projectId
+  } else if (projectId === 'nieuw') {
+    // Gebruiker wil expliciet nieuwe verkoopkans
+    if (relatieId) {
+      const { data: project } = await supabase
+        .from('projecten')
+        .insert({
+          administratie_id: adminId,
+          naam: email.onderwerp || 'Nieuw vanuit e-mail',
+          relatie_id: relatieId,
+          status: 'actief',
+        })
+        .select('id')
+        .single()
+      if (project) finalProjectId = project.id
+    }
+  } else if (relatieId) {
+    // Slim zoeken naar bestaande verkoopkans
+    // a) Via offerte_id → project_id
+    if (email.offerte_id) {
+      const { data: offerte } = await supabase
+        .from('offertes')
+        .select('project_id')
+        .eq('id', email.offerte_id)
+        .maybeSingle()
+      if (offerte?.project_id) finalProjectId = offerte.project_id
+    }
+
+    // b) Via in_reply_to → parent email → project_id
+    if (!finalProjectId && email.in_reply_to) {
+      const { data: parentEmail } = await supabase
+        .from('emails')
+        .select('project_id')
+        .eq('message_id', email.in_reply_to)
+        .not('project_id', 'is', null)
+        .maybeSingle()
+      if (parentEmail?.project_id) finalProjectId = parentEmail.project_id
+    }
+
+    // c) Zoek actieve projecten voor deze relatie
+    if (!finalProjectId) {
+      const { data: actieveProjecten } = await supabase
+        .from('projecten')
+        .select('id')
+        .eq('administratie_id', adminId)
+        .eq('relatie_id', relatieId)
+        .eq('status', 'actief')
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (actieveProjecten && actieveProjecten.length > 0) {
+        finalProjectId = actieveProjecten[0].id
+      }
+    }
+
+    // d) Geen match → nieuwe verkoopkans aanmaken
+    if (!finalProjectId) {
+      const { data: project } = await supabase
+        .from('projecten')
+        .insert({
+          administratie_id: adminId,
+          naam: email.onderwerp || 'Nieuw vanuit e-mail',
+          relatie_id: relatieId,
+          status: 'actief',
+        })
+        .select('id')
+        .single()
+      if (project) finalProjectId = project.id
+    }
   }
 
   // Maak taak aan
@@ -2161,15 +2256,17 @@ export async function assignEmailToMedewerker(emailId: string, medewerkerId: str
     status: 'open',
     prioriteit: 'normaal',
     relatie_id: relatieId,
-    project_id: projectId,
+    project_id: finalProjectId,
     medewerker_id: medewerkerId,
     toegewezen_aan: medewerker.profiel_id || null,
   })
 
-  // Email markeren als verwerkt
+  // Email markeren als verwerkt + medewerker toewijzen + project koppelen
   await supabase.from('emails').update({
     gelezen: true,
     relatie_id: relatieId,
+    medewerker_id: medewerkerId,
+    project_id: finalProjectId,
     labels: [...(email.labels || []).filter((l: string) => l !== 'irrelevant'), 'verwerkt'],
   }).eq('id', emailId)
 
@@ -2189,11 +2286,26 @@ export async function linkEmailToProject(emailId: string, projectId: string) {
 
   await supabase.from('emails').update({
     relatie_id: project?.relatie_id || null,
+    project_id: projectId,
     labels: ['gekoppeld'],
   }).eq('id', emailId)
 
   revalidatePath('/email')
+  revalidatePath('/projecten')
   return { success: true }
+}
+
+export async function getEmailsForProject(projectId: string) {
+  'use server'
+  const supabase = await createClient()
+
+  const { data } = await supabase
+    .from('emails')
+    .select('id, van_email, van_naam, aan_email, onderwerp, datum, richting, labels')
+    .eq('project_id', projectId)
+    .order('datum', { ascending: false })
+
+  return data || []
 }
 
 export async function getEmailBody(emailId: string) {
@@ -4999,10 +5111,10 @@ export async function getAgendaItems(): Promise<AgendaItem[]> {
 // === MEDEWERKERS ===
 export async function getMedewerkers() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('medewerkers')
-    .select('*')
-    .order('naam')
+  const adminId = await getAdministratieId()
+  let query = supabase.from('medewerkers').select('*')
+  if (adminId) query = query.eq('administratie_id', adminId)
+  const { data } = await query.order('naam')
   return data || []
 }
 

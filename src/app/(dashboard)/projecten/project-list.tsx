@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, FolderKanban } from 'lucide-react'
+import { deleteProject } from '@/lib/actions'
+import { Plus, FolderKanban, Trash2 } from 'lucide-react'
 
 interface Project {
   id: string
@@ -24,32 +25,54 @@ interface Project {
   laatste_offerte_bedrag: number | null
 }
 
-const columns: ColumnDef<Project, unknown>[] = [
-  { accessorKey: 'naam', header: 'Verkoopkans' },
-  { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
-  { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
-  {
-    id: 'offerte',
-    header: 'Laatste offerte',
-    accessorFn: (row) => row.laatste_offerte_nummer,
-    cell: ({ row }) => {
-      const { laatste_offerte_nummer, laatste_offerte_status, laatste_offerte_bedrag } = row.original
-      if (!laatste_offerte_nummer) return <span className="text-gray-400">-</span>
-      return (
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{laatste_offerte_nummer}</span>
-          {laatste_offerte_status && <Badge status={laatste_offerte_status} />}
-          {laatste_offerte_bedrag != null && laatste_offerte_bedrag > 0 && (
-            <span className="text-sm text-gray-500">{formatCurrency(laatste_offerte_bedrag)}</span>
-          )}
-        </div>
-      )
-    },
-  },
-]
-
 export function ProjectList({ projecten }: { projecten: Project[] }) {
   const router = useRouter()
+
+  async function handleDelete(e: React.MouseEvent, project: Project) {
+    e.stopPropagation()
+    if (!confirm(`Weet u zeker dat u "${project.naam}" wilt verwijderen?`)) return
+    const result = await deleteProject(project.id)
+    if (result.error) alert(result.error)
+    else router.refresh()
+  }
+
+  const columns: ColumnDef<Project, unknown>[] = [
+    { accessorKey: 'naam', header: 'Verkoopkans' },
+    { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
+    { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
+    {
+      id: 'offerte',
+      header: 'Laatste offerte',
+      accessorFn: (row) => row.laatste_offerte_nummer,
+      cell: ({ row }) => {
+        const { laatste_offerte_nummer, laatste_offerte_status, laatste_offerte_bedrag } = row.original
+        if (!laatste_offerte_nummer) return <span className="text-gray-400">-</span>
+        return (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{laatste_offerte_nummer}</span>
+            {laatste_offerte_status && <Badge status={laatste_offerte_status} />}
+            {laatste_offerte_bedrag != null && laatste_offerte_bedrag > 0 && (
+              <span className="text-sm text-gray-500">{formatCurrency(laatste_offerte_bedrag)}</span>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      id: 'acties',
+      header: '',
+      cell: ({ row }) => (
+        <button
+          onClick={(e) => handleDelete(e, row.original)}
+          className="opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1 rounded"
+          title="Verwijderen"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ),
+      size: 40,
+    },
+  ]
 
   return (
     <div>
