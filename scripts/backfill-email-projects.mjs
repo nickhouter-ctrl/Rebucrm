@@ -1,19 +1,8 @@
-import pg from 'pg'
-const { Client } = pg
+import { createDbClient } from './db.mjs'
 
-const client = new Client({
-  host: 'db.ewmjbtymbrfuuekkszwj.supabase.co',
-  port: 5432,
-  database: 'postgres',
-  user: 'postgres',
-  password: 'u5VlzLkjYsUhfUqc',
-  ssl: { rejectUnauthorized: false },
-})
-
-await client.connect()
+const client = await createDbClient()
 console.log('Connected!')
 
-// Backfill: koppel emails aan meest recente actieve verkoopkans van hun relatie
 const result = await client.query(`
   UPDATE emails e
   SET project_id = p.id
@@ -29,5 +18,4 @@ const result = await client.query(`
 `)
 
 console.log(`Backfilled ${result.rowCount} emails with project_id`)
-
 await client.end()
