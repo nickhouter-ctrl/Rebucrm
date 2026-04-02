@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, getEmailLogDetail } from '@/lib/actions'
+import { saveProject, deleteProject, getEmailLogDetail, getEmailBody } from '@/lib/actions'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -46,6 +46,15 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
     bijlagen: { filename: string }[] | null
   } | null>(null)
   const [emailLoading, setEmailLoading] = useState(false)
+  const [inboxEmailDetail, setInboxEmailDetail] = useState<{
+    onderwerp: string | null
+    van: string
+    aan: string
+    datum: string
+    body_html: string | null
+    body_text: string | null
+  } | null>(null)
+  const [inboxEmailLoading, setInboxEmailLoading] = useState(false)
 
   async function handleEmailClick(emailLogId: string) {
     setEmailLoading(true)
@@ -60,6 +69,20 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
       })
     }
     setEmailLoading(false)
+  }
+
+  async function handleInboxEmailClick(em: ProjectEmail) {
+    setInboxEmailLoading(true)
+    const body = await getEmailBody(em.id)
+    setInboxEmailDetail({
+      onderwerp: em.onderwerp,
+      van: em.van_naam || em.van_email,
+      aan: em.aan_email,
+      datum: em.datum,
+      body_html: body.html || null,
+      body_text: body.text || null,
+    })
+    setInboxEmailLoading(false)
   }
 
   const project = timeline?.project
@@ -289,7 +312,11 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
                 </div>
                 <div className="divide-y divide-gray-100">
                   {emails.map(em => (
-                    <div key={em.id} className="flex items-center gap-3 py-2.5">
+                    <button
+                      key={em.id}
+                      onClick={() => handleInboxEmailClick(em)}
+                      className="flex items-center gap-3 py-2.5 w-full text-left hover:bg-gray-50 rounded-md px-2 -mx-2 transition-colors"
+                    >
                       {em.richting === 'inkomend' ? (
                         <ArrowDownLeft className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                       ) : (
@@ -304,7 +331,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
                       <span className="text-xs text-gray-400 shrink-0">
                         {formatDateShort(em.datum)}
                       </span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </CardContent>
@@ -313,7 +340,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
         </div>
       </div>
 
-      {/* Email detail dialog */}
+      {/* Email log detail dialog (vanuit timeline) */}
       {emailDetail && (
         <Dialog open onClose={() => setEmailDetail(null)} title={emailDetail.onderwerp || 'E-mail'}>
           <div className="space-y-4">
@@ -339,6 +366,42 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
                 className="border border-gray-200 rounded-lg p-4 bg-white text-sm overflow-auto max-h-[60vh]"
                 dangerouslySetInnerHTML={{ __html: emailDetail.body_html }}
               />
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {/* Inbox email detail dialog (vanuit gekoppelde emails) */}
+      {inboxEmailLoading && (
+        <Dialog open onClose={() => setInboxEmailLoading(false)} title="E-mail laden...">
+          <div className="py-8 text-center text-gray-400 animate-pulse">Inhoud laden...</div>
+        </Dialog>
+      )}
+      {inboxEmailDetail && !inboxEmailLoading && (
+        <Dialog open onClose={() => setInboxEmailDetail(null)} title={inboxEmailDetail.onderwerp || 'E-mail'}>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+              <span>Van: {inboxEmailDetail.van}</span>
+              <span>Aan: {inboxEmailDetail.aan}</span>
+              <span>{new Date(inboxEmailDetail.datum).toLocaleString('nl-NL')}</span>
+            </div>
+            {inboxEmailDetail.body_html ? (
+              <iframe
+                sandbox=""
+                srcDoc={inboxEmailDetail.body_html}
+                className="w-full border border-gray-200 rounded-lg min-h-[200px] bg-white"
+                style={{ height: 'auto' }}
+                onLoad={(e) => {
+                  const frame = e.target as HTMLIFrameElement
+                  if (frame.contentDocument) {
+                    frame.style.height = frame.contentDocument.body.scrollHeight + 20 + 'px'
+                  }
+                }}
+              />
+            ) : (
+              <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans bg-gray-50 rounded-lg p-4 max-h-[60vh] overflow-auto">
+                {inboxEmailDetail.body_text || '(geen inhoud)'}
+              </pre>
             )}
           </div>
         </Dialog>
