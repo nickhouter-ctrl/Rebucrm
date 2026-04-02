@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -331,6 +331,19 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                           <span className="text-sm font-medium text-gray-700">{formatCurrency(geoffreerd)}</span>
                         )}
                         <span className="text-sm text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''}</span>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (!confirm(`Weet u zeker dat u "${p.naam}" wilt verwijderen?`)) return
+                            const result = await deleteProject(p.id)
+                            if (result.error) alert(result.error)
+                            else router.refresh()
+                          }}
+                          className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded"
+                          title="Verwijderen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </div>
                     <Pipeline stages={stages} compact />
