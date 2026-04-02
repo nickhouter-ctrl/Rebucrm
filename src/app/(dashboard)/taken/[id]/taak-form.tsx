@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { SearchSelect } from '@/components/ui/search-select'
-import { Save, Trash2, ArrowLeft, MessageSquare } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 
@@ -40,6 +40,10 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   const [notities, setNotities] = useState(initialNotities)
   const [notitieText, setNotitieText] = useState('')
+  const [showVervolgTaak, setShowVervolgTaak] = useState(false)
+  const [vervolgTitel, setVervolgTitel] = useState('')
+  const [vervolgDeadline, setVervolgDeadline] = useState('')
+  const [vervolgAangemaakt, setVervolgAangemaakt] = useState(false)
 
   const filteredProjecten = selectedRelatieId
     ? projecten.filter(p => p.relatie_id === selectedRelatieId)
@@ -74,6 +78,29 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     } else {
       setNotitieText('')
       router.refresh()
+    }
+    setLoading(false)
+  }
+
+  async function handleCreateVervolgTaak() {
+    if (!vervolgTitel.trim() || !taak) return
+    setLoading(true); setError('')
+    const formData = new FormData()
+    formData.set('titel', vervolgTitel)
+    formData.set('status', 'open')
+    formData.set('prioriteit', (taak.prioriteit as string) || 'normaal')
+    formData.set('relatie_id', selectedRelatieId)
+    formData.set('project_id', selectedProjectId)
+    formData.set('medewerker_id', selectedMedewerkerId)
+    if (vervolgDeadline) formData.set('deadline', vervolgDeadline)
+    const result = await saveTaak(formData)
+    if (result.error) {
+      setError(result.error)
+    } else {
+      setVervolgAangemaakt(true)
+      setVervolgTitel('')
+      setVervolgDeadline('')
+      setTimeout(() => setVervolgAangemaakt(false), 3000)
     }
     setLoading(false)
   }
@@ -177,6 +204,51 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
                   <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={handleSaveNotitie} disabled={loading || !notitieText.trim()}>
                     Opslaan
                   </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Vervolgtaak aanmaken */}
+          <Card>
+            <CardContent className="pt-4 pb-3">
+              {!showVervolgTaak ? (
+                <button
+                  type="button"
+                  onClick={() => setShowVervolgTaak(true)}
+                  className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 font-medium transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  Vervolgtaak aanmaken
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <Plus className="h-4 w-4" />
+                    Vervolgtaak
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Wat moet er gebeuren? bijv. 'Klant terugbellen'"
+                    value={vervolgTitel}
+                    onChange={e => setVervolgTitel(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
+                  />
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="date"
+                      value={vervolgDeadline}
+                      onChange={e => setVervolgDeadline(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-200 rounded-md text-sm text-gray-600"
+                    />
+                    <span className="text-xs text-gray-400">Zelfde klant, verkoopkans & medewerker</span>
+                    <div className="flex gap-2 ml-auto">
+                      <Button type="button" variant="ghost" size="sm" onClick={() => { setShowVervolgTaak(false); setVervolgTitel(''); setVervolgDeadline('') }}>Annuleren</Button>
+                      <Button type="button" size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={handleCreateVervolgTaak} disabled={loading || !vervolgTitel.trim()}>
+                        {vervolgAangemaakt ? <><Check className="h-3.5 w-3.5" />Aangemaakt</> : 'Aanmaken'}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>

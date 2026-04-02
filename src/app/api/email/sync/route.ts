@@ -17,23 +17,18 @@ export async function POST(request: Request) {
   try {
     const supabase = createAdminClient()
 
-    // Only sync the main admin (Rebu) — single IMAP account
+    // Only sync the main admin (Rebu Kozijnen B.V.)
     const { data: administraties } = await supabase
       .from('administraties')
       .select('id')
-      .eq('naam', 'Rebu')
+      .ilike('naam', '%Rebu%')
       .limit(1)
 
-    // Fallback: if no 'Rebu' found, get the one with most relaties
     let adminId: string
     if (administraties?.length) {
       adminId = administraties[0].id
     } else {
-      const { data: allAdmins } = await supabase.from('administraties').select('id').limit(1)
-      if (!allAdmins?.length) {
-        return NextResponse.json({ message: 'Geen administratie gevonden' })
-      }
-      adminId = allAdmins[0].id
+      return NextResponse.json({ message: 'Geen administratie gevonden' })
     }
 
     const result = await syncEmails(adminId)
