@@ -1356,8 +1356,8 @@ export async function getTaken() {
 
   let query = supabase
     .from('taken')
-    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal)')
-    .order('created_at', { ascending: false })
+    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)')
+    .order('created_at', { ascending: true })
 
   // Medewerkers zien alleen eigen taken
   if (rol === 'medewerker') {
@@ -1490,6 +1490,16 @@ export async function completeTaak(id: string) {
   'use server'
   const supabase = await createClient()
   const { error } = await supabase.from('taken').update({ status: 'afgerond' }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/taken')
+  revalidatePath('/')
+  return { success: true }
+}
+
+export async function uncompleteTaak(id: string) {
+  'use server'
+  const supabase = await createClient()
+  const { error } = await supabase.from('taken').update({ status: 'open' }).eq('id', id)
   if (error) return { error: error.message }
   revalidatePath('/taken')
   revalidatePath('/')
@@ -2084,6 +2094,106 @@ export async function markEmailGelezen(emailId: string) {
   const supabase = await createClient()
   await supabase.from('emails').update({ gelezen: true }).eq('id', emailId)
   revalidatePath('/email')
+}
+
+export async function assignEmailToMedewerker(emailId: string, medewerkerId: string) {
+  'use server'
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  // Haal email op
+  const { data: email } = await supabase.from('emails').select('*').eq('id', emailId).single()
+  if (!email) return { error: 'Email niet gevonden' }
+
+  // Haal medewerker op voor profiel_id
+  const { data: medewerker } = await supabase.from('medewerkers').select('id, naam, profiel_id').eq('id', medewerkerId).single()
+  if (!medewerker) return { error: 'Medewerker niet gevonden' }
+
+  // Zoek of maak relatie op basis van afzender email
+  let relatieId: string | null = email.relatie_id
+  if (!relatieId && email.van_email) {
+    const { data: bestaandeRelatie } = await supabase
+      .from('relaties')
+      .select('id')
+      .eq('administratie_id', adminId)
+      .ilike('email', email.van_email)
+      .maybeSingle()
+
+    if (bestaandeRelatie) {
+      relatieId = bestaandeRelatie.id
+    } else {
+      const { data: nieuweRelatie } = await supabase
+        .from('relaties')
+        .insert({
+          administratie_id: adminId,
+          bedrijfsnaam: email.van_naam || email.van_email,
+          type: 'particulier',
+          email: email.van_email,
+          contactpersoon: email.van_naam || null,
+        })
+        .select('id')
+        .single()
+      if (nieuweRelatie) relatieId = nieuweRelatie.id
+    }
+  }
+
+  // Maak verkoopkans (project) aan
+  let projectId: string | null = null
+  if (relatieId) {
+    const { data: project } = await supabase
+      .from('projecten')
+      .insert({
+        administratie_id: adminId,
+        naam: email.onderwerp || 'Nieuw vanuit e-mail',
+        relatie_id: relatieId,
+        status: 'actief',
+      })
+      .select('id')
+      .single()
+    if (project) projectId = project.id
+  }
+
+  // Maak taak aan
+  await supabase.from('taken').insert({
+    administratie_id: adminId,
+    titel: `Opvolgen: ${email.onderwerp || 'E-mail'}`,
+    status: 'open',
+    prioriteit: 'normaal',
+    relatie_id: relatieId,
+    project_id: projectId,
+    medewerker_id: medewerkerId,
+    toegewezen_aan: medewerker.profiel_id || null,
+  })
+
+  // Email markeren als verwerkt
+  await supabase.from('emails').update({
+    gelezen: true,
+    relatie_id: relatieId,
+    labels: [...(email.labels || []).filter((l: string) => l !== 'irrelevant'), 'verwerkt'],
+  }).eq('id', emailId)
+
+  revalidatePath('/email')
+  revalidatePath('/taken')
+  revalidatePath('/relatiebeheer')
+  revalidatePath('/projecten')
+  return { success: true }
+}
+
+export async function linkEmailToProject(emailId: string, projectId: string) {
+  'use server'
+  const supabase = await createClient()
+
+  // Haal project op voor relatie_id
+  const { data: project } = await supabase.from('projecten').select('relatie_id').eq('id', projectId).single()
+
+  await supabase.from('emails').update({
+    relatie_id: project?.relatie_id || null,
+    labels: ['gekoppeld'],
+  }).eq('id', emailId)
+
+  revalidatePath('/email')
+  return { success: true }
 }
 
 export async function getEmailBody(emailId: string) {
@@ -5141,4 +5251,42 @@ export async function getMedewerkersMetBezetting() {
     medewerkers: medewerkers.data || [],
     bezetting: bezetting.data || [],
   }
+}
+
+// === TAAK NOTITIES ===
+export async function getTaakNotities(taakId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('taak_notities')
+    .select('*, gebruiker:profielen(naam)')
+    .eq('taak_id', taakId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function saveTaakNotitie(data: { taak_id: string; tekst: string }) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  const { error } = await supabase
+    .from('taak_notities')
+    .insert({
+      administratie_id: adminId,
+      taak_id: data.taak_id,
+      gebruiker_id: user.id,
+      tekst: data.tekst,
+    })
+  if (error) return { error: error.message }
+
+  revalidatePath(`/taken/${data.taak_id}`)
+  return { success: true }
+}
+
+export async function deleteTaakNotitie(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('taak_notities').delete().eq('id', id)
+  if (error) return { error: error.message }
+  return { success: true }
 }

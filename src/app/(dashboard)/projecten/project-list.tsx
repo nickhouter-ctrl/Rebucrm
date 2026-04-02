@@ -25,7 +25,7 @@ interface Project {
 }
 
 const columns: ColumnDef<Project, unknown>[] = [
-  { accessorKey: 'naam', header: 'Project' },
+  { accessorKey: 'naam', header: 'Verkoopkans' },
   { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
   {
@@ -53,11 +53,11 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
 
   return (
     <div>
-      <PageHeader title="Projecten" description="Overzicht van alle projecten en verkoopkansen" actions={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuw project</Button>} />
+      <PageHeader title="Verkoopkansen" description="Overzicht van alle verkoopkansen" actions={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>} />
       {projecten.length === 0 ? (
-        <EmptyState icon={FolderKanban} title="Geen projecten" description="U heeft nog geen projecten." action={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Project aanmaken</Button>} />
+        <EmptyState icon={FolderKanban} title="Geen verkoopkansen" description="U heeft nog geen verkoopkansen." action={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Verkoopkans aanmaken</Button>} />
       ) : (
-        <DataTable columns={columns} data={projecten} searchPlaceholder="Zoek project..." onRowClick={(row) => router.push(`/projecten/${row.id}`)} />
+        <DataTable columns={columns} data={projecten} searchPlaceholder="Zoek verkoopkans..." onRowClick={(row) => router.push(`/projecten/${row.id}`)} />
       )}
     </div>
   )

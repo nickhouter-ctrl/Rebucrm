@@ -33,7 +33,7 @@ export const navigationItems: NavItem[] = [
   { label: 'Concept offertes', href: '/offertes/concepten', icon: FilePen },
   { label: 'Facturatie', href: '/facturatie', icon: Receipt },
   { label: 'Producten', href: '/producten', icon: Package },
-  { label: 'Projecten', href: '/projecten', icon: FolderKanban },
+  { label: 'Verkoopkansen', href: '/projecten', icon: FolderKanban },
   { label: 'Urenregistratie', href: '/uren', icon: Clock },
   { label: 'Medewerkers', href: '/medewerkers', icon: HardHat },
   { label: 'Agenda', href: '/agenda', icon: Calendar },

@@ -220,7 +220,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   const tabs = [
     { key: 'overzicht' as const, label: 'Overzicht' },
-    { key: 'projecten' as const, label: `Projecten (${projecten.length})` },
+    { key: 'projecten' as const, label: `Verkoopkansen (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
     { key: 'taken' as const, label: `Taken (${relatieTaken.length})` },
@@ -287,7 +287,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             <Card>
               <CardContent className="py-8 text-center text-gray-500 text-sm">
                 <FolderKanban className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                Nog geen projecten voor deze klant
+                Nog geen verkoopkansen voor deze klant
               </CardContent>
             </Card>
           ) : (
@@ -475,6 +475,13 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       )}
 
       {tab === 'taken' && (
+        <div className="space-y-4">
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => router.push(`/taken/nieuw?relatie_id=${relatie.id}`)}>
+              <Plus className="h-4 w-4" />
+              Taak aanmaken
+            </Button>
+          </div>
         <Card>
           <CardContent className="p-0">
             {relatieTaken.length === 0 ? (
@@ -501,6 +508,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             )}
           </CardContent>
         </Card>
+        </div>
       )}
 
       {tab === 'notities' && (

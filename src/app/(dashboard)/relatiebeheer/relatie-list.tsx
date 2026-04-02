@@ -37,6 +37,9 @@ const columns: ColumnDef<Relatie, unknown>[] = [
 export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const router = useRouter()
   const [importOpen, setImportOpen] = useState(false)
+  const [filterType, setFilterType] = useState<'alle' | 'zakelijk' | 'particulier'>('alle')
+
+  const gefilterd = filterType === 'alle' ? relaties : relaties.filter(r => r.type === filterType)
 
   return (
     <div>
@@ -63,7 +66,23 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
 
       <ImportRelatiesDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
-      {relaties.length === 0 ? (
+      {/* Filter zakelijk/particulier */}
+      <div className="mb-4 flex items-center gap-2">
+        {(['alle', 'zakelijk', 'particulier'] as const).map(type => (
+          <button
+            key={type}
+            onClick={() => setFilterType(type)}
+            className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+              filterType === type ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {type.charAt(0).toUpperCase() + type.slice(1)}
+          </button>
+        ))}
+        <span className="text-sm text-gray-400 ml-2">{gefilterd.length} relaties</span>
+      </div>
+
+      {gefilterd.length === 0 ? (
         <EmptyState
           icon={Users}
           title="Geen relaties"
@@ -78,7 +97,7 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
       ) : (
         <DataTable
           columns={columns}
-          data={relaties}
+          data={gefilterd}
           searchPlaceholder="Zoek relatie..."
           onRowClick={(row) => router.push(`/relatiebeheer/${row.id}`)}
         />

@@ -62,7 +62,7 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
   }
 
   async function handleDelete() {
-    if (!project || !confirm('Weet u zeker dat u dit project wilt verwijderen?')) return
+    if (!project || !confirm('Weet u zeker dat u deze verkoopkans wilt verwijderen?')) return
     const result = await deleteProject(project.id as string)
     if (result.error) setError(result.error)
     else router.push('/projecten')
@@ -72,13 +72,13 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
   if (isNew) {
     return (
       <div>
-        <PageHeader title="Nieuw project" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Nieuwe verkoopkans" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
         {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
         <form action={handleSubmit}>
           <Card>
             <CardContent className="space-y-4 pt-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input id="naam" name="naam" label="Projectnaam *" required />
+                <Input id="naam" name="naam" label="Naam verkoopkans *" required />
                 <Select id="relatie_id" name="relatie_id" label="Klant" placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
                 <Select id="status" name="status" label="Status" defaultValue="actief" options={[
                   { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
@@ -106,7 +106,7 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
   if (!project || !timeline) {
     return (
       <div>
-        <PageHeader title="Project niet gevonden" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Verkoopkans niet gevonden" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       </div>
     )
   }
@@ -140,7 +140,7 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
               {editing ? (
                 /* Inline edit form */
                 <form action={handleSubmit} className="space-y-3">
-                  <Input id="naam" name="naam" label="Projectnaam *" defaultValue={project.naam as string} required />
+                  <Input id="naam" name="naam" label="Naam verkoopkans *" defaultValue={project.naam as string} required />
                   <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={relatieId || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
                   <Select id="status" name="status" label="Status" defaultValue={projectStatus} options={[
                     { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
@@ -170,7 +170,7 @@ export function ProjectDetail({ timeline, relaties, isNew }: {
                 /* Read-only view */
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
-                    <h3 className="text-sm font-semibold text-gray-900">Projectgegevens</h3>
+                    <h3 className="text-sm font-semibold text-gray-900">Verkoopkansgegevens</h3>
                     <button onClick={() => setEditing(true)} className="text-gray-400 hover:text-gray-600">
                       <Pencil className="h-3.5 w-3.5" />
                     </button>

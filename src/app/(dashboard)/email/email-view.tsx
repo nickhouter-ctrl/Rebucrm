@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -34,14 +34,30 @@ interface SyncStatus {
   error_bericht: string | null
 }
 
+interface Medewerker {
+  id: string
+  naam: string
+  type: string
+  actief: boolean
+}
+
+interface Project {
+  id: string
+  naam: string
+}
+
 export function EmailView({
   initialEmails,
   initialTotal,
   syncStatus,
+  medewerkers = [],
+  projecten = [],
 }: {
   initialEmails: Email[]
   initialTotal: number
   syncStatus: SyncStatus | null
+  medewerkers?: Medewerker[]
+  projecten?: Project[]
 }) {
   const router = useRouter()
   const [emails, setEmails] = useState(initialEmails)
@@ -56,6 +72,9 @@ export function EmailView({
   const [reclassifying, setReclassifying] = useState(false)
   const [toonIrrelevant, setToonIrrelevant] = useState(false)
   const [isPending, startTransition] = useTransition()
+  const [assigningEmail, setAssigningEmail] = useState<string | null>(null)
+  const [linkingEmail, setLinkingEmail] = useState<string | null>(null)
+  const [projectZoek, setProjectZoek] = useState('')
 
   const pageSize = 25
   const totalPages = Math.ceil(total / pageSize)
@@ -120,6 +139,21 @@ export function EmailView({
       const body = await getEmailBody(email.id)
       setEmailBodies(prev => ({ ...prev, [email.id]: { ...body, loading: false } }))
     }
+  }
+
+  async function handleAssign(emailId: string, medewerkerId: string) {
+    setAssigningEmail(null)
+    const result = await assignEmailToMedewerker(emailId, medewerkerId)
+    if (result.success) {
+      setEmails(prev => prev.map(e => e.id === emailId ? { ...e, gelezen: true, labels: [...(e.labels || []), 'verwerkt'] } : e))
+    }
+  }
+
+  async function handleLinkToProject(emailId: string, projectId: string) {
+    setLinkingEmail(null)
+    setProjectZoek('')
+    await linkEmailToProject(emailId, projectId)
+    loadEmails(page, filter, zoekterm)
   }
 
   const filterButtons: { label: string; value: typeof filter }[] = [
@@ -313,7 +347,7 @@ export function EmailView({
                             }
                             return <pre className="whitespace-pre-wrap text-gray-700 font-sans">{bodyText || '(geen inhoud)'}</pre>
                           })()}
-                          <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200">
+                          <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200 flex-wrap items-start">
                             {email.relatie && (
                               <Link href={`/relatiebeheer/${email.relatie.id}`}>
                                 <Button size="sm" variant="secondary">
@@ -330,6 +364,71 @@ export function EmailView({
                                 </Button>
                               </Link>
                             )}
+
+                            {/* Toewijzen aan medewerker */}
+                            <div className="relative">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={(e) => { e.stopPropagation(); setAssigningEmail(assigningEmail === email.id ? null : email.id); setLinkingEmail(null) }}
+                              >
+                                <UserPlus className="h-3.5 w-3.5" />
+                                Toewijzen
+                              </Button>
+                              {assigningEmail === email.id && (
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[200px]">
+                                  {medewerkers.filter(m => m.actief).map(m => (
+                                    <button
+                                      key={m.id}
+                                      onClick={(e) => { e.stopPropagation(); handleAssign(email.id, m.id) }}
+                                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg"
+                                    >
+                                      {m.naam}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Koppelen aan verkoopkans */}
+                            <div className="relative">
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={(e) => { e.stopPropagation(); setLinkingEmail(linkingEmail === email.id ? null : email.id); setAssigningEmail(null); setProjectZoek('') }}
+                              >
+                                <FolderKanban className="h-3.5 w-3.5" />
+                                Koppel aan verkoopkans
+                              </Button>
+                              {linkingEmail === email.id && (
+                                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[280px] max-h-[250px] flex flex-col">
+                                  <div className="p-2 border-b border-gray-100">
+                                    <input
+                                      type="text"
+                                      placeholder="Zoek verkoopkans..."
+                                      value={projectZoek}
+                                      onChange={(e) => setProjectZoek(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                    />
+                                  </div>
+                                  <div className="overflow-y-auto">
+                                    {projecten
+                                      .filter(p => !projectZoek || p.naam.toLowerCase().includes(projectZoek.toLowerCase()))
+                                      .slice(0, 20)
+                                      .map(p => (
+                                        <button
+                                          key={p.id}
+                                          onClick={(e) => { e.stopPropagation(); handleLinkToProject(email.id, p.id) }}
+                                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                                        >
+                                          {p.naam}
+                                        </button>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
