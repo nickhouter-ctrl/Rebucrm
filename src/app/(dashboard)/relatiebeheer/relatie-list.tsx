@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Plus, Users, Search, Upload } from 'lucide-react'
 import { ImportRelatiesDialog } from './import-relaties-dialog'
+import { formatCurrency } from '@/lib/utils'
 
 interface Relatie {
   id: string
@@ -19,6 +20,29 @@ interface Relatie {
   email: string | null
   telefoon: string | null
   plaats: string | null
+  laatste_notitie: string | null
+  laatste_notitie_datum: string | null
+  actieve_verkoopkansen: number
+  open_taken: number
+  openstaand_bedrag: number
+  heeft_vervallen: boolean
+  laatste_contact: string | null
+}
+
+function relatieveDatum(datum: string): string {
+  const nu = new Date()
+  const d = new Date(datum)
+  const diffMs = nu.getTime() - d.getTime()
+  const diffMin = Math.floor(diffMs / 60000)
+  if (diffMin < 1) return 'zojuist'
+  if (diffMin < 60) return `${diffMin}m geleden`
+  const diffUur = Math.floor(diffMin / 60)
+  if (diffUur < 24) return `${diffUur}u geleden`
+  const diffDag = Math.floor(diffUur / 24)
+  if (diffDag < 30) return `${diffDag}d geleden`
+  const diffMaand = Math.floor(diffDag / 30)
+  if (diffMaand < 12) return `${diffMaand}mnd geleden`
+  return `${Math.floor(diffMaand / 12)}j geleden`
 }
 
 const columns: ColumnDef<Relatie, unknown>[] = [
@@ -30,8 +54,69 @@ const columns: ColumnDef<Relatie, unknown>[] = [
   },
   { accessorKey: 'contactpersoon', header: 'Contactpersoon' },
   { accessorKey: 'email', header: 'E-mail' },
-  { accessorKey: 'telefoon', header: 'Telefoon' },
-  { accessorKey: 'plaats', header: 'Plaats' },
+  {
+    accessorKey: 'laatste_notitie',
+    header: 'Laatste notitie',
+    cell: ({ row }) => {
+      const tekst = row.original.laatste_notitie
+      const datum = row.original.laatste_notitie_datum
+      if (!tekst) return <span className="text-gray-400">—</span>
+      return (
+        <div className="max-w-[200px]">
+          <p className="text-sm truncate">{tekst}</p>
+          {datum && <p className="text-xs text-gray-400">{relatieveDatum(datum)}</p>}
+        </div>
+      )
+    },
+  },
+  {
+    accessorKey: 'actieve_verkoopkansen',
+    header: 'Verkoopkansen',
+    cell: ({ getValue }) => {
+      const n = getValue() as number
+      if (!n) return <span className="text-gray-400">—</span>
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+          {n}
+        </span>
+      )
+    },
+  },
+  {
+    accessorKey: 'open_taken',
+    header: 'Open taken',
+    cell: ({ getValue }) => {
+      const n = getValue() as number
+      if (!n) return <span className="text-gray-400">—</span>
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+          {n}
+        </span>
+      )
+    },
+  },
+  {
+    accessorKey: 'openstaand_bedrag',
+    header: 'Openstaand',
+    cell: ({ row }) => {
+      const bedrag = row.original.openstaand_bedrag
+      if (!bedrag) return <span className="text-gray-400">—</span>
+      return (
+        <span className={row.original.heeft_vervallen ? 'text-red-600 font-medium' : ''}>
+          {formatCurrency(bedrag)}
+        </span>
+      )
+    },
+  },
+  {
+    accessorKey: 'laatste_contact',
+    header: 'Laatste contact',
+    cell: ({ getValue }) => {
+      const datum = getValue() as string | null
+      if (!datum) return <span className="text-gray-400">—</span>
+      return <span className="text-sm text-gray-500">{relatieveDatum(datum)}</span>
+    },
+  },
 ]
 
 export function RelatieList({ relaties }: { relaties: Relatie[] }) {

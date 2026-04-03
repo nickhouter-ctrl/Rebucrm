@@ -127,9 +127,109 @@ export async function getVolgendeNummer(type: string): Promise<string> {
 // === RELATIES ===
 export async function getRelaties() {
   const supabase = await createClient()
-  return fetchAllRows((from, to) =>
-    supabase.from('relaties').select('*').order('bedrijfsnaam').range(from, to)
+
+  const relaties = await fetchAllRows((from, to) =>
+    supabase.from('relaties').select('id, bedrijfsnaam, type, contactpersoon, email, telefoon, plaats').order('bedrijfsnaam').range(from, to)
   )
+
+  if (relaties.length === 0) return []
+
+  const [notities, projecten, taken, facturen, emails] = await Promise.all([
+    fetchAllRows((from, to) =>
+      supabase.from('notities')
+        .select('relatie_id, tekst, created_at')
+        .not('relatie_id', 'is', null)
+        .order('created_at', { ascending: false })
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('projecten')
+        .select('relatie_id')
+        .not('relatie_id', 'is', null)
+        .in('status', ['actief', 'on_hold'])
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('taken')
+        .select('relatie_id')
+        .not('relatie_id', 'is', null)
+        .neq('status', 'afgerond')
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('facturen')
+        .select('relatie_id, totaal, betaald_bedrag, status, vervaldatum')
+        .not('relatie_id', 'is', null)
+        .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('emails')
+        .select('relatie_id, datum')
+        .not('relatie_id', 'is', null)
+        .order('datum', { ascending: false })
+        .range(from, to)
+    ),
+  ])
+
+  // Laatste notitie per relatie (notities al gesorteerd op created_at desc)
+  const laatsteNotitieMap = new Map<string, { tekst: string; datum: string }>()
+  for (const n of notities) {
+    if (n.relatie_id && !laatsteNotitieMap.has(n.relatie_id)) {
+      laatsteNotitieMap.set(n.relatie_id, { tekst: n.tekst, datum: n.created_at })
+    }
+  }
+
+  // Actieve projecten per relatie
+  const projectenCountMap = new Map<string, number>()
+  for (const p of projecten) {
+    if (p.relatie_id) projectenCountMap.set(p.relatie_id, (projectenCountMap.get(p.relatie_id) || 0) + 1)
+  }
+
+  // Open taken per relatie
+  const takenCountMap = new Map<string, number>()
+  for (const t of taken) {
+    if (t.relatie_id) takenCountMap.set(t.relatie_id, (takenCountMap.get(t.relatie_id) || 0) + 1)
+  }
+
+  // Openstaande facturen per relatie
+  const facturenMap = new Map<string, { openstaand: number; heeft_vervallen: boolean }>()
+  const today = new Date().toISOString().split('T')[0]
+  for (const f of facturen) {
+    if (!f.relatie_id) continue
+    if (!facturenMap.has(f.relatie_id)) facturenMap.set(f.relatie_id, { openstaand: 0, heeft_vervallen: false })
+    const entry = facturenMap.get(f.relatie_id)!
+    entry.openstaand += (f.totaal || 0) - (f.betaald_bedrag || 0)
+    if (f.status === 'vervallen' || (f.vervaldatum && f.vervaldatum < today)) entry.heeft_vervallen = true
+  }
+
+  // Laatste email per relatie (emails al gesorteerd op datum desc)
+  const laatsteEmailMap = new Map<string, string>()
+  for (const e of emails) {
+    if (e.relatie_id && !laatsteEmailMap.has(e.relatie_id)) laatsteEmailMap.set(e.relatie_id, e.datum)
+  }
+
+  return relaties.map(r => {
+    const notitie = laatsteNotitieMap.get(r.id)
+    const emailDatum = laatsteEmailMap.get(r.id)
+    let laatsteContact: string | null = null
+    if (notitie?.datum && emailDatum) {
+      laatsteContact = notitie.datum > emailDatum ? notitie.datum : emailDatum
+    } else {
+      laatsteContact = notitie?.datum || emailDatum || null
+    }
+
+    return {
+      ...r,
+      laatste_notitie: notitie?.tekst || null,
+      laatste_notitie_datum: notitie?.datum || null,
+      actieve_verkoopkansen: projectenCountMap.get(r.id) || 0,
+      open_taken: takenCountMap.get(r.id) || 0,
+      openstaand_bedrag: facturenMap.get(r.id)?.openstaand || 0,
+      heeft_vervallen: facturenMap.get(r.id)?.heeft_vervallen || false,
+      laatste_contact: laatsteContact,
+    }
+  })
 }
 
 export async function getRelatie(id: string) {
@@ -1949,6 +2049,37 @@ export async function getDashboardData() {
     return { ...taak, relatie_id, relatie_naam, offerte_id }
   })
 
+  // Openstaande verkoopkansen
+  const { data: openVerkoopkansenData } = await supabase
+    .from('projecten')
+    .select('id, naam, status, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
+    .eq('administratie_id', adminId)
+    .in('status', ['actief', 'on_hold'])
+    .order('created_at', { ascending: false })
+
+  // Tel emails per project
+  const projectIds = (openVerkoopkansenData || []).map(p => p.id)
+  let emailCountMap = new Map<string, number>()
+  if (projectIds.length > 0) {
+    const { data: emailCounts } = await supabaseAdmin
+      .from('emails')
+      .select('project_id')
+      .eq('administratie_id', adminId)
+      .in('project_id', projectIds)
+    for (const e of emailCounts || []) {
+      if (e.project_id) emailCountMap.set(e.project_id, (emailCountMap.get(e.project_id) || 0) + 1)
+    }
+  }
+
+  const openVerkoopkansen = (openVerkoopkansenData || []).map(p => ({
+    id: p.id,
+    naam: p.naam,
+    status: p.status,
+    relatie_bedrijfsnaam: (p.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+    heeft_offerte: ((p.offertes as { id: string }[] | null) || []).length > 0,
+    aantal_emails: emailCountMap.get(p.id) || 0,
+  }))
+
   // Moet besteld orders
   const moetBesteldOrders = (moetBesteldRes.data || []).map(o => ({
     id: o.id,
@@ -1966,7 +2097,7 @@ export async function getDashboardData() {
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
     offertesPerMaand, totaalOffertes,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
-    topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders,
+    topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
   }
 }
 
