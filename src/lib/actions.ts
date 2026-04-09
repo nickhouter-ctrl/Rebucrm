@@ -160,9 +160,12 @@ export async function getRelaties() {
 
 // Volledige export van alle relaties — alle velden
 export async function exportRelaties() {
-  const supabase = await createClient()
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
+
+  // Gebruik admin client om RLS issues met stale JWT in server actions te omzeilen,
+  // administratie_id filter waarborgt dat alleen eigen relaties worden opgehaald
+  const supabaseAdmin = createAdminClient()
 
   const relaties = await fetchAllRows<{
     bedrijfsnaam: string
@@ -182,7 +185,7 @@ export async function exportRelaties() {
     actief: boolean | null
     created_at: string
   }>((from, to) =>
-    supabase
+    supabaseAdmin
       .from('relaties')
       .select('bedrijfsnaam, type, contactpersoon, email, telefoon, adres, postcode, plaats, land, kvk_nummer, btw_nummer, iban, website, opmerkingen, actief, created_at')
       .eq('administratie_id', adminId)
