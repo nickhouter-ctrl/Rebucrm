@@ -8,8 +8,9 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
-import { Plus, Users, Search, Upload } from 'lucide-react'
+import { Plus, Users, Search, Upload, Download, Loader2 } from 'lucide-react'
 import { ImportRelatiesDialog } from './import-relaties-dialog'
+import { exportRelaties } from '@/lib/actions'
 import { formatCurrency } from '@/lib/utils'
 
 interface Relatie {
@@ -122,9 +123,70 @@ const columns: ColumnDef<Relatie, unknown>[] = [
 export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const router = useRouter()
   const [importOpen, setImportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [filterType, setFilterType] = useState<'alle' | 'zakelijk' | 'particulier'>('alle')
 
   const gefilterd = filterType === 'alle' ? relaties : relaties.filter(r => r.type === filterType)
+
+  async function handleExport() {
+    setExporting(true)
+    try {
+      const result = await exportRelaties()
+      if ('error' in result || !result.success || !result.relaties) {
+        alert(('error' in result && result.error) || 'Exporteren mislukt')
+        return
+      }
+
+      if (result.relaties.length === 0) {
+        alert('Geen relaties om te exporteren')
+        return
+      }
+
+      const rows = result.relaties.map(r => ({
+        Bedrijfsnaam: r.bedrijfsnaam || '',
+        Type: r.type || '',
+        Contactpersoon: r.contactpersoon || '',
+        'E-mail': r.email || '',
+        Telefoon: r.telefoon || '',
+        Adres: r.adres || '',
+        Postcode: r.postcode || '',
+        Plaats: r.plaats || '',
+        Land: r.land || '',
+        KVK: r.kvk_nummer || '',
+        BTW: r.btw_nummer || '',
+        IBAN: r.iban || '',
+        Website: r.website || '',
+        Opmerkingen: r.opmerkingen || '',
+        Actief: r.actief ? 'ja' : 'nee',
+        Aangemaakt: r.created_at ? new Date(r.created_at).toLocaleDateString('nl-NL') : '',
+      }))
+
+      const XLSX = await import('xlsx')
+      const worksheet = XLSX.utils.json_to_sheet(rows)
+      const workbook = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Relaties')
+
+      // Kolombreedtes automatisch bepalen
+      const colWidths = Object.keys(rows[0] || {}).map(key => ({
+        wch: Math.min(
+          50,
+          Math.max(
+            key.length,
+            ...rows.map(r => String((r as Record<string, string>)[key] || '').length)
+          ) + 2
+        ),
+      }))
+      worksheet['!cols'] = colWidths
+
+      const datum = new Date().toISOString().split('T')[0]
+      XLSX.writeFile(workbook, `relaties-export-${datum}.xlsx`)
+    } catch (err) {
+      console.error('Export fout:', err)
+      alert('Exporteren mislukt')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
     <div>
@@ -133,6 +195,10 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
         description="Beheer uw klanten"
         actions={
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={handleExport} disabled={exporting}>
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Exporteren
+            </Button>
             <Button variant="secondary" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4" />
               Importeren

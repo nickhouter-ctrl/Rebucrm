@@ -20,7 +20,7 @@ async function fetchAllRows<T>(queryFn: (from: number, to: number) => PromiseLik
   return all
 }
 
-function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): string {
+export function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): string {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const logoUrl = `${baseUrl}/images/logo-rebu-white.png`
   const bodyHtml = body
@@ -230,6 +230,41 @@ export async function getRelaties() {
       laatste_contact: laatsteContact,
     }
   })
+}
+
+// Volledige export van alle relaties — alle velden
+export async function exportRelaties() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const relaties = await fetchAllRows<{
+    bedrijfsnaam: string
+    type: string | null
+    contactpersoon: string | null
+    email: string | null
+    telefoon: string | null
+    adres: string | null
+    postcode: string | null
+    plaats: string | null
+    land: string | null
+    kvk_nummer: string | null
+    btw_nummer: string | null
+    iban: string | null
+    website: string | null
+    opmerkingen: string | null
+    actief: boolean | null
+    created_at: string
+  }>((from, to) =>
+    supabase
+      .from('relaties')
+      .select('bedrijfsnaam, type, contactpersoon, email, telefoon, adres, postcode, plaats, land, kvk_nummer, btw_nummer, iban, website, opmerkingen, actief, created_at')
+      .eq('administratie_id', adminId)
+      .order('bedrijfsnaam')
+      .range(from, to)
+  )
+
+  return { success: true, relaties }
 }
 
 export async function getRelatie(id: string) {
@@ -2052,7 +2087,7 @@ export async function getDashboardData() {
   // Openstaande verkoopkansen
   const { data: openVerkoopkansenData } = await supabase
     .from('projecten')
-    .select('id, naam, status, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
+    .select('id, naam, status, created_at, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
     .eq('administratie_id', adminId)
     .in('status', ['actief', 'on_hold'])
     .order('created_at', { ascending: false })
@@ -2075,6 +2110,7 @@ export async function getDashboardData() {
     id: p.id,
     naam: p.naam,
     status: p.status,
+    created_at: p.created_at,
     relatie_bedrijfsnaam: (p.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
     heeft_offerte: ((p.offertes as { id: string }[] | null) || []).length > 0,
     aantal_emails: emailCountMap.get(p.id) || 0,
@@ -3949,6 +3985,17 @@ export async function getNotities(relatieId: string) {
     .select('*, gebruiker:profielen(naam)')
     .eq('relatie_id', relatieId)
     .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function getEmailsByRelatie(relatieId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('emails')
+    .select('id, onderwerp, van_naam, van_email, datum, richting')
+    .eq('relatie_id', relatieId)
+    .order('datum', { ascending: false })
+    .limit(5)
   return data || []
 }
 

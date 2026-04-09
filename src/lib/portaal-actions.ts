@@ -3,6 +3,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
+import { buildRebuEmailHtml } from '@/lib/actions'
+import { sendEmail } from '@/lib/email'
+import { createMolliePayment } from '@/lib/mollie'
 
 // === HELPER: Get klant context (profiel + relatie IDs) ===
 async function getKlantContext() {
@@ -331,6 +334,8 @@ export async function acceptOffertePortaal(id: string) {
     .eq('offerte_id', offerte.id)
     .maybeSingle()
 
+  let orderId: string | null = existingOrder?.id || null
+
   if (!existingOrder) {
     const { data: regels } = await supabaseAdmin
       .from('offerte_regels')
@@ -361,23 +366,351 @@ export async function acceptOffertePortaal(id: string) {
       .select('id')
       .single()
 
-    if (order && regels && regels.length > 0) {
-      await supabaseAdmin.from('order_regels').insert(
-        regels.map((r, i) => ({
-          order_id: order.id,
+    if (order) {
+      orderId = order.id
+      if (regels && regels.length > 0) {
+        await supabaseAdmin.from('order_regels').insert(
+          regels.map((r, i) => ({
+            order_id: order.id,
+            product_id: r.product_id || null,
+            omschrijving: r.omschrijving,
+            aantal: r.aantal,
+            prijs: r.prijs,
+            btw_percentage: r.btw_percentage,
+            totaal: r.aantal * r.prijs,
+            volgorde: i,
+          }))
+        )
+      }
+    }
+  }
+
+  // Auto-facturatie na acceptatie
+  try {
+    await autoFacturerenNaAcceptatie(offerte, orderId, supabaseAdmin)
+  } catch (err) {
+    console.error('Auto-facturatie na acceptatie mislukt:', err)
+    // Factuur aanmaken faalt, maar offerte+order zijn al aangemaakt — geen rollback
+  }
+
+  revalidatePath('/portaal/offertes')
+  revalidatePath(`/portaal/offertes/${id}`)
+  revalidatePath('/portaal/facturen')
+  return { success: true }
+}
+
+// === AUTO-FACTURATIE NA OFFERTE ACCEPTATIE ===
+async function autoFacturerenNaAcceptatie(
+  offerte: {
+    id: string
+    administratie_id: string
+    relatie_id: string
+    onderwerp: string | null
+    subtotaal: number
+    btw_totaal: number
+    totaal: number
+  },
+  orderId: string | null,
+  supabaseAdmin: ReturnType<typeof createAdminClient>
+) {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const vandaag = new Date().toISOString().split('T')[0]
+  const vervaldatum = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  // Haal offerte regels + relatie op
+  const [regelsRes, relatieRes] = await Promise.all([
+    supabaseAdmin
+      .from('offerte_regels')
+      .select('*')
+      .eq('offerte_id', offerte.id)
+      .order('volgorde'),
+    supabaseAdmin
+      .from('relaties')
+      .select('*')
+      .eq('id', offerte.relatie_id)
+      .single(),
+  ])
+  const offerteRegels = regelsRes.data || []
+  const relatie = relatieRes.data
+
+  // Haal offertenummer op voor omschrijving
+  const { data: offerteData } = await supabaseAdmin
+    .from('offertes')
+    .select('offertenummer')
+    .eq('id', offerte.id)
+    .single()
+  const offertenummer = offerteData?.offertenummer || ''
+
+  const isSplit = (offerte.subtotaal || 0) >= 3500
+  let factuurIdToSend: string | null = null
+
+  if (!isSplit) {
+    // === Eén factuur van 100% ===
+    const { data: nummer } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: offerte.administratie_id,
+      p_type: 'factuur',
+    })
+
+    const { data: factuur, error: factuurErr } = await supabaseAdmin
+      .from('facturen')
+      .insert({
+        administratie_id: offerte.administratie_id,
+        relatie_id: offerte.relatie_id,
+        offerte_id: offerte.id,
+        order_id: orderId,
+        factuur_type: 'volledig',
+        factuurnummer: nummer || '',
+        datum: vandaag,
+        vervaldatum,
+        status: 'verzonden',
+        onderwerp: offerte.onderwerp,
+        subtotaal: offerte.subtotaal,
+        btw_totaal: offerte.btw_totaal,
+        totaal: offerte.totaal,
+      })
+      .select('id')
+      .single()
+
+    if (factuurErr || !factuur) {
+      console.error('Factuur aanmaken mislukt:', factuurErr)
+      return
+    }
+
+    // Factuur regels
+    if (offerteRegels.length > 0) {
+      await supabaseAdmin.from('factuur_regels').insert(
+        offerteRegels.map((r: { product_id?: string; omschrijving: string; aantal: number; prijs: number; btw_percentage: number; totaal: number }, i: number) => ({
+          factuur_id: factuur.id,
           product_id: r.product_id || null,
           omschrijving: r.omschrijving,
           aantal: r.aantal,
           prijs: r.prijs,
           btw_percentage: r.btw_percentage,
-          totaal: r.aantal * r.prijs,
+          totaal: r.totaal,
           volgorde: i,
         }))
       )
     }
+
+    factuurIdToSend = factuur.id
+  } else {
+    // === Split: 70% aanbetaling + 30% restbetaling ===
+    const aanbetalingPercentage = 70
+    const factor = aanbetalingPercentage / 100
+
+    const aanbetalingSubtotaal = Math.round(offerte.subtotaal * factor * 100) / 100
+    const aanbetalingBtw = Math.round(offerte.btw_totaal * factor * 100) / 100
+    const aanbetalingTotaal = aanbetalingSubtotaal + aanbetalingBtw
+
+    const restSubtotaal = offerte.subtotaal - aanbetalingSubtotaal
+    const restBtw = offerte.btw_totaal - aanbetalingBtw
+    const restTotaal = restSubtotaal + restBtw
+
+    // Genereer 2 factuurnummers
+    const { data: nummer1 } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: offerte.administratie_id,
+      p_type: 'factuur',
+    })
+    const { data: nummer2 } = await supabaseAdmin.rpc('volgende_nummer', {
+      p_administratie_id: offerte.administratie_id,
+      p_type: 'factuur',
+    })
+
+    // Factuur 1: aanbetaling 70% — status 'verzonden'
+    const { data: factuur1, error: err1 } = await supabaseAdmin
+      .from('facturen')
+      .insert({
+        administratie_id: offerte.administratie_id,
+        relatie_id: offerte.relatie_id,
+        offerte_id: offerte.id,
+        order_id: orderId,
+        factuur_type: 'aanbetaling',
+        factuurnummer: nummer1 || '',
+        datum: vandaag,
+        vervaldatum,
+        status: 'verzonden',
+        onderwerp: `Aanbetaling ${aanbetalingPercentage}% - ${offerte.onderwerp || offertenummer}`,
+        subtotaal: aanbetalingSubtotaal,
+        btw_totaal: aanbetalingBtw,
+        totaal: aanbetalingTotaal,
+      })
+      .select('id')
+      .single()
+
+    if (err1 || !factuur1) {
+      console.error('Aanbetaling factuur aanmaken mislukt:', err1)
+      return
+    }
+
+    await supabaseAdmin.from('factuur_regels').insert({
+      factuur_id: factuur1.id,
+      omschrijving: `Aanbetaling ${aanbetalingPercentage}% offerte ${offertenummer}`,
+      aantal: 1,
+      prijs: aanbetalingSubtotaal,
+      btw_percentage: 21,
+      totaal: aanbetalingSubtotaal,
+      volgorde: 0,
+    })
+
+    // Factuur 2: restbetaling 30% — status 'concept'
+    const { data: factuur2, error: err2 } = await supabaseAdmin
+      .from('facturen')
+      .insert({
+        administratie_id: offerte.administratie_id,
+        relatie_id: offerte.relatie_id,
+        offerte_id: offerte.id,
+        order_id: orderId,
+        factuur_type: 'restbetaling',
+        gerelateerde_factuur_id: factuur1.id,
+        factuurnummer: nummer2 || '',
+        datum: vandaag,
+        vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: 'concept',
+        onderwerp: `Restbetaling 30% - ${offerte.onderwerp || offertenummer}`,
+        subtotaal: restSubtotaal,
+        btw_totaal: restBtw,
+        totaal: restTotaal,
+      })
+      .select('id')
+      .single()
+
+    if (err2 || !factuur2) {
+      console.error('Restbetaling factuur aanmaken mislukt:', err2)
+    } else {
+      await supabaseAdmin.from('factuur_regels').insert({
+        factuur_id: factuur2.id,
+        omschrijving: `Restbetaling 30% offerte ${offertenummer}`,
+        aantal: 1,
+        prijs: restSubtotaal,
+        btw_percentage: 21,
+        totaal: restSubtotaal,
+        volgorde: 0,
+      })
+
+      // Link factuur1 terug naar factuur2
+      await supabaseAdmin
+        .from('facturen')
+        .update({ gerelateerde_factuur_id: factuur2.id })
+        .eq('id', factuur1.id)
+    }
+
+    factuurIdToSend = factuur1.id
   }
 
-  revalidatePath('/portaal/offertes')
-  revalidatePath(`/portaal/offertes/${id}`)
-  return { success: true }
+  if (!factuurIdToSend) return
+
+  // === Haal volledige factuur op voor PDF + email ===
+  const { data: factuurVolledig } = await supabaseAdmin
+    .from('facturen')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .eq('id', factuurIdToSend)
+    .single()
+
+  if (!factuurVolledig) return
+
+  // === Mollie betaallink ===
+  let betaalLink: string | null = null
+  try {
+    const payment = await createMolliePayment({
+      amount: factuurVolledig.totaal,
+      description: `Factuur ${factuurVolledig.factuurnummer}`,
+      redirectUrl: `${appUrl}/betaling/succes`,
+      webhookUrl: `${appUrl}/api/mollie/webhook`,
+      metadata: { factuurId: factuurIdToSend },
+    })
+
+    betaalLink = payment.checkoutUrl || null
+
+    await supabaseAdmin
+      .from('facturen')
+      .update({
+        mollie_payment_id: payment.id,
+        betaal_link: betaalLink,
+      })
+      .eq('id', factuurIdToSend)
+  } catch (err) {
+    console.error('Mollie betaallink genereren mislukt:', err)
+    // Factuur is aangemaakt, maar zonder betaallink — ga door met email
+  }
+
+  // === Email versturen ===
+  const emailTo = relatie?.email
+  if (!emailTo) {
+    console.error('Geen e-mailadres voor relatie, email niet verstuurd')
+    return
+  }
+
+  const klantNaam = relatie?.contactpersoon || relatie?.bedrijfsnaam || ''
+  const totaalFormatted = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(factuurVolledig.totaal || 0)
+  const vervaldatumFormatted = factuurVolledig.vervaldatum
+    ? new Date(factuurVolledig.vervaldatum).toLocaleDateString('nl-NL')
+    : 'n.v.t.'
+
+  const betaalSectie = betaalLink
+    ? `U kunt direct online betalen via de volgende link:\n${betaalLink}\n\nOf maak het bedrag over naar:`
+    : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
+
+  const emailBody = `Beste ${klantNaam},
+
+Bijgevoegd treft u de factuur aan voor ${factuurVolledig.onderwerp || factuurVolledig.factuurnummer}:
+- Factuurnummer: ${factuurVolledig.factuurnummer}
+- Factuurbedrag: ${totaalFormatted}
+- Vervaldatum: ${vervaldatumFormatted}
+
+${betaalSectie}
+IBAN: NL80 INGB 0675 6102 73
+T.n.v. Rebu Kozijnen B.V.
+O.v.v. ${factuurVolledig.factuurnummer}
+
+Mocht u vragen hebben over deze factuur, neem dan gerust contact met ons op.
+
+Met vriendelijke groet,
+Rebu Kozijnen`
+
+  const emailHtml = buildRebuEmailHtml(emailBody)
+
+  // Genereer factuur PDF
+  const attachments: { filename: string; content: Buffer }[] = []
+  try {
+    const { renderToBuffer } = await import('@react-pdf/renderer')
+    const { FactuurDocument } = await import('@/lib/pdf/factuur-template')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfBuffer = await renderToBuffer(FactuurDocument({ factuur: factuurVolledig }) as any)
+    attachments.push({
+      filename: `Factuur-${factuurVolledig.factuurnummer}.pdf`,
+      content: Buffer.from(pdfBuffer),
+    })
+  } catch (err) {
+    console.error('Factuur PDF generatie mislukt:', err)
+  }
+
+  // Verstuur email
+  try {
+    await sendEmail({
+      to: emailTo,
+      subject: `Factuur ${factuurVolledig.factuurnummer} - Rebu Kozijnen`,
+      html: emailHtml,
+      attachments: attachments.map(a => ({
+        filename: a.filename,
+        content: a.content,
+      })),
+    })
+  } catch (err) {
+    console.error('Factuur e-mail verzenden mislukt:', err)
+    // Factuur is aangemaakt, maar email niet verstuurd
+    return
+  }
+
+  // Log email
+  const bijlagenMeta = attachments.map(a => ({ filename: a.filename }))
+  await supabaseAdmin.from('email_log').insert({
+    administratie_id: offerte.administratie_id,
+    factuur_id: factuurIdToSend,
+    relatie_id: offerte.relatie_id,
+    aan: emailTo,
+    onderwerp: `Factuur ${factuurVolledig.factuurnummer} - Rebu Kozijnen`,
+    body_html: emailHtml,
+    bijlagen: bijlagenMeta,
+    verstuurd_door: null, // Auto-gegenereerd door systeem
+  })
 }
