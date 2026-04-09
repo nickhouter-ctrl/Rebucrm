@@ -161,13 +161,40 @@ export async function getRelaties() {
 // Volledige export van alle relaties — alle velden
 export async function exportRelaties() {
   const adminId = await getAdministratieId()
+  console.log('[exportRelaties] adminId:', adminId)
   if (!adminId) return { error: 'Niet ingelogd' }
 
   // Gebruik admin client om RLS issues met stale JWT in server actions te omzeilen,
   // administratie_id filter waarborgt dat alleen eigen relaties worden opgehaald
   const supabaseAdmin = createAdminClient()
 
-  const relaties = await fetchAllRows<{
+  const allRelaties: Array<Record<string, unknown>> = []
+  let from = 0
+  const PAGE = 1000
+
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from('relaties')
+      .select('bedrijfsnaam, type, contactpersoon, email, telefoon, adres, postcode, plaats, land, kvk_nummer, btw_nummer, iban, website, opmerkingen, actief, created_at')
+      .eq('administratie_id', adminId)
+      .order('bedrijfsnaam')
+      .range(from, from + PAGE - 1)
+
+    if (error) {
+      console.error('[exportRelaties] Query error:', error)
+      return { error: `Query fout: ${error.message}` }
+    }
+
+    console.log('[exportRelaties] Page', from / PAGE, 'rows:', data?.length || 0)
+
+    if (!data || data.length === 0) break
+    allRelaties.push(...data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+
+  console.log('[exportRelaties] Totaal:', allRelaties.length)
+  return { success: true, relaties: allRelaties as Array<{
     bedrijfsnaam: string
     type: string | null
     contactpersoon: string | null
@@ -184,16 +211,7 @@ export async function exportRelaties() {
     opmerkingen: string | null
     actief: boolean | null
     created_at: string
-  }>((from, to) =>
-    supabaseAdmin
-      .from('relaties')
-      .select('bedrijfsnaam, type, contactpersoon, email, telefoon, adres, postcode, plaats, land, kvk_nummer, btw_nummer, iban, website, opmerkingen, actief, created_at')
-      .eq('administratie_id', adminId)
-      .order('bedrijfsnaam')
-      .range(from, to)
-  )
-
-  return { success: true, relaties }
+  }> }
 }
 
 export async function getRelatie(id: string) {
