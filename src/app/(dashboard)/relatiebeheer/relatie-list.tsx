@@ -155,7 +155,6 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
         KVK: r.kvk_nummer || '',
         BTW: r.btw_nummer || '',
         IBAN: r.iban || '',
-        Website: r.website || '',
         Opmerkingen: r.opmerkingen || '',
         Actief: r.actief ? 'ja' : 'nee',
         Aangemaakt: r.created_at ? new Date(r.created_at).toLocaleDateString('nl-NL') : '',
