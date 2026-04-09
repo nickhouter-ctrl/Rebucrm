@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
-import { buildRebuEmailHtml } from '@/lib/actions'
+import { buildRebuEmailHtml } from '@/lib/email-template'
 import { sendEmail } from '@/lib/email'
 import { createMolliePayment } from '@/lib/mollie'
 
