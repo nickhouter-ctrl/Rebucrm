@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -94,6 +94,15 @@ interface RelatieTaak {
   deadline: string | null
 }
 
+interface RelatieEmail {
+  id: string
+  onderwerp: string | null
+  van_naam: string | null
+  van_email: string | null
+  datum: string
+  richting: string | null
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
@@ -110,9 +119,10 @@ interface Props {
   notities: Notitie[]
   klantAccounts: KlantAccount[]
   relatieTaken?: RelatieTaak[]
+  relatieEmails?: RelatieEmail[]
 }
 
-export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [] }: Props) {
+export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
   const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
@@ -143,6 +153,8 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     { label: 'Offertes', waarde: String(stats.aantalOffertes), icon: FileText, kleur: 'text-blue-600 bg-blue-50', tab: 'offertes' as const },
     { label: 'Conversie', waarde: `${stats.conversiePercentage}%`, icon: TrendingUp, kleur: 'text-purple-600 bg-purple-50', tab: 'projecten' as const },
   ]
+
+  const openTaken = relatieTaken.filter(t => t.status !== 'afgerond' && t.status !== 'geannuleerd')
 
   async function handleSave(formData: FormData) {
     setLoading(true); setError(''); setSuccess('')
@@ -264,20 +276,150 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       </div>
 
       {tab === 'overzicht' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {statCards.map(s => (
-            <Card key={s.label} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setTab(s.tab)}>
-              <CardContent className="flex items-center gap-4">
-                <div className={`p-3 rounded-lg ${s.kleur}`}>
-                  <s.icon className="h-6 w-6" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">{s.label}</p>
-                  <p className="text-2xl font-bold text-gray-900">{s.waarde}</p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {statCards.map(s => (
+              <Card key={s.label} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setTab(s.tab)}>
+                <CardContent className="flex items-center gap-4">
+                  <div className={`p-3 rounded-lg ${s.kleur}`}>
+                    <s.icon className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">{s.label}</p>
+                    <p className="text-2xl font-bold text-gray-900">{s.waarde}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Contactgegevens */}
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <Phone className="h-4 w-4 text-gray-400" />
+                  Contactgegevens
+                </h3>
+                <div className="space-y-2 text-sm">
+                  {relatie.contactpersoon && (
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <span className="text-gray-400 w-4 flex justify-center"><UserPlus className="h-3.5 w-3.5" /></span>
+                      {relatie.contactpersoon}
+                    </div>
+                  )}
+                  {relatie.telefoon && (
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <span className="text-gray-400 w-4 flex justify-center"><Phone className="h-3.5 w-3.5" /></span>
+                      <a href={`tel:${relatie.telefoon}`} className="hover:text-primary">{relatie.telefoon}</a>
+                    </div>
+                  )}
+                  {relatie.email && (
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <span className="text-gray-400 w-4 flex justify-center"><Mail className="h-3.5 w-3.5" /></span>
+                      <a href={`mailto:${relatie.email}`} className="hover:text-primary truncate">{relatie.email}</a>
+                    </div>
+                  )}
+                  {(relatie.adres || relatie.plaats) && (
+                    <div className="flex items-center gap-2 text-gray-700">
+                      <span className="text-gray-400 w-4 flex justify-center"><MapPin className="h-3.5 w-3.5" /></span>
+                      <span>{[relatie.adres, relatie.postcode, relatie.plaats].filter(Boolean).join(', ')}</span>
+                    </div>
+                  )}
+                  {!relatie.contactpersoon && !relatie.telefoon && !relatie.email && !relatie.adres && !relatie.plaats && (
+                    <p className="text-gray-400 text-xs">Geen contactgegevens ingevuld</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
-          ))}
+
+            {/* Recente emails */}
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <Mail className="h-4 w-4 text-gray-400" />
+                    Recente emails
+                  </h3>
+                  <Link href="/email" className="text-xs text-primary hover:underline">Alle emails</Link>
+                </div>
+                {relatieEmails.length === 0 ? (
+                  <p className="text-gray-400 text-xs">Geen emails</p>
+                ) : (
+                  <div className="space-y-2">
+                    {relatieEmails.slice(0, 3).map(e => (
+                      <div key={e.id} className="flex items-start gap-2 text-sm">
+                        <span className="mt-0.5 shrink-0">
+                          {e.richting === 'inkomend' ? (
+                            <ArrowDownLeft className="h-3.5 w-3.5 text-blue-500" />
+                          ) : (
+                            <ArrowUpRight className="h-3.5 w-3.5 text-green-500" />
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-gray-700 truncate">{e.onderwerp || '(geen onderwerp)'}</p>
+                          <p className="text-xs text-gray-400">{formatDateShort(e.datum)}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Laatste notities */}
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-gray-400" />
+                    Laatste notities
+                  </h3>
+                  <button onClick={() => setTab('notities')} className="text-xs text-primary hover:underline">Alle notities</button>
+                </div>
+                {notities.length === 0 ? (
+                  <p className="text-gray-400 text-xs">Geen notities</p>
+                ) : (
+                  <div className="space-y-2">
+                    {notities.slice(0, 3).map(n => (
+                      <div key={n.id} className="text-sm cursor-pointer hover:bg-gray-50 rounded -mx-1 px-1 py-0.5" onClick={() => setTab('notities')}>
+                        <p className="text-gray-700 line-clamp-1">{n.tekst}</p>
+                        <p className="text-xs text-gray-400">{n.gebruiker?.naam || 'Onbekend'} &middot; {formatDateShort(n.created_at)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Open taken */}
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <CheckSquare className="h-4 w-4 text-gray-400" />
+                    Open taken
+                  </h3>
+                  <button onClick={() => setTab('taken')} className="text-xs text-primary hover:underline">Alle taken</button>
+                </div>
+                {openTaken.length === 0 ? (
+                  <p className="text-gray-400 text-xs">Geen open taken</p>
+                ) : (
+                  <div className="space-y-2">
+                    {openTaken.slice(0, 3).map(t => (
+                      <Link key={t.id} href={`/taken/${t.id}`} className="flex items-center justify-between text-sm hover:bg-gray-50 rounded -mx-1 px-1 py-0.5 group">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-gray-700 truncate group-hover:text-primary">{t.titel}</p>
+                          {t.deadline && <p className="text-xs text-gray-400">{formatDateShort(t.deadline)}</p>}
+                        </div>
+                        <Badge status={t.prioriteit}>{t.prioriteit}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 

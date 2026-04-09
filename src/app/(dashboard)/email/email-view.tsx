@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { ToastContainer, showToast } from '@/components/ui/toast'
 import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
@@ -168,7 +169,9 @@ export function EmailView({
     setAssignProjecten([])
     const result = await assignEmailToMedewerker(emailId, medewerkerId, projectId)
     if (result.success) {
-      setEmails(prev => prev.map(e => e.id === emailId ? { ...e, gelezen: true, labels: [...(e.labels || []), 'verwerkt'] } : e))
+      const mw = medewerkers.find(m => m.id === medewerkerId)
+      setEmails(prev => prev.map(e => e.id === emailId ? { ...e, gelezen: true, labels: [...(e.labels || []), 'verwerkt'], medewerker: mw ? { id: mw.id, naam: mw.naam } : e.medewerker } : e))
+      showToast(`Toegewezen aan ${mw?.naam || 'medewerker'}`)
     }
   }
 
@@ -176,6 +179,7 @@ export function EmailView({
     setLinkingEmail(null)
     setProjectZoek('')
     await linkEmailToProject(emailId, projectId)
+    showToast('Gekoppeld aan verkoopkans')
     loadEmails(page, filter, zoekterm)
   }
 
@@ -187,6 +191,7 @@ export function EmailView({
 
   return (
     <div className="space-y-6">
+      <ToastContainer />
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">E-mail</h1>
         <div className="flex items-center gap-3">

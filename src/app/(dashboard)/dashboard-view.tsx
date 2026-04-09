@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users } from 'lucide-react'
+import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
@@ -130,6 +130,15 @@ interface DashboardData {
     onderwerp: string | null
     totaal: number
     datum: string
+  }[]
+  openVerkoopkansen: {
+    id: string
+    naam: string
+    status: string
+    created_at: string
+    relatie_bedrijfsnaam: string
+    heeft_offerte: boolean
+    aantal_emails: number
   }[]
 }
 
@@ -331,6 +340,12 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   }
   if (data.moetBesteldOrders.length > 0) {
     notifications.push({ label: 'bestellen', href: '#bestellen', count: data.moetBesteldOrders.length })
+  }
+  const dertigDagenGeleden = new Date()
+  dertigDagenGeleden.setDate(dertigDagenGeleden.getDate() - 30)
+  const verkoopkansenZonderOfferte = (data.openVerkoopkansen || []).filter(v => !v.heeft_offerte && new Date(v.created_at) > dertigDagenGeleden)
+  if (verkoopkansenZonderOfferte.length > 0) {
+    notifications.push({ label: 'verkoopkansen zonder offerte', href: '#verkoopkansen', count: verkoopkansenZonderOfferte.length })
   }
 
   const conversieGraad = data.totaalOffertes > 0
@@ -666,6 +681,66 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       {besteldLoading === o.id ? 'Bezig...' : 'Besteld markeren'}
                     </Button>
                   </div>
+                ))}
+              </div>
+            </Section>
+          </div>
+
+          {/* Openstaande verkoopkansen */}
+          <div id="verkoopkansen">
+            <Section title="Openstaande verkoopkansen" icon={FolderKanban} iconColor="bg-purple-50 text-purple-600" count={(data.openVerkoopkansen || []).length} linkHref="/projecten" linkLabel="Alle verkoopkansen" accentColor="bg-purple-100 text-purple-700">
+              <table className="w-full hidden md:table">
+                <thead>
+                  <tr className="bg-gray-50/70">
+                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Naam</th>
+                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Klant</th>
+                    <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Offerte</th>
+                    <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Emails</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.openVerkoopkansen || []).map(v => (
+                    <tr key={v.id} className="border-t border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onClick={() => router.push(`/projecten/${v.id}`)}>
+                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{v.naam}</td>
+                      <td className="px-3 py-3 text-sm text-gray-500">{v.relatie_bedrijfsnaam}</td>
+                      <td className="px-3 py-3 text-center">
+                        {v.heeft_offerte ? (
+                          <span className="inline-flex items-center text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">Offerte</span>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Geen offerte</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        {v.aantal_emails > 0 && (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                            <Mail className="h-3 w-3" />{v.aantal_emails}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="md:hidden divide-y divide-gray-50">
+                {(data.openVerkoopkansen || []).map(v => (
+                  <Link key={v.id} href={`/projecten/${v.id}`} className="block px-4 py-3 active:bg-gray-50">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{v.naam}</p>
+                        <p className="text-xs text-gray-400">{v.relatie_bedrijfsnaam}</p>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        {!v.heeft_offerte && (
+                          <span className="inline-flex items-center text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">Geen offerte</span>
+                        )}
+                        {v.aantal_emails > 0 && (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                            <Mail className="h-3 w-3" />{v.aantal_emails}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
                 ))}
               </div>
             </Section>
