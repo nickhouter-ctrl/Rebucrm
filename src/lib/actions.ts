@@ -2172,14 +2172,15 @@ export async function deleteFaalkost(id: string) {
 
 // === E-MAILS ===
 export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaand' = 'alle', zoekterm = '', toonIrrelevant = false) {
-  const supabase = await createClient()
   const adminId = await getAdministratieId()
   if (!adminId) return { emails: [], total: 0 }
 
+  // Admin client om stale JWT / RLS problemen te voorkomen bij server action calls
+  const supabaseAdmin = createAdminClient()
   const pageSize = 25
   const offset = (page - 1) * pageSize
 
-  let query = supabase
+  let query = supabaseAdmin
     .from('emails')
     .select('*, relatie:relaties(id, bedrijfsnaam), offerte:offertes(id, offertenummer), medewerker:medewerkers(id, naam)', { count: 'exact' })
     .eq('administratie_id', adminId)

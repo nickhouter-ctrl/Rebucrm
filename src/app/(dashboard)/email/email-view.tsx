@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -98,6 +98,35 @@ export function EmailView({
   const pageSize = 25
   const totalPages = Math.ceil(total / pageSize)
 
+  // Refs voor auto-sync (om stale closures te voorkomen)
+  const filterRef = useRef(filter)
+  const zoektermRef = useRef(zoekterm)
+  const toonIrrelevantRef = useRef(toonIrrelevant)
+  const pageRef = useRef(page)
+  filterRef.current = filter
+  zoektermRef.current = zoekterm
+  toonIrrelevantRef.current = toonIrrelevant
+  pageRef.current = page
+
+  // Auto-sync elke 5 minuten
+  useEffect(() => {
+    const INTERVAL = 5 * 60 * 1000 // 5 minuten
+
+    const autoSync = async () => {
+      try {
+        await fetch('/api/email/sync', { method: 'POST' })
+        const result = await getEmails(pageRef.current, filterRef.current, zoektermRef.current, toonIrrelevantRef.current)
+        setEmails(result.emails as Email[])
+        setTotal(result.total)
+      } catch {
+        // Stille fout bij auto-sync
+      }
+    }
+
+    const interval = setInterval(autoSync, INTERVAL)
+    return () => clearInterval(interval)
+  }, [])
+
   async function loadEmails(newPage: number, newFilter: typeof filter, newZoekterm: string, showIrrelevant = toonIrrelevant) {
     startTransition(async () => {
       const result = await getEmails(newPage, newFilter, newZoekterm, showIrrelevant)
@@ -133,9 +162,17 @@ export function EmailView({
   async function handleSync() {
     setSyncing(true)
     try {
-      await fetch('/api/email/sync', { method: 'POST' })
+      const res = await fetch('/api/email/sync', { method: 'POST' })
+      const syncResult = await res.json().catch(() => ({}))
+      // Herlaad emails na succesvolle sync
+      const result = await getEmails(1, filter, zoekterm, toonIrrelevant)
+      setEmails(result.emails as Email[])
+      setTotal(result.total)
+      setPage(1)
+      if (syncResult.synced > 0) {
+        showToast(`${syncResult.synced} nieuwe email(s) gesynchroniseerd`)
+      }
       router.refresh()
-      loadEmails(1, filter, zoekterm)
     } catch {
       // ignore
     }
