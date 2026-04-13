@@ -6,10 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ToastContainer, showToast } from '@/components/ui/toast'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2 } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -86,10 +86,14 @@ export function EmailView({
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [broadcastOnderwerp, setBroadcastOnderwerp] = useState('')
   const [broadcastBericht, setBroadcastBericht] = useState('')
-  const [broadcastType, setBroadcastType] = useState<'alle' | 'zakelijk' | 'particulier'>('alle')
+  const [broadcastType, setBroadcastType] = useState<'alle' | 'zakelijk' | 'particulier' | 'top_klanten' | 'selectie'>('alle')
   const [broadcastAantal, setBroadcastAantal] = useState<number | null>(null)
   const [broadcastLoading, setBroadcastLoading] = useState(false)
   const [broadcastCountLoading, setBroadcastCountLoading] = useState(false)
+  const [broadcastRelaties, setBroadcastRelaties] = useState<{ id: string; bedrijfsnaam: string; email: string; type: string }[]>([])
+  const [broadcastSelectedIds, setBroadcastSelectedIds] = useState<Set<string>>(new Set())
+  const [broadcastRelatieZoek, setBroadcastRelatieZoek] = useState('')
+  const [broadcastRelatiesLoaded, setBroadcastRelatiesLoaded] = useState(false)
 
   const pageSize = 25
   const totalPages = Math.ceil(total / pageSize)
@@ -197,24 +201,51 @@ export function EmailView({
     setBroadcastOnderwerp('')
     setBroadcastBericht('')
     setBroadcastType('alle')
+    setBroadcastSelectedIds(new Set())
+    setBroadcastRelatieZoek('')
+    setBroadcastRelatiesLoaded(false)
     setBroadcastCountLoading(true)
     const count = await getBroadcastRelatieCount('alle')
     setBroadcastAantal(count)
     setBroadcastCountLoading(false)
   }
 
-  async function handleBroadcastTypeChange(type: 'alle' | 'zakelijk' | 'particulier') {
+  async function handleBroadcastTypeChange(type: typeof broadcastType) {
     setBroadcastType(type)
-    setBroadcastCountLoading(true)
-    const count = await getBroadcastRelatieCount(type)
-    setBroadcastAantal(count)
-    setBroadcastCountLoading(false)
+    if (type === 'selectie') {
+      // Laad relaties als dat nog niet is gedaan
+      if (!broadcastRelatiesLoaded) {
+        setBroadcastCountLoading(true)
+        const relaties = await getBroadcastRelaties()
+        setBroadcastRelaties(relaties)
+        setBroadcastRelatiesLoaded(true)
+        setBroadcastCountLoading(false)
+      }
+      setBroadcastAantal(broadcastSelectedIds.size)
+    } else {
+      setBroadcastCountLoading(true)
+      const count = await getBroadcastRelatieCount(type)
+      setBroadcastAantal(count)
+      setBroadcastCountLoading(false)
+    }
+  }
+
+  function toggleRelatieSelection(id: string) {
+    setBroadcastSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      setBroadcastAantal(next.size)
+      return next
+    })
   }
 
   async function handleSendBroadcast() {
     if (!broadcastOnderwerp.trim() || !broadcastBericht.trim()) return
+    const effectiveAantal = broadcastType === 'selectie' ? broadcastSelectedIds.size : broadcastAantal
+    if (!effectiveAantal || effectiveAantal === 0) return
     setBroadcastLoading(true)
-    const result = await sendBroadcastEmail(broadcastOnderwerp, broadcastBericht, broadcastType)
+    const selectedArr = broadcastType === 'selectie' ? [...broadcastSelectedIds] : undefined
+    const result = await sendBroadcastEmail(broadcastOnderwerp, broadcastBericht, broadcastType === 'selectie' ? 'alle' : broadcastType, selectedArr)
     setBroadcastLoading(false)
     if (result.success) {
       showToast(`Broadcast verzonden naar ${result.aantalOntvangers} ontvanger(s)`)
@@ -607,23 +638,79 @@ export function EmailView({
               {/* Type filter */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Ontvangers</label>
-                <div className="flex gap-1">
-                  {(['alle', 'zakelijk', 'particulier'] as const).map(t => (
+                <div className="flex gap-1 flex-wrap">
+                  {([
+                    { value: 'alle' as const, label: 'Alle' },
+                    { value: 'zakelijk' as const, label: 'Zakelijk' },
+                    { value: 'particulier' as const, label: 'Particulier' },
+                    { value: 'top_klanten' as const, label: 'Top klanten' },
+                    { value: 'selectie' as const, label: 'Selectie' },
+                  ]).map(t => (
                     <button
-                      key={t}
-                      onClick={() => handleBroadcastTypeChange(t)}
+                      key={t.value}
+                      onClick={() => handleBroadcastTypeChange(t.value)}
                       className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                        broadcastType === t ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        broadcastType === t.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
                     >
-                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                      {t.label}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  {broadcastCountLoading ? 'Tellen...' : `${broadcastAantal ?? 0} ontvanger(s) met e-mailadres`}
+                  {broadcastCountLoading ? 'Tellen...' : broadcastType === 'top_klanten'
+                    ? `${broadcastAantal ?? 0} top klant(en) met e-mailadres (op basis van omzet)`
+                    : `${broadcastAantal ?? 0} ontvanger(s) met e-mailadres`}
                 </p>
               </div>
+
+              {/* Klant selectie lijst */}
+              {broadcastType === 'selectie' && broadcastRelatiesLoaded && (
+                <div>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={broadcastRelatieZoek}
+                      onChange={e => setBroadcastRelatieZoek(e.target.value)}
+                      placeholder="Zoek klant..."
+                      className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                    />
+                  </div>
+                  <div className="border border-gray-200 rounded-md max-h-[200px] overflow-y-auto">
+                    {broadcastRelaties
+                      .filter(r => !broadcastRelatieZoek || r.bedrijfsnaam.toLowerCase().includes(broadcastRelatieZoek.toLowerCase()) || r.email.toLowerCase().includes(broadcastRelatieZoek.toLowerCase()))
+                      .map(r => (
+                        <button
+                          key={r.id}
+                          onClick={() => toggleRelatieSelection(r.id)}
+                          className={`flex items-center gap-2 w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-50 last:border-0 ${
+                            broadcastSelectedIds.has(r.id) ? 'bg-primary/5' : ''
+                          }`}
+                        >
+                          <span className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                            broadcastSelectedIds.has(r.id) ? 'bg-primary border-primary' : 'border-gray-300'
+                          }`}>
+                            {broadcastSelectedIds.has(r.id) && <Check className="h-3 w-3 text-white" />}
+                          </span>
+                          <span className="truncate font-medium text-gray-700">{r.bedrijfsnaam}</span>
+                          <span className="truncate text-gray-400 text-xs ml-auto">{r.email}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${r.type === 'zakelijk' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                            {r.type}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                  {broadcastSelectedIds.size > 0 && (
+                    <button
+                      onClick={() => { setBroadcastSelectedIds(new Set()); setBroadcastAantal(0) }}
+                      className="text-xs text-gray-500 hover:text-gray-700 mt-1"
+                    >
+                      Selectie wissen
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Onderwerp */}
               <div>
@@ -657,7 +744,7 @@ export function EmailView({
               <Button
                 size="sm"
                 onClick={handleSendBroadcast}
-                disabled={broadcastLoading || !broadcastOnderwerp.trim() || !broadcastBericht.trim() || broadcastAantal === 0}
+                disabled={broadcastLoading || !broadcastOnderwerp.trim() || !broadcastBericht.trim() || (broadcastType === 'selectie' ? broadcastSelectedIds.size === 0 : broadcastAantal === 0)}
               >
                 {broadcastLoading ? (
                   <>
@@ -667,7 +754,7 @@ export function EmailView({
                 ) : (
                   <>
                     <Send className="h-4 w-4" />
-                    Verzenden naar {broadcastAantal ?? 0} ontvanger(s)
+                    Verzenden naar {broadcastType === 'selectie' ? broadcastSelectedIds.size : (broadcastAantal ?? 0)} ontvanger(s)
                   </>
                 )}
               </Button>

@@ -5526,10 +5526,49 @@ export async function deleteTaakNotitie(id: string) {
 
 // --- Broadcast email ---
 
-export async function getBroadcastRelatieCount(type: 'alle' | 'zakelijk' | 'particulier'): Promise<number> {
+type BroadcastType = 'alle' | 'zakelijk' | 'particulier' | 'top_klanten'
+
+async function getTopKlantenRelatieIds(adminId: string): Promise<string[]> {
+  const supabaseAdmin = createAdminClient()
+  // Haal facturen + offertes op om top klanten te bepalen (zelfde logica als dashboard)
+  const facturenData = await fetchAllRows<{ relatie_id: string | null; totaal: number | null; status: string }>((from, to) =>
+    supabaseAdmin.from('facturen').select('relatie_id, totaal, status').eq('administratie_id', adminId).range(from, to)
+  )
+  const offertesData = await fetchAllRows<{ relatie_id: string | null; totaal: number | null }>((from, to) =>
+    supabaseAdmin.from('offertes').select('relatie_id, totaal').eq('administratie_id', adminId).in('status', ['verzonden', 'geaccepteerd']).range(from, to)
+  )
+  const relatieMap = new Map<string, number>()
+  for (const f of facturenData) {
+    if (!f.relatie_id) continue
+    if (f.status === 'betaald') relatieMap.set(f.relatie_id, (relatieMap.get(f.relatie_id) || 0) + (f.totaal || 0))
+  }
+  for (const o of offertesData) {
+    if (!o.relatie_id) continue
+    relatieMap.set(o.relatie_id, (relatieMap.get(o.relatie_id) || 0) + (o.totaal || 0))
+  }
+  return [...relatieMap.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 50)
+    .map(([id]) => id)
+}
+
+export async function getBroadcastRelatieCount(type: BroadcastType): Promise<number> {
   const adminId = await getAdministratieId()
   if (!adminId) return 0
   const supabaseAdmin = createAdminClient()
+
+  if (type === 'top_klanten') {
+    const topIds = await getTopKlantenRelatieIds(adminId)
+    if (topIds.length === 0) return 0
+    const { count } = await supabaseAdmin
+      .from('relaties')
+      .select('id', { count: 'exact', head: true })
+      .eq('administratie_id', adminId)
+      .in('id', topIds)
+      .not('email', 'is', null)
+      .neq('email', '')
+    return count || 0
+  }
 
   let query = supabaseAdmin
     .from('relaties')
@@ -5545,7 +5584,25 @@ export async function getBroadcastRelatieCount(type: 'alle' | 'zakelijk' | 'part
   return count || 0
 }
 
-export async function sendBroadcastEmail(onderwerp: string, bericht: string, type: 'alle' | 'zakelijk' | 'particulier'): Promise<{ success?: boolean; aantalOntvangers?: number; error?: string }> {
+export async function getBroadcastRelaties(): Promise<{ id: string; bedrijfsnaam: string; email: string; type: string }[]> {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const supabaseAdmin = createAdminClient()
+
+  const data = await fetchAllRows<{ id: string; bedrijfsnaam: string; email: string; type: string }>((from, to) =>
+    supabaseAdmin
+      .from('relaties')
+      .select('id, bedrijfsnaam, email, type')
+      .eq('administratie_id', adminId)
+      .not('email', 'is', null)
+      .neq('email', '')
+      .order('bedrijfsnaam')
+      .range(from, to)
+  )
+  return data
+}
+
+export async function sendBroadcastEmail(onderwerp: string, bericht: string, type: BroadcastType, selectedIds?: string[]): Promise<{ success?: boolean; aantalOntvangers?: number; error?: string }> {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
@@ -5553,22 +5610,52 @@ export async function sendBroadcastEmail(onderwerp: string, bericht: string, typ
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Haal alle relaties op met geldig emailadres
-  let query = supabaseAdmin
-    .from('relaties')
-    .select('email')
-    .eq('administratie_id', adminId)
-    .not('email', 'is', null)
-    .neq('email', '')
+  let emailAdressen: string[] = []
 
-  if (type === 'zakelijk') query = query.eq('type', 'zakelijk')
-  if (type === 'particulier') query = query.eq('type', 'particulier')
+  if (selectedIds && selectedIds.length > 0) {
+    // Handmatige selectie: haal emails op voor geselecteerde relatie IDs
+    const data = await fetchAllRows<{ email: string }>((from, to) =>
+      supabaseAdmin
+        .from('relaties')
+        .select('email')
+        .eq('administratie_id', adminId)
+        .in('id', selectedIds)
+        .not('email', 'is', null)
+        .neq('email', '')
+        .range(from, to)
+    )
+    emailAdressen = [...new Set(data.map(r => r.email).filter(Boolean))]
+  } else if (type === 'top_klanten') {
+    const topIds = await getTopKlantenRelatieIds(adminId)
+    if (topIds.length === 0) return { error: 'Geen top klanten gevonden' }
+    const data = await fetchAllRows<{ email: string }>((from, to) =>
+      supabaseAdmin
+        .from('relaties')
+        .select('email')
+        .eq('administratie_id', adminId)
+        .in('id', topIds)
+        .not('email', 'is', null)
+        .neq('email', '')
+        .range(from, to)
+    )
+    emailAdressen = [...new Set(data.map(r => r.email).filter(Boolean))]
+  } else {
+    let query = supabaseAdmin
+      .from('relaties')
+      .select('email')
+      .eq('administratie_id', adminId)
+      .not('email', 'is', null)
+      .neq('email', '')
 
-  const allEmails = await fetchAllRows<{ email: string }>((from, to) =>
-    query.range(from, to)
-  )
+    if (type === 'zakelijk') query = query.eq('type', 'zakelijk')
+    if (type === 'particulier') query = query.eq('type', 'particulier')
 
-  const emailAdressen = [...new Set(allEmails.map(r => r.email).filter(Boolean))]
+    const allEmails = await fetchAllRows<{ email: string }>((from, to) =>
+      query.range(from, to)
+    )
+    emailAdressen = [...new Set(allEmails.map(r => r.email).filter(Boolean))]
+  }
+
   if (emailAdressen.length === 0) return { error: 'Geen relaties met emailadres gevonden' }
 
   const emailHtml = buildRebuEmailHtml(bericht)
@@ -5592,9 +5679,10 @@ export async function sendBroadcastEmail(onderwerp: string, bericht: string, typ
   }
 
   // Log in email_log
+  const label = selectedIds?.length ? 'Selectie' : type === 'top_klanten' ? 'Top klanten' : type.charAt(0).toUpperCase() + type.slice(1)
   await supabaseAdmin.from('email_log').insert({
     administratie_id: adminId,
-    aan: `Broadcast (${emailAdressen.length} ontvangers)`,
+    aan: `Broadcast ${label} (${emailAdressen.length} ontvangers)`,
     onderwerp,
     body_html: emailHtml,
     verstuurd_door: user?.id || null,
