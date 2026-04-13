@@ -2029,7 +2029,7 @@ export async function getDashboardData() {
   // Openstaande verkoopkansen
   const { data: openVerkoopkansenData } = await supabase
     .from('projecten')
-    .select('id, naam, status, created_at, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
+    .select('id, naam, status, created_at, bron, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
     .eq('administratie_id', adminId)
     .in('status', ['actief', 'on_hold'])
     .order('created_at', { ascending: false })
@@ -2053,6 +2053,7 @@ export async function getDashboardData() {
     naam: p.naam,
     status: p.status,
     created_at: p.created_at,
+    bron: (p as Record<string, unknown>).bron as string || 'handmatig',
     relatie_bedrijfsnaam: (p.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
     heeft_offerte: ((p.offertes as { id: string }[] | null) || []).length > 0,
     aantal_emails: emailCountMap.get(p.id) || 0,
@@ -5521,4 +5522,83 @@ export async function deleteTaakNotitie(id: string) {
   const { error } = await supabase.from('taak_notities').delete().eq('id', id)
   if (error) return { error: error.message }
   return { success: true }
+}
+
+// --- Broadcast email ---
+
+export async function getBroadcastRelatieCount(type: 'alle' | 'zakelijk' | 'particulier'): Promise<number> {
+  const adminId = await getAdministratieId()
+  if (!adminId) return 0
+  const supabaseAdmin = createAdminClient()
+
+  let query = supabaseAdmin
+    .from('relaties')
+    .select('id', { count: 'exact', head: true })
+    .eq('administratie_id', adminId)
+    .not('email', 'is', null)
+    .neq('email', '')
+
+  if (type === 'zakelijk') query = query.eq('type', 'zakelijk')
+  if (type === 'particulier') query = query.eq('type', 'particulier')
+
+  const { count } = await query
+  return count || 0
+}
+
+export async function sendBroadcastEmail(onderwerp: string, bericht: string, type: 'alle' | 'zakelijk' | 'particulier'): Promise<{ success?: boolean; aantalOntvangers?: number; error?: string }> {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  // Haal alle relaties op met geldig emailadres
+  let query = supabaseAdmin
+    .from('relaties')
+    .select('email')
+    .eq('administratie_id', adminId)
+    .not('email', 'is', null)
+    .neq('email', '')
+
+  if (type === 'zakelijk') query = query.eq('type', 'zakelijk')
+  if (type === 'particulier') query = query.eq('type', 'particulier')
+
+  const allEmails = await fetchAllRows<{ email: string }>((from, to) =>
+    query.range(from, to)
+  )
+
+  const emailAdressen = [...new Set(allEmails.map(r => r.email).filter(Boolean))]
+  if (emailAdressen.length === 0) return { error: 'Geen relaties met emailadres gevonden' }
+
+  const emailHtml = buildRebuEmailHtml(bericht)
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'Nick@rebukozijnen.nl'
+  const BATCH_SIZE = 90
+
+  try {
+    // Verstuur in batches van 90 (Gmail SMTP limiet)
+    for (let i = 0; i < emailAdressen.length; i += BATCH_SIZE) {
+      const batch = emailAdressen.slice(i, i + BATCH_SIZE)
+      await sendEmail({
+        to: from,
+        subject: onderwerp,
+        html: emailHtml,
+        bcc: batch,
+      })
+    }
+  } catch (err) {
+    console.error('Broadcast email verzenden mislukt:', err)
+    return { error: 'E-mail verzenden mislukt' }
+  }
+
+  // Log in email_log
+  await supabaseAdmin.from('email_log').insert({
+    administratie_id: adminId,
+    aan: `Broadcast (${emailAdressen.length} ontvangers)`,
+    onderwerp,
+    body_html: emailHtml,
+    verstuurd_door: user?.id || null,
+  })
+
+  return { success: true, aantalOntvangers: emailAdressen.length }
 }

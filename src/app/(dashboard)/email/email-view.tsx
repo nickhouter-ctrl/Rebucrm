@@ -6,10 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ToastContainer, showToast } from '@/components/ui/toast'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -81,6 +81,15 @@ export function EmailView({
   const [assignLoading, setAssignLoading] = useState(false)
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null)
   const [projectZoek, setProjectZoek] = useState('')
+
+  // Broadcast state
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
+  const [broadcastOnderwerp, setBroadcastOnderwerp] = useState('')
+  const [broadcastBericht, setBroadcastBericht] = useState('')
+  const [broadcastType, setBroadcastType] = useState<'alle' | 'zakelijk' | 'particulier'>('alle')
+  const [broadcastAantal, setBroadcastAantal] = useState<number | null>(null)
+  const [broadcastLoading, setBroadcastLoading] = useState(false)
+  const [broadcastCountLoading, setBroadcastCountLoading] = useState(false)
 
   const pageSize = 25
   const totalPages = Math.ceil(total / pageSize)
@@ -183,6 +192,38 @@ export function EmailView({
     loadEmails(page, filter, zoekterm)
   }
 
+  async function openBroadcastDialog() {
+    setBroadcastOpen(true)
+    setBroadcastOnderwerp('')
+    setBroadcastBericht('')
+    setBroadcastType('alle')
+    setBroadcastCountLoading(true)
+    const count = await getBroadcastRelatieCount('alle')
+    setBroadcastAantal(count)
+    setBroadcastCountLoading(false)
+  }
+
+  async function handleBroadcastTypeChange(type: 'alle' | 'zakelijk' | 'particulier') {
+    setBroadcastType(type)
+    setBroadcastCountLoading(true)
+    const count = await getBroadcastRelatieCount(type)
+    setBroadcastAantal(count)
+    setBroadcastCountLoading(false)
+  }
+
+  async function handleSendBroadcast() {
+    if (!broadcastOnderwerp.trim() || !broadcastBericht.trim()) return
+    setBroadcastLoading(true)
+    const result = await sendBroadcastEmail(broadcastOnderwerp, broadcastBericht, broadcastType)
+    setBroadcastLoading(false)
+    if (result.success) {
+      showToast(`Broadcast verzonden naar ${result.aantalOntvangers} ontvanger(s)`)
+      setBroadcastOpen(false)
+    } else {
+      showToast(result.error || 'Verzenden mislukt')
+    }
+  }
+
   const filterButtons: { label: string; value: typeof filter }[] = [
     { label: 'Alle', value: 'alle' },
     { label: 'Inkomend', value: 'inkomend' },
@@ -201,6 +242,10 @@ export function EmailView({
               Laatste sync: {format(new Date(syncStatus.laatste_sync), 'd MMM HH:mm', { locale: nl })}
             </span>
           )}
+          <Button size="sm" variant="secondary" onClick={openBroadcastDialog}>
+            <Megaphone className="h-4 w-4" />
+            Broadcast
+          </Button>
           <Button
             size="sm"
             variant="secondary"
@@ -541,6 +586,92 @@ export function EmailView({
             >
               Volgende
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Broadcast dialog */}
+      {broadcastOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Megaphone className="h-5 w-5 text-primary" />
+                Broadcast e-mail
+              </h2>
+              <button onClick={() => setBroadcastOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              {/* Type filter */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ontvangers</label>
+                <div className="flex gap-1">
+                  {(['alle', 'zakelijk', 'particulier'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => handleBroadcastTypeChange(t)}
+                      className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                        broadcastType === t ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  {broadcastCountLoading ? 'Tellen...' : `${broadcastAantal ?? 0} ontvanger(s) met e-mailadres`}
+                </p>
+              </div>
+
+              {/* Onderwerp */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Onderwerp</label>
+                <input
+                  type="text"
+                  value={broadcastOnderwerp}
+                  onChange={e => setBroadcastOnderwerp(e.target.value)}
+                  placeholder="Onderwerp van de e-mail..."
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+
+              {/* Bericht */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
+                <textarea
+                  value={broadcastBericht}
+                  onChange={e => setBroadcastBericht(e.target.value)}
+                  placeholder="Typ je bericht..."
+                  rows={6}
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y"
+                />
+                <p className="text-xs text-gray-400 mt-1">Wordt opgemaakt in de Rebu e-mail template</p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+              <Button size="sm" variant="secondary" onClick={() => setBroadcastOpen(false)} disabled={broadcastLoading}>
+                Annuleren
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSendBroadcast}
+                disabled={broadcastLoading || !broadcastOnderwerp.trim() || !broadcastBericht.trim() || broadcastAantal === 0}
+              >
+                {broadcastLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Verzenden...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4" />
+                    Verzenden naar {broadcastAantal ?? 0} ontvanger(s)
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       )}

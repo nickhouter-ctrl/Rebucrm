@@ -14,6 +14,7 @@ export async function sendEmail(options: {
   to: string
   subject: string
   html: string
+  bcc?: string[]
   attachments?: { filename: string; content: Buffer | string; encoding?: string }[]
 }) {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'Nick@rebukozijnen.nl'
@@ -23,6 +24,7 @@ export async function sendEmail(options: {
     to: options.to,
     subject: options.subject,
     html: options.html,
+    bcc: options.bcc,
     attachments: options.attachments,
   })
 }
