@@ -10,7 +10,7 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2 } from 'lucide-react'
 
 import { WizardStepper } from './wizard-stepper'
 import { StapKlant } from './steps/stap-klant'
@@ -518,6 +518,15 @@ function EditOfferteView({
 
   return (
     <div>
+      {selectedRelatieId && selectedRelatieName && (
+        <button
+          onClick={() => router.push(`/relatiebeheer/${selectedRelatieId}`)}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-primary mb-1 transition-colors"
+        >
+          <Building2 className="h-4 w-4" />
+          <span>{selectedRelatieName}</span>
+        </button>
+      )}
       <PageHeader
         title={`Offerte ${offerte.offertenummer} v${versieNummer}`}
         actions={
@@ -534,6 +543,12 @@ function EditOfferteView({
               <Button variant="secondary">
                 <Download className="h-4 w-4" />
                 PDF
+              </Button>
+            </a>
+            <a href={`/api/pdf/offerte/${offerte.id}?hidePrices=1`} target="_blank" rel="noopener noreferrer">
+              <Button variant="secondary">
+                <Download className="h-4 w-4" />
+                PDF zonder prijzen
               </Button>
             </a>
             <Button variant="secondary" onClick={openEmailDialog} disabled={loading}>

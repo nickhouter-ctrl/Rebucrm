@@ -16,6 +16,7 @@ export async function GET(
   const { id } = await params
   const url = new URL(_request.url)
   const debug = url.searchParams.get('debug') === '1'
+  const hidePrices = url.searchParams.get('hidePrices') === '1'
   const supabase = await createClient()
 
   const { data: offerte, error } = await supabase
@@ -272,13 +273,14 @@ export async function GET(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const buffer = await renderToBuffer(OfferteDocument({ offerte: offerteData }) as any)
+    const buffer = await renderToBuffer(OfferteDocument({ offerte: offerteData, hidePrices }) as any)
     const uint8 = new Uint8Array(buffer)
+    const suffix = hidePrices ? '-zonder-prijzen' : ''
 
     return new NextResponse(uint8, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `inline; filename="Offerte-${offerte.offertenummer}.pdf"`,
+        'Content-Disposition': `inline; filename="Offerte-${offerte.offertenummer}${suffix}.pdf"`,
       },
     })
   } catch (err) {

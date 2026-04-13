@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -569,11 +569,12 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
                   <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
                   <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
+                  <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
                 </tr>
               </thead>
               <tbody>
                 {offertes.length === 0 ? (
-                  <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500 text-sm">Geen offertes</td></tr>
+                  <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500 text-sm">Geen offertes</td></tr>
                 ) : (
                   offertes.map(o => (
                     <tr key={o.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/offertes/${o.id}`)}>
@@ -587,6 +588,21 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                       <td className="px-6 py-3 text-sm text-gray-600">{o.onderwerp || '-'}</td>
                       <td className="px-6 py-3"><Badge status={o.status} /></td>
                       <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                      <td className="px-6 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-1">
+                          <a href={`/api/pdf/offerte/${o.id}`} target="_blank" rel="noopener noreferrer" title="PDF met prijzen">
+                            <Button variant="ghost" className="h-7 px-2 text-xs">
+                              <Download className="h-3.5 w-3.5" />
+                            </Button>
+                          </a>
+                          <a href={`/api/pdf/offerte/${o.id}?hidePrices=1`} target="_blank" rel="noopener noreferrer" title="PDF zonder prijzen">
+                            <Button variant="ghost" className="h-7 px-2 text-xs text-gray-400">
+                              <Download className="h-3.5 w-3.5" />
+                              <span className="ml-0.5">ZP</span>
+                            </Button>
+                          </a>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
