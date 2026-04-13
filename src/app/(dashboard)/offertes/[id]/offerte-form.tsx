@@ -518,9 +518,9 @@ function EditOfferteView({
 
   return (
     <div>
-      {selectedRelatieId && selectedRelatieName && (
+      {selectedRelatieIdState && selectedRelatieName && (
         <button
-          onClick={() => router.push(`/relatiebeheer/${selectedRelatieId}`)}
+          onClick={() => router.push(`/relatiebeheer/${selectedRelatieIdState}`)}
           className="flex items-center gap-2 text-sm text-gray-500 hover:text-primary mb-1 transition-colors"
         >
           <Building2 className="h-4 w-4" />
