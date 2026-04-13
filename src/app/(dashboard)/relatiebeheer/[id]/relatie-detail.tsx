@@ -125,7 +125,7 @@ interface Props {
 export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
+  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -235,6 +235,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     { key: 'projecten' as const, label: `Verkoopkansen (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
+    { key: 'documenten' as const, label: 'Documenten' },
     { key: 'taken' as const, label: `Taken (${relatieTaken.length})` },
     { key: 'notities' as const, label: `Notities (${notities.length})` },
     { key: 'portaal' as const, label: `Portaal (${klantAccounts.length})` },
@@ -643,6 +644,92 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </table>
           </CardContent>
         </Card>
+      )}
+
+      {tab === 'documenten' && (
+        <div className="space-y-6">
+          {/* Offerte PDFs */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                <h3 className="text-sm font-medium text-gray-700">Offerte PDFs</h3>
+              </div>
+              {offertes.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500 text-sm">Geen offertes</div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {offertes.map(o => (
+                    <div key={o.id} className="px-6 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {o.offertenummer} v{o.versie_nummer || 1}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatDateShort(o.datum)} {o.onderwerp ? `— ${o.onderwerp}` : ''} <Badge status={o.status} />
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <a href={`/api/pdf/offerte/${o.id}`} target="_blank" rel="noopener noreferrer">
+                          <Button variant="secondary" className="h-8 text-xs">
+                            <Download className="h-3.5 w-3.5" />
+                            PDF
+                          </Button>
+                        </a>
+                        <a href={`/api/pdf/offerte/${o.id}?hidePrices=1`} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" className="h-8 text-xs">
+                            <Download className="h-3.5 w-3.5" />
+                            Zonder prijzen
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Factuur PDFs */}
+          <Card>
+            <CardContent className="p-0">
+              <div className="px-6 py-3 border-b border-gray-200 bg-gray-50">
+                <h3 className="text-sm font-medium text-gray-700">Factuur PDFs</h3>
+              </div>
+              {facturen.length === 0 ? (
+                <div className="px-6 py-8 text-center text-gray-500 text-sm">Geen facturen</div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {facturen.map(f => (
+                    <div key={f.id} className="px-6 py-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Receipt className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {f.factuurnummer}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            {formatDateShort(f.datum)} {f.onderwerp ? `— ${f.onderwerp}` : ''} <Badge status={f.status} />
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <a href={`/api/pdf/factuur/${f.id}`} target="_blank" rel="noopener noreferrer">
+                          <Button variant="secondary" className="h-8 text-xs">
+                            <Download className="h-3.5 w-3.5" />
+                            PDF
+                          </Button>
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {tab === 'taken' && (
