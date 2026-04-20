@@ -57,10 +57,11 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
 
   const [jaar, setJaar] = useState<number>(new Date().getFullYear())
 
-  // Filter facturen op geselecteerd jaar (excl. concept)
+  // Filter facturen op geselecteerd jaar (excl. concept + gecrediteerd)
+  const UITGESLOTEN = ['concept', 'gecrediteerd']
   const jaarFacturen = useMemo(() => {
     return facturen.filter(f => {
-      if (!f.datum || f.status === 'concept') return false
+      if (!f.datum || UITGESLOTEN.includes(f.status)) return false
       return new Date(f.datum).getFullYear() === jaar
     })
   }, [facturen, jaar])

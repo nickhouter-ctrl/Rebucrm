@@ -1671,12 +1671,13 @@ export async function getDashboardData() {
   const relatiesData = relatiesRes.data || []
   const profielenData = profielenRes.data || []
 
-  // Basis KPIs — omzet = gefactureerd deze maand (alle statussen behalve concept)
+  // Basis KPIs — omzet = gefactureerd deze maand (excl. concept + gecrediteerd)
+  const UITGESLOTEN_STATUSSEN = ['concept', 'gecrediteerd']
   const huidigeMaand = new Date().getMonth() + 1
   const huidigJaar = new Date().getFullYear()
   const omzet = facturenData
     .filter(f => {
-      if (!f.datum || f.status === 'concept') return false
+      if (!f.datum || UITGESLOTEN_STATUSSEN.includes(f.status)) return false
       const fd = new Date(f.datum)
       return fd.getFullYear() === huidigJaar && fd.getMonth() + 1 === huidigeMaand
     })
@@ -1697,7 +1698,7 @@ export async function getDashboardData() {
     const maand = d.getMonth() + 1
     const bedrag = facturenData
       .filter(f => {
-        if (f.status === 'concept' || !f.datum) return false
+        if (UITGESLOTEN_STATUSSEN.includes(f.status) || !f.datum) return false
         const fd = new Date(f.datum)
         return fd.getFullYear() === jaar && fd.getMonth() + 1 === maand
       })
@@ -1713,7 +1714,7 @@ export async function getDashboardData() {
     const jaar = d.getFullYear()
     const maandNr = d.getMonth() + 1
     const maandFacturen = facturenData.filter(f => {
-      if (f.status === 'concept' || !f.datum) return false
+      if (UITGESLOTEN_STATUSSEN.includes(f.status) || !f.datum) return false
       const fd = new Date(f.datum)
       return fd.getFullYear() === jaar && fd.getMonth() + 1 === maandNr
     })
@@ -1723,8 +1724,8 @@ export async function getDashboardData() {
       aantal: maandFacturen.length,
     })
   }
-  const totaalGefactureerd = facturenData.filter(f => f.status !== 'concept').reduce((sum, f) => sum + (f.subtotaal || 0), 0)
-  const totaalFacturen = facturenData.filter(f => f.status !== 'concept').length
+  const totaalGefactureerd = facturenData.filter(f => !UITGESLOTEN_STATUSSEN.includes(f.status)).reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+  const totaalFacturen = facturenData.filter(f => !UITGESLOTEN_STATUSSEN.includes(f.status)).length
 
   // Aangemaakte offertes per maand — per project alleen de laatste offerte meetellen
   // Groepeer offertes per project_id: neem alleen de nieuwste per project
@@ -1936,7 +1937,7 @@ export async function getDashboardData() {
     }
     const entry = relatieMap.get(f.relatie_id)!
     // Tel alle gefactureerde bedragen (niet alleen betaald)
-    if (f.status !== 'concept') entry.betaald += f.subtotaal || 0
+    if (!UITGESLOTEN_STATUSSEN.includes(f.status)) entry.betaald += f.subtotaal || 0
   }
   // Use uniekOffertes (latest per project) so duplicate offertes for same klus don't inflate totals
   for (const o of uniekOffertes) {
@@ -1960,7 +1961,7 @@ export async function getDashboardData() {
   const startVanWeek = new Date(nuDate.getFullYear(), nuDate.getMonth(), nuDate.getDate() - dagVanWeek)
   startVanWeek.setHours(0, 0, 0, 0)
 
-  const gefactureerdFacturen = facturenData.filter(f => f.status !== 'concept' && f.datum)
+  const gefactureerdFacturen = facturenData.filter(f => !UITGESLOTEN_STATUSSEN.includes(f.status) && f.datum)
   const weekOmzet = gefactureerdFacturen
     .filter(f => new Date(f.datum) >= startVanWeek)
     .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
