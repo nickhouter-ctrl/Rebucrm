@@ -115,7 +115,7 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
               onClick={() => setStatusFilter(null)}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 statusFilter === null
-                  ? 'bg-gray-900 text-white'
+                  ? 'bg-primary text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
@@ -130,7 +130,7 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
                   onClick={() => setStatusFilter(status === statusFilter ? null : status)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
                     statusFilter === status
-                      ? statusKleuren[status] + ' ring-2 ring-offset-1 ring-gray-400'
+                      ? statusKleuren[status] + ' ring-2 ring-offset-1 ring-primary/40'
                       : statusKleuren[status] + ' hover:opacity-80'
                   }`}
                 >

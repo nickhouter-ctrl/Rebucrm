@@ -374,20 +374,20 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </div>
           <h3 className="text-sm font-semibold text-gray-900">Omzetdoelen</h3>
         </div>
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           {(['week', 'maand', 'jaar'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setDoelenTab(tab)}
-              className={`px-2 sm:px-2.5 py-1 text-[11px] rounded-md font-medium transition-colors ${
+              className={`px-2.5 py-1 text-[11px] rounded-md font-medium transition-colors ${
                 doelenTab === tab ? 'bg-[#00a66e] text-white shadow-sm' : 'text-gray-500 hover:bg-gray-100'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
-          <button onClick={() => { setShowDoelenEdit(true); setDoelenForm({ week_doel: doelen.week_doel.toString(), maand_doel: doelen.maand_doel.toString(), jaar_doel: doelen.jaar_doel.toString() }) }} className="p-1.5 text-gray-300 hover:text-gray-500 transition-colors ml-1">
-            <Pencil className="h-3 w-3" />
+          <button onClick={() => { setShowDoelenEdit(true); setDoelenForm({ week_doel: doelen.week_doel.toString(), maand_doel: doelen.maand_doel.toString(), jaar_doel: doelen.jaar_doel.toString() }) }} className="ml-1 p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+            <Pencil className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -462,57 +462,59 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       )}
 
       {/* KPI rij */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Link href="/facturatie" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-9 w-9 rounded-lg bg-emerald-50 flex items-center justify-center">
                 <DollarSign className="h-4 w-4 text-[#00a66e]" />
               </div>
-              <span className="text-[9px] sm:text-[10px] font-medium text-gray-400 uppercase tracking-wider hidden sm:block">Deze maand</span>
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Deze maand</span>
             </div>
             <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(data.omzet)}</p>
-            <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Omzet</p>
+            <p className="text-xs text-gray-400 mt-1">Omzet (excl. BTW)</p>
           </div>
         </Link>
         <Link href="#facturen" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-blue-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-9 w-9 rounded-lg bg-blue-50 flex items-center justify-center">
                 <Receipt className="h-4 w-4 text-blue-600" />
               </div>
-              <span className="text-[9px] sm:text-[10px] font-medium text-gray-400 uppercase tracking-wider hidden sm:block">{data.openstaandeFacturen.length} facturen</span>
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{data.openstaandeFacturen.length} facturen</span>
             </div>
             <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(data.openstaand)}</p>
-            <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Openstaand</p>
+            <p className="text-xs text-gray-400 mt-1">Openstaand</p>
           </div>
         </Link>
         <Link href="/offertes" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-3.5 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-violet-50 flex items-center justify-center">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-9 w-9 rounded-lg bg-violet-50 flex items-center justify-center">
                 <TrendingUp className="h-4 w-4 text-violet-600" />
               </div>
-              <span className="text-[9px] sm:text-[10px] font-medium text-gray-400 uppercase tracking-wider hidden sm:block">{data.totaalOffertes} offertes</span>
+              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{data.totaalOffertes} offertes</span>
             </div>
             <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{conversieGraad}%</p>
-            <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Conversie</p>
+            <p className="text-xs text-gray-400 mt-1">Conversie</p>
           </div>
         </Link>
         <Link href="#facturen" className="block group">
-          <div className={`bg-white rounded-xl border shadow-sm p-3.5 sm:p-5 group-hover:shadow-md transition-all ${achterstalligBedrag > 0 ? 'border-red-200/60' : 'border-gray-100'}`}>
-            <div className="flex items-center justify-between mb-2 sm:mb-3">
-              <div className={`h-8 w-8 sm:h-9 sm:w-9 rounded-lg flex items-center justify-center ${achterstalligBedrag > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+          <div className={`bg-white rounded-xl border shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all ${achterstalligBedrag > 0 ? 'border-red-200/60' : 'border-gray-100'}`}>
+            <div className="flex items-center justify-between mb-3">
+              <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${achterstalligBedrag > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
                 <AlertTriangle className={`h-4 w-4 ${achterstalligBedrag > 0 ? 'text-red-500' : 'text-gray-400'}`} />
               </div>
-              {achterstalligeFacturen.length > 0 && (
-                <span className="text-[9px] sm:text-[10px] font-medium text-red-500 uppercase tracking-wider">{achterstalligeFacturen.length} vervallen</span>
+              {achterstalligeFacturen.length > 0 ? (
+                <span className="text-[10px] font-medium text-red-500 uppercase tracking-wider">{achterstalligeFacturen.length} vervallen</span>
+              ) : (
+                <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Geen</span>
               )}
             </div>
             <p className={`text-lg sm:text-2xl font-bold tracking-tight ${achterstalligBedrag > 0 ? 'text-red-600' : 'text-gray-900'}`}>
               {formatCurrency(achterstalligBedrag)}
             </p>
-            <p className="text-[11px] sm:text-xs text-gray-400 mt-0.5 sm:mt-1">Achterstallig</p>
+            <p className="text-xs text-gray-400 mt-1">Achterstallig</p>
           </div>
         </Link>
       </div>
@@ -1019,22 +1021,22 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               ) : (() => {
                 const maxVal = Math.max(...data.gefactureerdPerMaand.map(m => m.bedrag), 1)
                 return (
-                  <div className="flex items-end gap-1.5 h-36">
+                  <div className="flex items-end gap-1.5 h-44">
                     {data.gefactureerdPerMaand.map((d, i) => {
                       const pct = (d.bedrag / maxVal) * 100
                       const isLast = i === data.gefactureerdPerMaand.length - 1
                       return (
                         <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0 group">
-                          <div className="w-full flex flex-col items-center justify-end h-28">
-                            <span className="text-[9px] text-gray-400 mb-1 truncate max-w-full opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="w-full flex flex-col items-center justify-end h-36">
+                            <span className="text-[9px] text-gray-500 mb-1 truncate max-w-full opacity-0 group-hover:opacity-100 transition-opacity font-medium">
                               {d.bedrag >= 1000 ? `${(d.bedrag / 1000).toFixed(0)}K` : formatCurrency(d.bedrag)}
                             </span>
                             <div
-                              className={`w-full max-w-[24px] rounded-t-md transition-all ${isLast ? 'bg-[#00a66e]' : 'bg-[#00a66e]/40'}`}
+                              className={`w-full max-w-[28px] rounded-t-md transition-all ${isLast ? 'bg-[#00a66e]' : 'bg-[#00a66e]/30 group-hover:bg-[#00a66e]/50'}`}
                               style={{ height: `${Math.max(pct, d.bedrag > 0 ? 4 : 0)}%` }}
                             />
                           </div>
-                          <span className={`text-[9px] truncate max-w-full ${isLast ? 'text-gray-900 font-medium' : 'text-gray-400'}`}>{d.maand}</span>
+                          <span className={`text-[10px] truncate max-w-full ${isLast ? 'text-gray-900 font-semibold' : 'text-gray-400'}`}>{d.maand}</span>
                         </div>
                       )
                     })}
