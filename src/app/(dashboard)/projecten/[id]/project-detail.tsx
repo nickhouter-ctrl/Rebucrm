@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, getEmailLogDetail, getEmailBody } from '@/lib/actions'
+import { saveProject, deleteProject, getEmailLogDetail, getEmailBody, getDocumentUrl } from '@/lib/actions'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -15,7 +15,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight, FileText, Download } from 'lucide-react'
 
 interface ProjectEmail {
   id: string
@@ -28,11 +28,22 @@ interface ProjectEmail {
   labels: string[]
 }
 
-export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
+interface ProjectDocument {
+  id: string
+  naam: string
+  bestandsnaam: string
+  bestandstype: string
+  bestandsgrootte: number
+  storage_path: string
+  created_at: string
+}
+
+export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [] }: {
   timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
   isNew: boolean
   emails?: ProjectEmail[]
+  documenten?: ProjectDocument[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -331,6 +342,39 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [] }: {
                       <span className="text-xs text-gray-400 shrink-0">
                         {formatDateShort(em.datum)}
                       </span>
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Documenten */}
+          {documenten.length > 0 && (
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <FileText className="h-4 w-4 text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-900">Documenten ({documenten.length})</h3>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {documenten.map(doc => (
+                    <button
+                      key={doc.id}
+                      onClick={async () => {
+                        const url = await getDocumentUrl(doc.storage_path)
+                        if (url) window.open(url, '_blank')
+                      }}
+                      className="flex items-center gap-3 py-2.5 w-full text-left hover:bg-gray-50 rounded-md px-2 -mx-2 transition-colors"
+                    >
+                      <FileText className="h-4 w-4 text-red-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-900 truncate">{doc.naam || doc.bestandsnaam}</p>
+                        <p className="text-xs text-gray-500">
+                          {(doc.bestandsgrootte / 1024).toFixed(0)} KB · {formatDateShort(doc.created_at)}
+                        </p>
+                      </div>
+                      <Download className="h-3.5 w-3.5 text-gray-400 shrink-0" />
                     </button>
                   ))}
                 </div>

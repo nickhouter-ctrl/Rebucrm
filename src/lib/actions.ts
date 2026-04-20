@@ -1545,6 +1545,23 @@ export async function getDocumenten() {
   return data || []
 }
 
+export async function getProjectDocumenten(projectId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('documenten')
+    .select('id, naam, bestandsnaam, bestandstype, bestandsgrootte, storage_path, created_at')
+    .eq('entiteit_type', 'project')
+    .eq('entiteit_id', projectId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function getDocumentUrl(storagePath: string) {
+  const supabase = await createClient()
+  const { data } = await supabase.storage.from('documenten').createSignedUrl(storagePath, 3600)
+  return data?.signedUrl || null
+}
+
 export async function deleteDocument(id: string) {
   const supabase = await createClient()
   const { data: doc } = await supabase
@@ -1632,7 +1649,7 @@ export async function getDashboardData() {
 
   // Grote tabellen pagineren (Supabase max-rows = 1000)
   const [facturenData, offertesData, takenData] = await Promise.all([
-    fetchAllRows((from, to) => supabase.from('facturen').select('totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
   ])
@@ -1654,10 +1671,16 @@ export async function getDashboardData() {
   const relatiesData = relatiesRes.data || []
   const profielenData = profielenRes.data || []
 
-  // Basis KPIs
+  // Basis KPIs — omzet = gefactureerd deze maand (alle statussen behalve concept)
+  const huidigeMaand = new Date().getMonth() + 1
+  const huidigJaar = new Date().getFullYear()
   const omzet = facturenData
-    .filter(f => f.status === 'betaald')
-    .reduce((sum, f) => sum + (f.totaal || 0), 0)
+    .filter(f => {
+      if (!f.datum || f.status === 'concept') return false
+      const fd = new Date(f.datum)
+      return fd.getFullYear() === huidigJaar && fd.getMonth() + 1 === huidigeMaand
+    })
+    .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   const openstaand = facturenData
     .filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status))
     .reduce((sum, f) => sum + (f.totaal || 0) - (f.betaald_bedrag || 0), 0)
@@ -1674,11 +1697,11 @@ export async function getDashboardData() {
     const maand = d.getMonth() + 1
     const bedrag = facturenData
       .filter(f => {
-        if (f.status !== 'betaald' || !f.datum) return false
+        if (f.status === 'concept' || !f.datum) return false
         const fd = new Date(f.datum)
         return fd.getFullYear() === jaar && fd.getMonth() + 1 === maand
       })
-      .reduce((sum, f) => sum + (f.totaal || 0), 0)
+      .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
     maandOmzet.push({ maand: maandStr, bedrag })
   }
 
@@ -1696,11 +1719,11 @@ export async function getDashboardData() {
     })
     gefactureerdPerMaand.push({
       maand: maandStr,
-      bedrag: maandFacturen.reduce((sum, f) => sum + (f.totaal || 0), 0),
+      bedrag: maandFacturen.reduce((sum, f) => sum + (f.subtotaal || 0), 0),
       aantal: maandFacturen.length,
     })
   }
-  const totaalGefactureerd = facturenData.filter(f => f.status !== 'concept').reduce((sum, f) => sum + (f.totaal || 0), 0)
+  const totaalGefactureerd = facturenData.filter(f => f.status !== 'concept').reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   const totaalFacturen = facturenData.filter(f => f.status !== 'concept').length
 
   // Aangemaakte offertes per maand — per project alleen de laatste offerte meetellen
@@ -1912,7 +1935,8 @@ export async function getDashboardData() {
       relatieMap.set(f.relatie_id, { relatie_id: f.relatie_id, bedrijfsnaam: relatieNamen.get(f.relatie_id) || 'Onbekend', betaald: 0, offerte_waarde: 0 })
     }
     const entry = relatieMap.get(f.relatie_id)!
-    if (f.status === 'betaald') entry.betaald += f.totaal || 0
+    // Tel alle gefactureerde bedragen (niet alleen betaald)
+    if (f.status !== 'concept') entry.betaald += f.subtotaal || 0
   }
   // Use uniekOffertes (latest per project) so duplicate offertes for same klus don't inflate totals
   for (const o of uniekOffertes) {
@@ -1923,7 +1947,7 @@ export async function getDashboardData() {
     relatieMap.get(o.relatie_id)!.offerte_waarde += o.totaal || 0
   }
   const topKlanten = [...relatieMap.values()]
-    .sort((a, b) => (b.betaald + b.offerte_waarde) - (a.betaald + a.offerte_waarde))
+    .sort((a, b) => b.betaald - a.betaald)
     .slice(0, 50)
 
   // Omzetdoelen
@@ -1936,16 +1960,16 @@ export async function getDashboardData() {
   const startVanWeek = new Date(nuDate.getFullYear(), nuDate.getMonth(), nuDate.getDate() - dagVanWeek)
   startVanWeek.setHours(0, 0, 0, 0)
 
-  const betaaldeFacturen = facturenData.filter(f => f.status === 'betaald' && f.datum)
-  const weekOmzet = betaaldeFacturen
+  const gefactureerdFacturen = facturenData.filter(f => f.status !== 'concept' && f.datum)
+  const weekOmzet = gefactureerdFacturen
     .filter(f => new Date(f.datum) >= startVanWeek)
-    .reduce((sum, f) => sum + (f.totaal || 0), 0)
-  const maandOmzetVal = betaaldeFacturen
+    .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+  const maandOmzetVal = gefactureerdFacturen
     .filter(f => new Date(f.datum) >= startVanMaand)
-    .reduce((sum, f) => sum + (f.totaal || 0), 0)
-  const jaarOmzet = betaaldeFacturen
+    .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+  const jaarOmzet = gefactureerdFacturen
     .filter(f => new Date(f.datum) >= startVanJaar)
-    .reduce((sum, f) => sum + (f.totaal || 0), 0)
+    .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
 
   const omzetdoelen = {
     week_doel: doelen?.week_doel ? Number(doelen.week_doel) : 0,

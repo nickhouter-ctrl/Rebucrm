@@ -528,7 +528,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
         <div className="flex-1 min-w-0 space-y-3">
 
           {/* 1. Geaccepteerde offertes */}
-          <div id="geaccepteerd">
+          <div id="geaccepteerd" className="scroll-mt-20">
             <Section title="Geaccepteerde offertes" icon={CheckSquare} iconColor="bg-emerald-50 text-[#00a66e]" count={data.geaccepteerdeOffertes.length} linkHref="/offertes" linkLabel="Alle offertes" accentColor="bg-emerald-100 text-emerald-700">
               {/* Desktop tabel */}
               <table className="w-full hidden md:table">
@@ -579,7 +579,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </div>
 
           {/* 2. Openstaande facturen */}
-          <div id="facturen">
+          <div id="facturen" className="scroll-mt-20">
             <Section title="Openstaande facturen" icon={Receipt} iconColor="bg-blue-50 text-blue-600" count={data.openstaandeFacturen.length} linkHref="/facturatie" linkLabel="Alle facturen" accentColor="bg-blue-100 text-blue-700">
               <table className="w-full hidden md:table">
                 <thead>
@@ -639,7 +639,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </div>
 
           {/* 3. Moet besteld worden */}
-          <div id="bestellen">
+          <div id="bestellen" className="scroll-mt-20">
             <Section title="Moet besteld worden" icon={ShoppingCart} iconColor="bg-orange-50 text-orange-600" count={data.moetBesteldOrders.length} linkHref="/orders" linkLabel="Alle orders" accentColor="bg-orange-100 text-orange-700">
               <table className="w-full hidden md:table">
                 <thead>
@@ -688,7 +688,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </div>
 
           {/* Openstaande verkoopkansen */}
-          <div id="verkoopkansen">
+          <div id="verkoopkansen" className="scroll-mt-20">
             <Section title="Openstaande verkoopkansen" icon={FolderKanban} iconColor="bg-purple-50 text-purple-600" count={(data.openVerkoopkansen || []).length} linkHref="/projecten" linkLabel="Alle verkoopkansen" accentColor="bg-purple-100 text-purple-700">
               <table className="w-full hidden md:table">
                 <thead>

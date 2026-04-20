@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/ui/data-table'
@@ -9,7 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { deleteProject } from '@/lib/actions'
-import { Plus, FolderKanban, Trash2 } from 'lucide-react'
+import { Plus, FolderKanban, Trash2, FileText } from 'lucide-react'
 
 interface Project {
   id: string
@@ -26,8 +27,21 @@ interface Project {
   laatste_offerte_bedrag: number | null
 }
 
+const statusFilters = [
+  { value: 'alle', label: 'Alle' },
+  { value: 'actief', label: 'Actief' },
+  { value: 'on_hold', label: 'On hold' },
+  { value: 'afgerond', label: 'Afgerond' },
+  { value: 'geannuleerd', label: 'Geannuleerd' },
+]
+
 export function ProjectList({ projecten }: { projecten: Project[] }) {
   const router = useRouter()
+  const [statusFilter, setStatusFilter] = useState('actief')
+
+  const gefilterd = statusFilter === 'alle'
+    ? projecten
+    : projecten.filter(p => p.status === statusFilter)
 
   async function handleDelete(e: React.MouseEvent, project: Project) {
     e.stopPropagation()
@@ -35,6 +49,11 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
     const result = await deleteProject(project.id)
     if (result.error) alert(result.error)
     else router.refresh()
+  }
+
+  function handleNewOfferte(e: React.MouseEvent, project: Project) {
+    e.stopPropagation()
+    router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${project.relatie ? '' : ''}`)
   }
 
   const columns: ColumnDef<Project, unknown>[] = [
@@ -64,25 +83,62 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
       id: 'acties',
       header: '',
       cell: ({ row }) => (
-        <button
-          onClick={(e) => handleDelete(e, row.original)}
-          className="opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1 rounded"
-          title="Verwijderen"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!row.original.laatste_offerte_nummer && (
+            <button
+              onClick={(e) => handleNewOfferte(e, row.original)}
+              className="opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-primary transition-all p-1 rounded"
+              title="Offerte aanmaken"
+            >
+              <FileText className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            onClick={(e) => handleDelete(e, row.original)}
+            className="opacity-0 group-hover/row:opacity-100 text-gray-400 hover:text-red-500 transition-all p-1 rounded"
+            title="Verwijderen"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       ),
-      size: 40,
+      size: 80,
     },
   ]
+
+  // Tellingen per status
+  const counts = statusFilters.map(f => ({
+    ...f,
+    count: f.value === 'alle' ? projecten.length : projecten.filter(p => p.status === f.value).length,
+  }))
 
   return (
     <div>
       <PageHeader title="Verkoopkansen" description="Overzicht van alle verkoopkansen" actions={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>} />
-      {projecten.length === 0 ? (
+
+      {/* Status filter knoppen */}
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {counts.map(f => (
+          <button
+            key={f.value}
+            onClick={() => setStatusFilter(f.value)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+              statusFilter === f.value
+                ? 'bg-primary text-white shadow-sm'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {f.label} ({f.count})
+          </button>
+        ))}
+      </div>
+
+      {gefilterd.length === 0 && projecten.length > 0 ? (
+        <EmptyState icon={FolderKanban} title="Geen verkoopkansen" description={`Geen verkoopkansen met status "${statusFilters.find(f => f.value === statusFilter)?.label}".`} />
+      ) : projecten.length === 0 ? (
         <EmptyState icon={FolderKanban} title="Geen verkoopkansen" description="U heeft nog geen verkoopkansen." action={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Verkoopkans aanmaken</Button>} />
       ) : (
-        <DataTable columns={columns} data={projecten} searchPlaceholder="Zoek verkoopkans..." onRowClick={(row) => router.push(`/projecten/${row.id}`)} />
+        <DataTable columns={columns} data={gefilterd} searchPlaceholder="Zoek op naam of klant..." onRowClick={(row) => router.push(`/projecten/${row.id}`)} />
       )}
     </div>
   )
