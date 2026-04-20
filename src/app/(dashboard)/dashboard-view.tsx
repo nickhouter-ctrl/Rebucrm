@@ -426,7 +426,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   )
 
   return (
-    <div className="space-y-4 sm:space-y-6 max-w-[1400px]">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
