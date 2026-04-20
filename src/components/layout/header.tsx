@@ -8,11 +8,8 @@ import { SearchBar } from './search-bar'
 
 export function Header() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [jaar, setJaar] = useState(new Date().getFullYear())
   const router = useRouter()
   const supabase = createClient()
-
-  const jaren = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i)
 
   async function handleLogout() {
     await supabase.auth.signOut()
@@ -22,19 +19,7 @@ export function Header() {
 
   return (
     <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      <div className="flex items-center gap-4">
-        <select
-          value={jaar}
-          onChange={(e) => setJaar(Number(e.target.value))}
-          className="text-sm border border-gray-300 rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-        >
-          {jaren.map((j) => (
-            <option key={j} value={j}>
-              Boekjaar {j}
-            </option>
-          ))}
-        </select>
-      </div>
+      <div className="flex items-center gap-4" />
 
       <SearchBar />
 
