@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, formatDate } from '@/lib/utils'
 import { deleteProject } from '@/lib/actions'
 import { Plus, FolderKanban, Trash2 } from 'lucide-react'
 
@@ -15,6 +15,7 @@ interface Project {
   id: string
   naam: string
   status: string
+  created_at: string
   budget: number | null
   uurtarief: number | null
   relatie: { bedrijfsnaam: string } | null
@@ -39,6 +40,7 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
   const columns: ColumnDef<Project, unknown>[] = [
     { accessorKey: 'naam', header: 'Verkoopkans' },
     { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
+    { id: 'datum', header: 'Datum', accessorFn: (row) => row.created_at, cell: ({ row }) => <span className="text-gray-500">{formatDate(row.original.created_at)}</span> },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     {
       id: 'offerte',
