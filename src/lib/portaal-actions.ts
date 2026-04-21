@@ -713,4 +713,17 @@ Rebu Kozijnen`
     bijlagen: bijlagenMeta,
     verstuurd_door: null, // Auto-gegenereerd door systeem
   })
+
+  // SnelStart sync — alleen nieuwe facturen (auto-aangemaakt bij acceptatie)
+  try {
+    const { isSnelStartEnabled } = await import('@/lib/snelstart')
+    if (isSnelStartEnabled() && !factuurVolledig.snelstart_synced_at && !factuurVolledig.snelstart_boeking_id) {
+      const { pushFactuurToSnelStart } = await import('@/lib/actions')
+      await pushFactuurToSnelStart(factuurIdToSend).catch(err => {
+        console.error('SnelStart push mislukt voor auto-factuur', factuurIdToSend, err)
+      })
+    }
+  } catch (err) {
+    console.error('SnelStart integratie fout in portaal:', err)
+  }
 }

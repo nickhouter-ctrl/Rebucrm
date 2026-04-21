@@ -1142,8 +1142,106 @@ export async function sendFactuurEmail(factuurId: string, options: {
     verstuurd_door: user?.id || null,
   })
 
+  // SnelStart sync — alleen voor NIEUWE facturen (nog niet eerder gesynchroniseerd)
+  // Bestaande facturen hebben snelstart_synced_at = '1900-01-01' (gezet in migratie 023)
+  try {
+    const { isSnelStartEnabled } = await import('@/lib/snelstart')
+    if (isSnelStartEnabled() && !factuur.snelstart_synced_at && !factuur.snelstart_boeking_id) {
+      await pushFactuurToSnelStart(factuurId).catch(err => {
+        console.error('SnelStart push mislukt voor factuur', factuurId, err)
+      })
+    }
+  } catch (err) {
+    console.error('SnelStart integratie fout:', err)
+  }
+
   revalidatePath('/facturatie')
   return { success: true }
+}
+
+export async function pushFactuurToSnelStart(factuurId: string) {
+  const supabaseAdmin = createAdminClient()
+
+  const { data: factuur } = await supabaseAdmin
+    .from('facturen')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .eq('id', factuurId)
+    .single()
+
+  if (!factuur) return { error: 'Factuur niet gevonden' }
+  if (factuur.snelstart_boeking_id) return { error: 'Factuur is al gesynchroniseerd' }
+
+  const relatie = factuur.relatie as {
+    id: string
+    bedrijfsnaam: string
+    email: string | null
+    contactpersoon: string | null
+    adres: string | null
+    postcode: string | null
+    plaats: string | null
+    btw_nummer: string | null
+    kvk_nummer: string | null
+    iban: string | null
+    snelstart_relatie_id: string | null
+  } | null
+
+  if (!relatie) return { error: 'Factuur heeft geen relatie' }
+
+  const { findRelatieByEmail, findRelatieByNaam, createRelatie, createVerkoopboeking } = await import('@/lib/snelstart')
+
+  // 1. Relatie opzoeken of aanmaken in SnelStart (alleen als nog niet gekoppeld)
+  let snelstartRelatieId = relatie.snelstart_relatie_id
+  if (!snelstartRelatieId) {
+    // Probeer bestaande SnelStart relatie te matchen op email of naam
+    let existing = null
+    if (relatie.email) existing = await findRelatieByEmail(relatie.email)
+    if (!existing) existing = await findRelatieByNaam(relatie.bedrijfsnaam)
+
+    if (existing) {
+      snelstartRelatieId = existing.id
+    } else {
+      const created = await createRelatie({
+        naam: relatie.bedrijfsnaam,
+        email: relatie.email,
+        contactpersoon: relatie.contactpersoon,
+        adres: relatie.adres,
+        postcode: relatie.postcode,
+        plaats: relatie.plaats,
+        btw_nummer: relatie.btw_nummer,
+        kvk_nummer: relatie.kvk_nummer,
+        iban: relatie.iban,
+      })
+      snelstartRelatieId = created.id
+    }
+
+    await supabaseAdmin
+      .from('relaties')
+      .update({ snelstart_relatie_id: snelstartRelatieId, snelstart_synced_at: new Date().toISOString() })
+      .eq('id', relatie.id)
+  }
+
+  // 2. Verkoopboeking aanmaken
+  const regels = (factuur.regels as { omschrijving: string; aantal: number; prijs: number; btw_percentage: number }[]) || []
+  const boeking = await createVerkoopboeking({
+    factuurnummer: factuur.factuurnummer,
+    factuurDatum: factuur.datum,
+    vervalDatum: factuur.vervaldatum || factuur.datum,
+    omschrijving: factuur.onderwerp || factuur.factuurnummer,
+    relatieId: snelstartRelatieId!,
+    regels: regels.map(r => ({
+      omschrijving: r.omschrijving,
+      aantal: Number(r.aantal),
+      bedrag: Number(r.prijs),
+      btwPercentage: Number(r.btw_percentage),
+    })),
+  })
+
+  await supabaseAdmin
+    .from('facturen')
+    .update({ snelstart_boeking_id: boeking.id, snelstart_synced_at: new Date().toISOString() })
+    .eq('id', factuurId)
+
+  return { success: true, boekingId: boeking.id }
 }
 
 export async function generateBetaallink(factuurId: string) {
