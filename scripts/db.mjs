@@ -32,11 +32,12 @@ export async function createDbClient() {
     console.error('Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_DB_PASSWORD in .env.local')
     process.exit(1)
   }
+  // Gebruik session pooler (IPv4) ipv directe connectie (alleen IPv6)
   const client = new pg.Client({
-    host: `db.${projectRef}.supabase.co`,
+    host: `aws-1-eu-west-1.pooler.supabase.com`,
     port: 5432,
     database: 'postgres',
-    user: 'postgres',
+    user: `postgres.${projectRef}`,
     password: dbPassword,
     ssl: { rejectUnauthorized: false },
   })

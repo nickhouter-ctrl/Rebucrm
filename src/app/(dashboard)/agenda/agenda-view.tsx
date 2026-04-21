@@ -23,7 +23,9 @@ interface Afspraak {
   titel: string
   omschrijving: string | null
   start_datum: string
+  start_tijd: string
   eind_datum: string | null
+  eind_tijd: string
   hele_dag: boolean
   locatie: string | null
   relatie_id: string | null
@@ -44,6 +46,12 @@ interface Lead {
 interface Project {
   id: string
   naam: string
+}
+
+function formatTijd(datum: string, hele_dag?: boolean): string {
+  if (hele_dag) return 'Hele dag'
+  const t = datum.includes('T') ? datum.slice(11, 16) : ''
+  return t && t !== '00:00' ? t : ''
 }
 
 const typeConfig: Record<AgendaItemType, { label: string; bg: string; text: string; dot: string; icon: typeof CheckSquare }> = {
@@ -115,8 +123,10 @@ export function AgendaView({
       id: '',
       titel: '',
       omschrijving: null,
-      start_datum: format(d, "yyyy-MM-dd'T'HH:mm"),
+      start_datum: format(d, 'yyyy-MM-dd'),
+      start_tijd: format(d, 'HH:mm'),
       eind_datum: null,
+      eind_tijd: '',
       hele_dag: false,
       locatie: null,
       relatie_id: null,
@@ -131,8 +141,10 @@ export function AgendaView({
     if (a) {
       setEditingAfspraak({
         ...a,
-        start_datum: a.start_datum ? a.start_datum.slice(0, 16) : '',
-        eind_datum: a.eind_datum ? a.eind_datum.slice(0, 16) : null,
+        start_datum: a.start_datum ? a.start_datum.slice(0, 10) : '',
+        start_tijd: a.start_datum && !a.hele_dag ? a.start_datum.slice(11, 16) : '',
+        eind_datum: a.eind_datum ? a.eind_datum.slice(0, 10) : null,
+        eind_tijd: a.eind_datum && !a.hele_dag ? a.eind_datum.slice(11, 16) : '',
       })
       setDialogOpen(true)
     }
@@ -142,7 +154,22 @@ export function AgendaView({
     e.preventDefault()
     const form = new FormData(e.currentTarget)
     if (editingAfspraak?.id) form.set('id', editingAfspraak.id)
-    form.set('hele_dag', form.get('hele_dag') ? 'true' : 'false')
+
+    const heleDag = form.get('hele_dag') ? 'true' : 'false'
+    form.set('hele_dag', heleDag)
+
+    // Combineer datum + tijd tot datetime string
+    const startDatum = form.get('start_datum') as string
+    const startTijd = form.get('start_tijd') as string
+    form.set('start_datum', heleDag === 'true' ? startDatum : `${startDatum}T${startTijd || '00:00'}`)
+    form.delete('start_tijd')
+
+    const eindDatum = form.get('eind_datum') as string
+    const eindTijd = form.get('eind_tijd') as string
+    if (eindDatum) {
+      form.set('eind_datum', heleDag === 'true' ? eindDatum : `${eindDatum}T${eindTijd || '23:59'}`)
+    }
+    form.delete('eind_tijd')
 
     startTransition(async () => {
       await saveAfspraak(form)
@@ -309,19 +336,26 @@ export function AgendaView({
                   {cfg.label}
                 </h4>
                 <div className="space-y-1.5">
-                  {items.map(item => (
-                    <div
-                      key={item.id}
-                      onClick={() => handleItemClick(item)}
-                      className={`flex items-center gap-3 p-2 rounded-md ${cfg.bg} hover:opacity-80 cursor-pointer transition-colors`}
-                    >
-                      <Icon className={`h-4 w-4 ${cfg.text} flex-shrink-0`} />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900 truncate">{item.titel}</p>
-                        {item.meta && <p className="text-xs text-gray-500">{item.meta}</p>}
+                  {items.map(item => {
+                    const tijd = item.datum.includes('T') ? item.datum.slice(11, 16) : ''
+                    const toonTijd = tijd && tijd !== '00:00'
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleItemClick(item)}
+                        className={`flex items-center gap-3 p-2 rounded-md ${cfg.bg} hover:opacity-80 cursor-pointer transition-colors`}
+                      >
+                        <Icon className={`h-4 w-4 ${cfg.text} flex-shrink-0`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {toonTijd && <span className="text-gray-500 font-normal mr-1.5">{tijd}</span>}
+                            {item.titel}
+                          </p>
+                          {item.meta && <p className="text-xs text-gray-500">{item.meta}</p>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -344,31 +378,52 @@ export function AgendaView({
               defaultValue={editingAfspraak.titel}
             />
 
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                label="Start datum/tijd"
-                name="start_datum"
-                type="datetime-local"
-                required
-                defaultValue={editingAfspraak.start_datum}
-              />
-              <Input
-                label="Eind datum/tijd"
-                name="eind_datum"
-                type="datetime-local"
-                defaultValue={editingAfspraak.eind_datum || ''}
-              />
-            </div>
-
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 name="hele_dag"
-                defaultChecked={editingAfspraak.hele_dag}
+                checked={editingAfspraak.hele_dag}
+                onChange={(e) => setEditingAfspraak(prev => prev ? { ...prev, hele_dag: e.target.checked } : prev)}
                 className="rounded border-gray-300"
               />
               Hele dag
             </label>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Start datum"
+                name="start_datum"
+                type="date"
+                required
+                defaultValue={editingAfspraak.start_datum}
+              />
+              {!editingAfspraak.hele_dag && (
+                <Input
+                  label="Start tijd"
+                  name="start_tijd"
+                  type="time"
+                  required
+                  defaultValue={editingAfspraak.start_tijd}
+                />
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Input
+                label="Eind datum"
+                name="eind_datum"
+                type="date"
+                defaultValue={editingAfspraak.eind_datum || ''}
+              />
+              {!editingAfspraak.hele_dag && (
+                <Input
+                  label="Eind tijd"
+                  name="eind_tijd"
+                  type="time"
+                  defaultValue={editingAfspraak.eind_tijd}
+                />
+              )}
+            </div>
 
             <Input
               label="Locatie"

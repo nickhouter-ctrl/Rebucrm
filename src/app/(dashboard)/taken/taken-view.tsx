@@ -15,6 +15,7 @@ import { Plus, CheckSquare, X, Phone, FileText, ListTodo } from 'lucide-react'
 
 interface Taak {
   id: string
+  taaknummer: string | null
   titel: string
   status: string
   prioriteit: string
@@ -57,6 +58,7 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
         />
       ),
     },
+    { accessorKey: 'taaknummer', header: 'Nummer', cell: ({ getValue }) => <span className="text-gray-500 font-mono text-xs">{(getValue() as string) || '-'}</span> },
     { accessorKey: 'titel', header: 'Titel' },
     { id: 'relatie', header: 'Relatie', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
