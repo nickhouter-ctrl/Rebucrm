@@ -36,7 +36,8 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
   // Detect format - flexible whitespace to handle different PDF text extractors
-  const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
+  // Gealan uses "Merk 1" (numeric) or "Merk A" (letter) element names
+  const isGealan = /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text)
   const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
   const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
 
@@ -84,13 +85,13 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
   if (isGealan) {
-    const elementPattern = /Merk\s+(\d+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
+    const elementPattern = /Merk\s+([\dA-Z]+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
     while ((match = elementPattern.exec(text)) !== null) {
-      // Use regex to find next Merk with flexible whitespace
-      const nextMerkPattern = new RegExp('Merk\\s+' + (parseInt(match[1]) + 1) + '\\s*Aantal\\s*:')
-      const nextMerkMatch = nextMerkPattern.exec(text.substring(match.index + 1))
-      const nextMerkIdx = nextMerkMatch ? match.index + 1 + nextMerkMatch.index : -1
-      const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
+      // Find next Merk header to determine section boundary
+      const nextMerkPattern = /Merk\s+[\dA-Z]+\s*Aantal\s*:/g
+      nextMerkPattern.lastIndex = match.index + match[0].length
+      const nextMerkMatch = nextMerkPattern.exec(text)
+      const sectionEnd = nextMerkMatch ? nextMerkMatch.index : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader\s+([^\n]+)/)
       headers.push({

@@ -39,7 +39,7 @@ function parseElementsFromText(text: string): ParsedElement[] {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
   // Detect format
-  const isGealan = /Merk\s+\d+\s*Aantal\s*:\s*\d+/.test(text)
+  const isGealan = /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text)
   const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
   const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
 
@@ -53,12 +53,12 @@ function parseElementsFromText(text: string): ParsedElement[] {
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
   if (isGealan) {
-    const elementPattern = /Merk\s+(\d+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
+    const elementPattern = /Merk\s+([\dA-Z]+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
     while ((match = elementPattern.exec(text)) !== null) {
-      const nextMerkPattern = new RegExp('Merk\\s+' + (parseInt(match[1]) + 1) + '\\s*Aantal\\s*:')
-      const nextMerkMatch = nextMerkPattern.exec(text.substring(match.index + 1))
-      const nextMerkIdx = nextMerkMatch ? match.index + 1 + nextMerkMatch.index : -1
-      const sectionEnd = nextMerkIdx > 0 ? nextMerkIdx : text.length
+      const nextMerkPattern = /Merk\s+[\dA-Z]+\s*Aantal\s*:/g
+      nextMerkPattern.lastIndex = match.index + match[0].length
+      const nextMerkMatch = nextMerkPattern.exec(text)
+      const sectionEnd = nextMerkMatch ? nextMerkMatch.index : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader\s+([^\n]+)/)
       headers.push({ naam: 'Merk ' + match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim().replace(/\n/g, ' '), kleur: kleurMatch ? kleurMatch[1].trim() : '', idx: match.index, endIdx: match.index + match[0].length })
