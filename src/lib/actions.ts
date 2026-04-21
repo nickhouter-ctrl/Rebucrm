@@ -969,26 +969,29 @@ export async function saveFactuur(formData: FormData) {
 export async function deleteFactuur(id: string) {
   const supabase = await createClient()
 
-  // Haal snelstart_boeking_id op vóór de delete — voor auto-cleanup in SnelStart
+  // Haal factuur op VÓÓR delete — we hebben snelstart_boeking_id én factuurnummer nodig
   const { data: factuur } = await supabase
     .from('facturen')
-    .select('snelstart_boeking_id')
+    .select('snelstart_boeking_id, factuurnummer')
     .eq('id', id)
     .maybeSingle()
 
   const { error } = await supabase.from('facturen').delete().eq('id', id)
   if (error) return { error: error.message }
 
-  // Verwijder ook uit SnelStart (best-effort)
-  if (factuur?.snelstart_boeking_id) {
-    try {
-      const { isSnelStartEnabled, deleteVerkoopboeking } = await import('@/lib/snelstart')
-      if (isSnelStartEnabled()) {
-        await deleteVerkoopboeking(factuur.snelstart_boeking_id)
+  // Ook uit SnelStart verwijderen (best-effort). Als de boeking_id mist maar
+  // het factuurnummer wel bekend is, zoek de orphan-boeking alsnog op.
+  try {
+    const { isSnelStartEnabled, deleteVerkoopboeking, findVerkoopboekingByFactuurnummer } = await import('@/lib/snelstart')
+    if (isSnelStartEnabled() && factuur) {
+      let boekingId: string | null = factuur.snelstart_boeking_id || null
+      if (!boekingId && factuur.factuurnummer) {
+        boekingId = await findVerkoopboekingByFactuurnummer(factuur.factuurnummer)
       }
-    } catch (err) {
-      console.error('SnelStart factuur verwijderen mislukt:', err)
+      if (boekingId) await deleteVerkoopboeking(boekingId)
     }
+  } catch (err) {
+    console.error('SnelStart factuur verwijderen mislukt:', err)
   }
 
   revalidatePath('/facturatie')

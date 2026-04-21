@@ -260,6 +260,24 @@ export async function deleteVerkoopboeking(boekingId: string): Promise<void> {
   await snelstartFetch(`/verkoopboekingen/${boekingId}`, { method: 'DELETE' })
 }
 
+// Zoek verkoopboeking-id op basis van factuurnummer (fallback voor delete sync)
+export async function findVerkoopboekingByFactuurnummer(factuurnummer: string): Promise<string | null> {
+  try {
+    for (let skip = 0; skip < 2000; skip += 100) {
+      const list = await snelstartFetch<Array<{ factuurnummer: string; verkoopBoeking?: { id: string } }>>(
+        `/verkoopfacturen?$top=100&$skip=${skip}`,
+      )
+      if (!Array.isArray(list) || list.length === 0) break
+      const hit = list.find(v => v.factuurnummer === factuurnummer)
+      if (hit?.verkoopBoeking?.id) return hit.verkoopBoeking.id
+      if (list.length < 100) break
+    }
+  } catch (err) {
+    console.error('SnelStart factuur zoeken mislukt:', err)
+  }
+  return null
+}
+
 // ---------- High-level: sync relatie + post factuur ----------
 
 export function isSnelStartEnabled(): boolean {
