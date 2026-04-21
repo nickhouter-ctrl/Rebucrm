@@ -40,7 +40,7 @@ interface DashboardData {
   organisaties: { totaal: number; particulier: number; zakelijk: number }
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
-  takenPerCollega: { naam: string; profiel_id: string; aantal: number; perTitel: { titel: string; aantal: number }[] }[]
+  takenPerCollega: { naam: string; profiel_id: string; aantal: number; bellen: number; uitwerken: number; perTitel: { titel: string; aantal: number }[] }[]
   mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null; bedrag: number | null; relatie_naam: string | null }[]
   openOffertesList: {
     id: string
@@ -245,18 +245,11 @@ function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega
   const totaal = data.reduce((s, c) => s + c.aantal, 0)
   const selectedCollega = data.find(c => c.profiel_id === selected)
 
-  // Groepeer per categorie
-  const categorieën = selectedCollega ? (() => {
-    let bellen = 0, uitwerken = 0
-    for (const t of selectedCollega.perTitel) {
-      if (categoriseerTaak(t.titel) === 'bellen') bellen += t.aantal
-      else uitwerken += t.aantal
-    }
-    return [
-      { key: 'uitwerken' as const, label: 'Uitwerken', aantal: uitwerken },
-      { key: 'bellen' as const, label: 'Bellen', aantal: bellen },
-    ].filter(c => c.aantal > 0)
-  })() : []
+  // Categorie-cijfers komen direct uit de server (categorie-veld op taken)
+  const categorieën = selectedCollega ? [
+    { key: 'uitwerken' as const, label: 'Uitwerken', aantal: selectedCollega.uitwerken },
+    { key: 'bellen' as const, label: 'Bellen', aantal: selectedCollega.bellen },
+  ].filter(c => c.aantal > 0) : []
 
   return (
     <Section title="Taken per collega" icon={Users} iconColor="bg-violet-50 text-violet-600" count={totaal} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-violet-100 text-violet-700">

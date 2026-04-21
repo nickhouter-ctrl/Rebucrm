@@ -1854,7 +1854,7 @@ export async function getDashboardData() {
   const [facturenData, offertesData, takenData] = await Promise.all([
     fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
-    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
   ])
 
   const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
@@ -2026,14 +2026,27 @@ export async function getDashboardData() {
   const takenPerCollega = [...profielPerNaam.entries()].map(([naam, ids]) => {
     const openTaken = takenData.filter(t => ids.includes(t.toegewezen_aan) && t.status !== 'afgerond')
     const perTitel: Record<string, number> = {}
+    let bellen = 0
+    let uitwerken = 0
     for (const t of openTaken) {
       const titel = t.titel || 'Overig'
       perTitel[titel] = (perTitel[titel] || 0) + 1
+      // Gebruik expliciet categorie-veld indien aanwezig, anders titel-heuristiek
+      const cat = (t as unknown as { categorie?: string | null }).categorie
+      if (cat === 'Bellen') bellen++
+      else if (cat === 'Uitwerken') uitwerken++
+      else {
+        const l = titel.toLowerCase()
+        if (l.includes('bellen') || l.includes('opbellen') || l.includes('nabellen')) bellen++
+        else uitwerken++
+      }
     }
     return {
       naam,
       profiel_id: ids[0],
       aantal: openTaken.length,
+      bellen,
+      uitwerken,
       perTitel: Object.entries(perTitel).map(([titel, aantal]) => ({ titel, aantal })).sort((a, b) => b.aantal - a.aantal),
     }
   }).filter(t => t.aantal > 0)
