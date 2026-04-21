@@ -538,6 +538,22 @@ async function matchEmailToOfferte(
   return null
 }
 
+async function matchMedewerkerByEmail(
+  aanEmail: string,
+  administratieId: string,
+  supabase: ReturnType<typeof createAdminClient>
+): Promise<{ id: string; profiel_id: string | null } | null> {
+  if (!aanEmail) return null
+  const { data } = await supabase
+    .from('medewerkers')
+    .select('id, profiel_id')
+    .eq('administratie_id', administratieId)
+    .ilike('email', aanEmail.trim())
+    .eq('actief', true)
+    .maybeSingle()
+  return data || null
+}
+
 async function processNewEmail(
   email: ParsedEmail,
   classificatie: EmailClassificatie,
@@ -546,6 +562,7 @@ async function processNewEmail(
   offerteId: string | null,
   supabase: ReturnType<typeof createAdminClient>
 ) {
+  const toegewezenMedewerker = await matchMedewerkerByEmail(email.aan_email, administratieId, supabase)
   if (classificatie === 'offerte_aanvraag') {
     let finalRelatieId = relatieId
     if (!finalRelatieId) {
@@ -692,6 +709,9 @@ async function processNewEmail(
       omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
       prioriteit: 'hoog',
       status: 'open',
+      relatie_id: finalRelatieId,
+      medewerker_id: toegewezenMedewerker?.id || null,
+      toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
     })
   } else if (classificatie === 'offerte_reactie' && offerteId) {
     const { data: offerte } = await supabase
@@ -712,6 +732,10 @@ async function processNewEmail(
       omschrijving: `Reactie ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"`,
       prioriteit: 'normaal',
       status: 'open',
+      relatie_id: relatieId,
+      offerte_id: offerteId,
+      medewerker_id: toegewezenMedewerker?.id || null,
+      toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
     })
   }
 }

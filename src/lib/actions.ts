@@ -1458,6 +1458,22 @@ export async function deleteUur(id: string) {
 }
 
 // === TAKEN ===
+async function matchMedewerkerByEmailAddress(
+  aanEmail: string | null,
+  administratieId: string,
+  client: ReturnType<typeof createAdminClient>
+): Promise<{ id: string; profiel_id: string | null } | null> {
+  if (!aanEmail) return null
+  const { data } = await client
+    .from('medewerkers')
+    .select('id, profiel_id')
+    .eq('administratie_id', administratieId)
+    .ilike('email', aanEmail.trim())
+    .eq('actief', true)
+    .maybeSingle()
+  return data || null
+}
+
 export async function getCurrentMedewerkerId(): Promise<string | null> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -2717,7 +2733,8 @@ export async function approveTriageEmail(emailId: string) {
     conceptOfferteId = newOfferte?.id || null
   }
 
-  // Create task
+  // Create task (assigned to medewerker whose inbox received the email)
+  const toegewezenMedewerker = await matchMedewerkerByEmailAddress(email.aan_email, adminId, supabaseAdmin)
   await supabaseAdmin.from('taken').insert({
     administratie_id: adminId,
     taaknummer: await getVolgendTaaknummer(supabaseAdmin),
@@ -2725,6 +2742,9 @@ export async function approveTriageEmail(emailId: string) {
     omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
     prioriteit: 'hoog',
     status: 'open',
+    relatie_id: relatieId,
+    medewerker_id: toegewezenMedewerker?.id || null,
+    toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
   })
 
   revalidatePath('/')
@@ -2958,6 +2978,7 @@ export async function reclassifyExistingEmails() {
           conceptOfferteId = newOfferte?.id || null
         }
 
+        const bulkToegewezenMedewerker = await matchMedewerkerByEmailAddress(email.aan_email, adminId, supabaseAdmin)
         await supabaseAdmin.from('taken').insert({
           administratie_id: adminId,
           taaknummer: await getVolgendTaaknummer(supabaseAdmin),
@@ -2965,6 +2986,9 @@ export async function reclassifyExistingEmails() {
           omschrijving: `E-mail van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
           prioriteit: 'hoog',
           status: 'open',
+          relatie_id: relatieId,
+          medewerker_id: bulkToegewezenMedewerker?.id || null,
+          toegewezen_aan: bulkToegewezenMedewerker?.profiel_id || null,
         })
         takenAangemaakt++
       }
@@ -3649,6 +3673,17 @@ export async function sendOfferteEmail(offerteId: string, options: {
     }
     // Get relatie_id via project
     let relatieId = offerte.relatie_id
+    // Match medewerker van de ingelogde gebruiker
+    let opvolgMedewerkerId: string | null = null
+    if (user?.id) {
+      const { data: mw } = await supabaseAdmin
+        .from('medewerkers')
+        .select('id')
+        .eq('profiel_id', user.id)
+        .eq('administratie_id', offerte.administratie_id)
+        .maybeSingle()
+      opvolgMedewerkerId = mw?.id || null
+    }
     await supabaseAdmin.from('taken').insert({
       administratie_id: offerte.administratie_id,
       taaknummer: await getVolgendTaaknummer(supabaseAdmin),
@@ -3660,6 +3695,7 @@ export async function sendOfferteEmail(offerteId: string, options: {
       deadline: deadline.toISOString().split('T')[0],
       status: 'open',
       prioriteit: 'normaal',
+      medewerker_id: opvolgMedewerkerId,
       toegewezen_aan: user?.id || null,
     })
   } catch (err) {
@@ -5193,6 +5229,19 @@ export async function createLeadTaak(leadId: string, titel: string, deadline?: s
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
+  // Toewijzen aan ingelogde medewerker
+  const { data: { user } } = await supabase.auth.getUser()
+  let leadMedewerkerId: string | null = null
+  if (user?.id) {
+    const { data: mw } = await supabase
+      .from('medewerkers')
+      .select('id')
+      .eq('profiel_id', user.id)
+      .eq('administratie_id', adminId)
+      .maybeSingle()
+    leadMedewerkerId = mw?.id || null
+  }
+
   const { error } = await supabase.from('taken').insert({
     administratie_id: adminId,
     taaknummer: await getVolgendTaaknummer(supabase),
@@ -5201,6 +5250,8 @@ export async function createLeadTaak(leadId: string, titel: string, deadline?: s
     deadline: deadline || null,
     prioriteit: prioriteit || 'normaal',
     status: 'open',
+    medewerker_id: leadMedewerkerId,
+    toegewezen_aan: user?.id || null,
   })
 
   if (error) return { error: error.message }
