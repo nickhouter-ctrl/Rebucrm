@@ -212,22 +212,21 @@ export interface SnelStartVerkoopboeking {
 export async function createVerkoopboeking(input: SnelStartVerkoopboekingInput): Promise<SnelStartVerkoopboeking> {
   const grootboeken = await loadGrootboeken()
 
-  // Bouw boekingsregels: bedrag is INCL BTW, grootboek passend bij btwSoort
+  // Boekingsregels: bedrag EXCL BTW, grootboek passend bij btwSoort
   const boekingsregels = input.regels.map(r => {
     const bedragExcl = r.aantal * r.bedrag
-    const bedragIncl = bedragExcl * (1 + r.btwPercentage / 100)
     const soort = getBtwSoortRegel(r.btwPercentage)
     const grootboek = soort === 'Hoog' ? grootboeken.hoog : soort === 'Laag' ? grootboeken.laag : grootboeken.geen
     if (!grootboek) throw new Error(`Geen SnelStart omzet-grootboek gevonden voor BTW-soort ${soort} (${r.btwPercentage}%)`)
     return {
       omschrijving: r.omschrijving.slice(0, 200),
-      bedrag: Number(bedragIncl.toFixed(2)),
+      bedrag: Number(bedragExcl.toFixed(2)),
       grootboek: { id: grootboek.id },
       btwSoort: soort,
     }
   })
 
-  // Aggregeer BTW per VerkopenHoog/Laag — SnelStart vereist btw-array voor boekingsbalans
+  // BTW array: gebruik veld 'btwBedrag' (niet 'bedrag') — SnelStart specifieke naming
   const btwMap: Record<string, number> = {}
   let factuurBedragIncl = 0
   for (const r of input.regels) {
@@ -237,7 +236,7 @@ export async function createVerkoopboeking(input: SnelStartVerkoopboekingInput):
     const verkoop = getBtwSoortVerkopen(r.btwPercentage)
     if (verkoop) btwMap[verkoop] = (btwMap[verkoop] || 0) + btwBedrag
   }
-  const btw = Object.entries(btwMap).map(([btwSoort, bedrag]) => ({ btwSoort, bedrag: Number(bedrag.toFixed(2)) }))
+  const btw = Object.entries(btwMap).map(([btwSoort, btwBedrag]) => ({ btwSoort, btwBedrag: Number(btwBedrag.toFixed(2)) }))
 
   const body = {
     factuurNummer: input.factuurnummer,
@@ -255,6 +254,10 @@ export async function createVerkoopboeking(input: SnelStartVerkoopboekingInput):
     method: 'POST',
     body: JSON.stringify(body),
   })
+}
+
+export async function deleteVerkoopboeking(boekingId: string): Promise<void> {
+  await snelstartFetch(`/verkoopboekingen/${boekingId}`, { method: 'DELETE' })
 }
 
 // ---------- High-level: sync relatie + post factuur ----------

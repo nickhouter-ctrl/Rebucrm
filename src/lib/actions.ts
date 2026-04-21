@@ -968,8 +968,29 @@ export async function saveFactuur(formData: FormData) {
 
 export async function deleteFactuur(id: string) {
   const supabase = await createClient()
+
+  // Haal snelstart_boeking_id op vóór de delete — voor auto-cleanup in SnelStart
+  const { data: factuur } = await supabase
+    .from('facturen')
+    .select('snelstart_boeking_id')
+    .eq('id', id)
+    .maybeSingle()
+
   const { error } = await supabase.from('facturen').delete().eq('id', id)
   if (error) return { error: error.message }
+
+  // Verwijder ook uit SnelStart (best-effort)
+  if (factuur?.snelstart_boeking_id) {
+    try {
+      const { isSnelStartEnabled, deleteVerkoopboeking } = await import('@/lib/snelstart')
+      if (isSnelStartEnabled()) {
+        await deleteVerkoopboeking(factuur.snelstart_boeking_id)
+      }
+    } catch (err) {
+      console.error('SnelStart factuur verwijderen mislukt:', err)
+    }
+  }
+
   revalidatePath('/facturatie')
   return { success: true }
 }
