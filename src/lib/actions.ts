@@ -1191,6 +1191,8 @@ export async function pushFactuurToSnelStart(factuurId: string) {
 
   if (!factuur) return { error: 'Factuur niet gevonden' }
   if (factuur.snelstart_boeking_id) return { error: 'Factuur is al gesynchroniseerd' }
+  // Concept-facturen worden NOOIT naar de boekhouding gestuurd
+  if (factuur.status === 'concept') return { error: 'Factuur is nog concept, niet naar SnelStart' }
 
   const relatie = factuur.relatie as {
     id: string
