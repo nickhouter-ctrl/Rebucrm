@@ -953,7 +953,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           {(() => {
             const toonToegewezen = takenLijst.some(t => t.toegewezen_naam)
             return (
-          <Section title={toonToegewezen ? "Alle taken" : "Mijn taken"} icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={takenLijst.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
+          <Section title="Mijn openstaande taken" icon={CheckSquare} iconColor="bg-amber-50 text-amber-600" count={takenLijst.length} linkHref="/taken" linkLabel="Alle taken" accentColor="bg-amber-100 text-amber-700">
             <table className="w-full hidden md:table">
               <thead>
                 <tr className="bg-gray-50/70">

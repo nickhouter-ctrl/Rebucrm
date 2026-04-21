@@ -2044,9 +2044,11 @@ export async function getDashboardData() {
     .eq('id', user.id)
     .single()
   const userRol = userProfiel?.rol || 'medewerker'
-  const isAdmin = userRol === 'admin' || userRol === 'gebruiker'
+  // Alleen admins zien ALLE taken op dashboard; gebruikers/medewerkers zien eigen
+  const isAdmin = userRol === 'admin'
 
-  // Mijn openstaande taken (admin ziet alles met naam)
+  // Mijn openstaande taken — toon uitsluitend taken toegewezen aan de ingelogde gebruiker
+  // (admins zien alle open taken zodat ze overzicht houden)
   const profielNaamMap = new Map(profielenData.map(p => [p.id, p.naam]))
   const mijnTaken = takenData
     .filter(t => t.status !== 'afgerond' && (isAdmin || t.toegewezen_aan === user.id))
