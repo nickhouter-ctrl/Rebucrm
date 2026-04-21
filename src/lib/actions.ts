@@ -1625,7 +1625,7 @@ export async function getTaken() {
 
   let query = supabase
     .from('taken')
-    .select('*, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)')
+    .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)')
     .order('created_at', { ascending: true })
 
   // Medewerkers zien alleen eigen taken
@@ -1707,6 +1707,7 @@ export async function saveTaak(formData: FormData) {
     prioriteit: formData.get('prioriteit') as string || 'normaal',
     deadline,
     deadline_tijd: deadlineTijd,
+    categorie: (formData.get('categorie') as string) || null,
     medewerker_id: medewerkerId,
     relatie_id: formData.get('relatie_id') as string || null,
     offerte_id: formData.get('offerte_id') as string || null,

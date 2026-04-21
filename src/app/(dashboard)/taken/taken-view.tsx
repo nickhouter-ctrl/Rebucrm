@@ -21,6 +21,7 @@ interface Taak {
   prioriteit: string
   deadline: string | null
   deadline_tijd: string | null
+  categorie: string | null
   toegewezen_aan: string | null
   medewerker_id: string | null
   project: { naam: string } | null
@@ -32,9 +33,11 @@ interface Taak {
 
 type TabType = 'alle' | 'opvolgen' | 'offerte' | 'afgerond'
 
-function categorieTaak(titel: string, status: string): TabType {
-  if (status === 'afgerond') return 'afgerond'
-  const t = titel.toLowerCase()
+function categorieTaak(taak: { titel: string; status: string; categorie?: string | null }): TabType {
+  if (taak.status === 'afgerond') return 'afgerond'
+  if (taak.categorie === 'Bellen') return 'opvolgen'
+  if (taak.categorie === 'Uitwerken') return 'offerte'
+  const t = taak.titel.toLowerCase()
   if (t.includes('offerte') || t.includes('uitwerken') || t.includes('opmeten') || t.includes('nacalcul')) return 'offerte'
   if (t.includes('bellen') || t.includes('opbellen') || t.includes('nabellen') || t.includes('opvolgen') || t.includes('terugbellen') || t.includes('mailen')) return 'opvolgen'
   return 'alle'
@@ -115,8 +118,8 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     const openTaken = taken.filter(t => t.status !== 'afgerond')
     return {
       alle: openTaken.length,
-      opvolgen: openTaken.filter(t => categorieTaak(t.titel, t.status) === 'opvolgen').length,
-      offerte: openTaken.filter(t => categorieTaak(t.titel, t.status) === 'offerte').length,
+      opvolgen: openTaken.filter(t => categorieTaak(t) === 'opvolgen').length,
+      offerte: openTaken.filter(t => categorieTaak(t) === 'offerte').length,
       afgerond: taken.filter(t => t.status === 'afgerond').length,
     }
   }, [taken])
@@ -130,7 +133,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     if (filterCategorie && {
       bellen: 'opvolgen' as TabType,
       uitwerken: 'offerte' as TabType,
-    }[filterCategorie] && categorieTaak(t.titel, t.status) !== { bellen: 'opvolgen' as TabType, uitwerken: 'offerte' as TabType }[filterCategorie]) return false
+    }[filterCategorie] && categorieTaak(t) !== { bellen: 'opvolgen' as TabType, uitwerken: 'offerte' as TabType }[filterCategorie]) return false
     if (filterMedewerkerNaam) {
       const taakNaam = t.medewerker?.naam || t.toegewezen?.naam
       if (taakNaam !== filterMedewerkerNaam) return false
@@ -139,8 +142,8 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     // Tab filter
     if (activeTab === 'afgerond') return t.status === 'afgerond'
     if (activeTab === 'alle') return t.status !== 'afgerond'
-    if (activeTab === 'opvolgen') return t.status !== 'afgerond' && categorieTaak(t.titel, t.status) === 'opvolgen'
-    if (activeTab === 'offerte') return t.status !== 'afgerond' && categorieTaak(t.titel, t.status) === 'offerte'
+    if (activeTab === 'opvolgen') return t.status !== 'afgerond' && categorieTaak(t) === 'opvolgen'
+    if (activeTab === 'offerte') return t.status !== 'afgerond' && categorieTaak(t) === 'offerte'
     return true
   })
 

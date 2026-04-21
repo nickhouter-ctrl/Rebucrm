@@ -164,7 +164,10 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
         <Card>
           <CardContent className="space-y-4 pt-6">
             <Input id="titel" name="titel" label="Titel *" defaultValue={(taak?.titel as string) || ''} required />
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <Select id="categorie" name="categorie" label="Type" defaultValue={(taak?.categorie as string) || ''} options={[
+                { value: '', label: '-' }, { value: 'Bellen', label: 'Bellen' }, { value: 'Uitwerken', label: 'Uitwerken' },
+              ]} />
               <Select id="status" name="status" label="Status" defaultValue={(taak?.status as string) || 'open'} options={[
                 { value: 'open', label: 'Open' }, { value: 'in_uitvoering', label: 'In uitvoering' }, { value: 'afgerond', label: 'Afgerond' },
               ]} />
