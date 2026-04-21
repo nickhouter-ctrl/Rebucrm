@@ -95,8 +95,10 @@ export interface SnelStartGrootboek {
 }
 
 export interface SnelStartBtwTarief {
-  id: string
-  omschrijving: string
+  btwSoort: string
+  btwPercentage: number
+  datumVanaf: string
+  datumTotEnMet: string
 }
 
 // ---------- Relaties ----------
@@ -150,32 +152,39 @@ export async function createRelatie(input: {
   })
 }
 
-// ---------- Grootboeken & BTW ----------
-let cachedOmzetGrootboekId: string | null = null
+// ---------- Grootboeken ----------
+// Cache grootboeken per btwSoort — SnelStart vereist dat btwSoort op regel overeenkomt met grootboekrekening
+interface CachedGrootboeken {
+  hoog: SnelStartGrootboek | null
+  laag: SnelStartGrootboek | null
+  geen: SnelStartGrootboek | null
+}
+let cachedGrootboeken: CachedGrootboeken | null = null
 
-export async function getDefaultOmzetGrootboekId(): Promise<string | null> {
-  if (cachedOmzetGrootboekId) return cachedOmzetGrootboekId
-  // SnelStart omzet grootboeken beginnen typisch met 80xx
-  const grootboeken = await snelstartFetch<SnelStartGrootboek[]>('/grootboeken?$top=200')
-  const omzet = grootboeken.find(g => g.nummer >= 8000 && g.nummer < 9000)
-  cachedOmzetGrootboekId = omzet?.id || grootboeken[0]?.id || null
-  return cachedOmzetGrootboekId
+async function loadGrootboeken(): Promise<CachedGrootboeken> {
+  if (cachedGrootboeken) return cachedGrootboeken
+  const list = await snelstartFetch<(SnelStartGrootboek & { btwSoort?: string; grootboekfunctie?: string })[]>('/grootboeken?$top=200')
+  const omzet = list.filter(g => g.nummer >= 8000 && g.nummer < 9000)
+  cachedGrootboeken = {
+    // 8000 "Omzet hoog (productiegoederen)" voor 21% BTW
+    hoog: omzet.find(g => g.nummer === 8000) || omzet.find(g => g.btwSoort === 'Hoog') || null,
+    // 8110 "Omzet laag (handelsgoederen)" voor 9% BTW
+    laag: omzet.find(g => g.nummer === 8110) || omzet.find(g => g.btwSoort === 'Laag') || null,
+    // 8199 "Vrijgestelde omzet" voor 0% / geen BTW
+    geen: omzet.find(g => g.nummer === 8199) || omzet.find(g => g.btwSoort === 'Geen') || null,
+  }
+  return cachedGrootboeken
 }
 
-let cachedBtwTarieven: SnelStartBtwTarief[] | null = null
+function getBtwSoortRegel(pct: number): 'Hoog' | 'Laag' | 'Geen' {
+  if (pct === 21) return 'Hoog'
+  if (pct === 9) return 'Laag'
+  return 'Geen'
+}
 
-export async function getBtwTariefId(percentage: number): Promise<string | null> {
-  if (!cachedBtwTarieven) {
-    cachedBtwTarieven = await snelstartFetch<SnelStartBtwTarief[]>('/btwtarieven')
-  }
-  // Matchen op omschrijving die het percentage bevat
-  const match = cachedBtwTarieven.find(t => t.omschrijving?.includes(`${percentage}%`) || t.omschrijving?.includes(`${percentage},`))
-  if (match) return match.id
-  // Fallback: 'Geen' bij 0%
-  if (percentage === 0) {
-    const geen = cachedBtwTarieven.find(t => /geen/i.test(t.omschrijving || ''))
-    if (geen) return geen.id
-  }
+function getBtwSoortVerkopen(pct: number): 'VerkopenHoog' | 'VerkopenLaag' | null {
+  if (pct === 21) return 'VerkopenHoog'
+  if (pct === 9) return 'VerkopenLaag'
   return null
 }
 
@@ -201,25 +210,34 @@ export interface SnelStartVerkoopboeking {
 }
 
 export async function createVerkoopboeking(input: SnelStartVerkoopboekingInput): Promise<SnelStartVerkoopboeking> {
-  const grootboekId = await getDefaultOmzetGrootboekId()
-  if (!grootboekId) throw new Error('Geen omzet-grootboek gevonden in SnelStart')
+  const grootboeken = await loadGrootboeken()
 
-  // Bereken per regel: bedrag excl btw, btw bedrag, btw tarief id
-  const boekingsregels = await Promise.all(input.regels.map(async r => {
+  // Bouw boekingsregels: bedrag is INCL BTW, grootboek passend bij btwSoort
+  const boekingsregels = input.regels.map(r => {
     const bedragExcl = r.aantal * r.bedrag
-    const btwTariefId = await getBtwTariefId(r.btwPercentage)
+    const bedragIncl = bedragExcl * (1 + r.btwPercentage / 100)
+    const soort = getBtwSoortRegel(r.btwPercentage)
+    const grootboek = soort === 'Hoog' ? grootboeken.hoog : soort === 'Laag' ? grootboeken.laag : grootboeken.geen
+    if (!grootboek) throw new Error(`Geen SnelStart omzet-grootboek gevonden voor BTW-soort ${soort} (${r.btwPercentage}%)`)
     return {
       omschrijving: r.omschrijving.slice(0, 200),
-      bedrag: Number(bedragExcl.toFixed(2)),
-      grootboek: { id: grootboekId },
-      ...(btwTariefId ? { btwTarief: { id: btwTariefId } } : {}),
+      bedrag: Number(bedragIncl.toFixed(2)),
+      grootboek: { id: grootboek.id },
+      btwSoort: soort,
     }
-  }))
+  })
 
-  const factuurBedragIncl = input.regels.reduce((sum, r) => {
+  // Aggregeer BTW per VerkopenHoog/Laag — SnelStart vereist btw-array voor boekingsbalans
+  const btwMap: Record<string, number> = {}
+  let factuurBedragIncl = 0
+  for (const r of input.regels) {
     const excl = r.aantal * r.bedrag
-    return sum + excl + (excl * r.btwPercentage) / 100
-  }, 0)
+    const btwBedrag = excl * r.btwPercentage / 100
+    factuurBedragIncl += excl + btwBedrag
+    const verkoop = getBtwSoortVerkopen(r.btwPercentage)
+    if (verkoop) btwMap[verkoop] = (btwMap[verkoop] || 0) + btwBedrag
+  }
+  const btw = Object.entries(btwMap).map(([btwSoort, bedrag]) => ({ btwSoort, bedrag: Number(bedrag.toFixed(2)) }))
 
   const body = {
     factuurNummer: input.factuurnummer,
@@ -228,8 +246,9 @@ export async function createVerkoopboeking(input: SnelStartVerkoopboekingInput):
     vervalDatum: input.vervalDatum,
     factuurBedrag: Number(factuurBedragIncl.toFixed(2)),
     omschrijving: input.omschrijving.slice(0, 200),
-    relatie: { id: input.relatieId },
+    klant: { id: input.relatieId },
     boekingsregels,
+    btw,
   }
 
   return snelstartFetch<SnelStartVerkoopboeking>('/verkoopboekingen', {
