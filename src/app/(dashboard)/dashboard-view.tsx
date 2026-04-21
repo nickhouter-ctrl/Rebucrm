@@ -391,12 +391,15 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </button>
         </div>
       </div>
-      <div className="p-4 sm:p-5">
+      <div
+        className="p-4 sm:p-5 cursor-pointer hover:bg-gray-50/50 transition-colors"
+        onClick={() => { setShowDoelenEdit(true); setDoelenForm({ week_doel: doelen.week_doel.toString(), maand_doel: doelen.maand_doel.toString(), jaar_doel: doelen.jaar_doel.toString() }) }}
+      >
         {!doelen.heeft_doelen ? (
           <div className="py-4 text-center">
             <Target className="h-8 w-8 text-gray-200 mx-auto mb-2" />
             <p className="text-sm text-gray-400 mb-3">Geen doelen ingesteld</p>
-            <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => setShowDoelenEdit(true)}>Instellen</Button>
+            <p className="text-xs text-primary font-medium">Klik om doelen in te stellen</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -1011,9 +1014,10 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           {omzetdoelenWidget}
 
           {/* Maandelijkse omzet chart */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
+          <Link href="/rapportages" className="block bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+            <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900">Omzet per maand</h3>
+              <ArrowRight className="h-3.5 w-3.5 text-gray-300" />
             </div>
             <div className="p-5">
               {data.gefactureerdPerMaand.length === 0 ? (
@@ -1044,7 +1048,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 )
               })()}
             </div>
-          </div>
+          </Link>
 
           {/* Snel overzicht */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">

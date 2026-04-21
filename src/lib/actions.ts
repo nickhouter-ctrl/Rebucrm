@@ -1813,16 +1813,23 @@ export async function getDashboardData() {
   }))
 
   // Taken per collega (met breakdown per titel)
-  const takenPerCollega = profielenData.map(p => {
-    const openTaken = takenData.filter(t => t.toegewezen_aan === p.id && t.status !== 'afgerond')
+  // Groepeer profielen op naam (voorkomt duplicaten als iemand meerdere profiel-entries heeft)
+  const profielPerNaam = new Map<string, string[]>()
+  for (const p of profielenData) {
+    const naam = p.naam || 'Onbekend'
+    if (!profielPerNaam.has(naam)) profielPerNaam.set(naam, [])
+    profielPerNaam.get(naam)!.push(p.id)
+  }
+  const takenPerCollega = [...profielPerNaam.entries()].map(([naam, ids]) => {
+    const openTaken = takenData.filter(t => ids.includes(t.toegewezen_aan) && t.status !== 'afgerond')
     const perTitel: Record<string, number> = {}
     for (const t of openTaken) {
       const titel = t.titel || 'Overig'
       perTitel[titel] = (perTitel[titel] || 0) + 1
     }
     return {
-      naam: p.naam,
-      profiel_id: p.id,
+      naam,
+      profiel_id: ids[0],
       aantal: openTaken.length,
       perTitel: Object.entries(perTitel).map(([titel, aantal]) => ({ titel, aantal })).sort((a, b) => b.aantal - a.aantal),
     }

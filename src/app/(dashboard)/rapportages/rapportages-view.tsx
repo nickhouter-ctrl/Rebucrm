@@ -278,22 +278,31 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
             <CardContent>
               <h3 className="font-semibold text-gray-900 mb-4">Maandoverzicht {jaar}</h3>
               {/* Visuele staafgrafiek */}
-              <div className="flex items-end gap-2 h-40 mb-6 px-2">
+              <div className="flex items-end gap-2 h-56 mb-6 px-2">
                 {maandData.map((m, i) => {
                   const hoogte = maxMaandOmzet > 0 ? (m.omzet / maxMaandOmzet * 100) : 0
                   const isHuidig = jaar === huidigJaar && i === huidigeMaand
                   return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
+                      {/* Hover tooltip */}
                       {m.omzet > 0 && (
-                        <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                          {(m.omzet / 1000).toFixed(0)}k
-                        </span>
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                          {formatCurrency(m.omzet)}
+                          <span className="text-gray-400 ml-1">({m.aantal})</span>
+                        </div>
                       )}
-                      <div
-                        className={`w-full rounded-t transition-all ${isHuidig ? 'bg-primary' : 'bg-blue-300'} ${m.omzet === 0 ? 'bg-gray-100' : ''}`}
-                        style={{ height: `${Math.max(hoogte, 2)}%` }}
-                      />
-                      <span className={`text-[10px] ${isHuidig ? 'font-bold text-primary' : 'text-gray-500'}`}>{m.naam}</span>
+                      <div className="w-full flex flex-col items-center justify-end h-44">
+                        {m.omzet > 0 && (
+                          <span className="text-[10px] text-gray-500 mb-1 whitespace-nowrap font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                            {(m.omzet / 1000).toFixed(0)}k
+                          </span>
+                        )}
+                        <div
+                          className={`w-full max-w-[48px] rounded-t-md transition-all ${isHuidig ? 'bg-[#00a66e]' : 'bg-[#00a66e]/30 group-hover:bg-[#00a66e]/60'} ${m.omzet === 0 ? 'bg-gray-100' : ''}`}
+                          style={{ height: `${Math.max(hoogte, m.omzet > 0 ? 3 : 1)}%` }}
+                        />
+                      </div>
+                      <span className={`text-[10px] ${isHuidig ? 'font-bold text-[#00a66e]' : 'text-gray-500'}`}>{m.naam}</span>
                     </div>
                   )
                 })}
