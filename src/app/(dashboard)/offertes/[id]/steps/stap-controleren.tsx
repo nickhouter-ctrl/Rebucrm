@@ -91,10 +91,10 @@ export function StapControleren({
 
   // Auto-bezorgkosten logica
   const updateBezorgkosten = useCallback((currentRegels: Regel[]) => {
-    const kozijnenRegel = currentRegels.find(r =>
-      r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-      r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-    )
+    const kozijnenRegel = currentRegels.find(r => {
+      const o = r.omschrijving.toLowerCase()
+      return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+    })
     if (!kozijnenRegel) return currentRegels
 
     const kozijnenTotaal = (parseFloat(String(kozijnenRegel.aantal)) || 0) * (parseFloat(String(kozijnenRegel.prijs)) || 0)
@@ -118,13 +118,13 @@ export function StapControleren({
     const updated = updateBezorgkosten(regels)
     if (updated !== regels) onRegelsChange(updated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regels.find(r =>
-    r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-    r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-  )?.prijs, regels.find(r =>
-    r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-    r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-  )?.aantal])
+  }, [regels.find(r => {
+    const o = r.omschrijving.toLowerCase()
+    return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+  })?.prijs, regels.find(r => {
+    const o = r.omschrijving.toLowerCase()
+    return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+  })?.aantal])
 
   function addRegel() {
     onRegelsChange([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
@@ -319,15 +319,15 @@ export function StapControleren({
         }
 
         // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|[\d.,]+\s*EUR?\b)$/i
-        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element)/i
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|[\d.,]+\s*EUR?\b)$/i
+        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$)/i
         const priceAmountPattern = /^[\d\s.,]+$/
         const priceLabels = txtItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
 
         for (const ti of txtItems) {
           const shouldHide = priceTextPattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)
           const isNearPriceLabel = priceAmountPattern.test(ti.str) && ti.str.length >= 3 && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 100 && Math.abs(pl.cy - ti.cy) < 40
+            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 200 && Math.abs(pl.cy - ti.cy) < 40
           )
           if (shouldHide || isNearPriceLabel) {
             ctx.fillStyle = '#FFFFFF'
@@ -373,15 +373,18 @@ export function StapControleren({
       await saveLeverancierTekeningen(offerteId, tekeningData, undefined, undefined, elPrijzen)
 
       if (pdfTotaal > 0) {
-        const kozijnRegelIndex = regels.findIndex(r =>
-          r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-          r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-        )
-        if (kozijnRegelIndex !== -1) {
-          const updated = [...regels]
-          updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: pdfTotaal }
-          onRegelsChange(updated)
+        const updated = [...regels]
+        let idx = updated.findIndex(r => {
+          const o = r.omschrijving.toLowerCase()
+          return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+        })
+        if (idx === -1) idx = updated.findIndex(r => Number(r.prijs) === 0 && r.omschrijving)
+        if (idx !== -1) {
+          updated[idx] = { ...updated[idx], prijs: pdfTotaal }
+        } else {
+          updated.unshift({ omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: pdfTotaal, btw_percentage: 21 })
         }
+        onRegelsChange(updated)
       }
 
       setLeverancierPdf({

@@ -270,8 +270,8 @@ export function StapTekeningen({
         }
 
         // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|[\d.,]+\s*EUR?\b)$/i
-        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element)/i
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|[\d.,]+\s*EUR?\b)$/i
+        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$)/i
         // Also hide standalone price amounts near price labels (within 40px vertically)
         const priceAmountPattern = /^[\d\s.,]+$/
         const priceLabels = textItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
@@ -280,7 +280,7 @@ export function StapTekeningen({
           const shouldHide = priceTextPattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)
           // Hide standalone numbers that are near a price label (same column, close vertically)
           const isNearPriceLabel = priceAmountPattern.test(ti.str) && ti.str.length >= 3 && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 100 && Math.abs(pl.cy - ti.cy) < 40
+            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 200 && Math.abs(pl.cy - ti.cy) < 40
           )
           if (shouldHide || isNearPriceLabel) {
             ctx.fillStyle = '#FFFFFF'

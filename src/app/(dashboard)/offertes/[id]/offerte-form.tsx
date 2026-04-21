@@ -140,7 +140,9 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
 
   function handleSelectType(type: 'particulier' | 'zakelijk') {
     setOfferteType(type)
-    if (regels.length === 0) {
+    // Altijd regels vullen als ze leeg zijn OF alleen de standaard zakelijk regel bevatten
+    const isDefaultZakelijk = regels.length === 1 && regels[0].omschrijving === ZAKELIJK_REGELS[0].omschrijving && Number(regels[0].prijs) === 0
+    if (regels.length === 0 || isDefaultZakelijk) {
       setRegels(type === 'particulier' ? [...PARTICULIER_REGELS] : [...ZAKELIJK_REGELS])
     }
     setStep(3) // tekeningen
@@ -158,6 +160,26 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     setMargePercentage(0)
   }
 
+  // Zoek kozijnen regel met brede matching, of voeg toe als niet gevonden
+  function findOrCreateKozijnRegel(currentRegels: Regel[], prijs: number): Regel[] {
+    const updated = [...currentRegels]
+    const roundedPrijs = Math.round(prijs * 100) / 100
+    // Breed zoeken: kozijn, kunststof, leveren
+    let idx = updated.findIndex(r => {
+      const o = r.omschrijving.toLowerCase()
+      return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+    })
+    // Fallback: eerste regel met prijs 0 (placeholder)
+    if (idx === -1) idx = updated.findIndex(r => Number(r.prijs) === 0 && r.omschrijving)
+    if (idx !== -1) {
+      updated[idx] = { ...updated[idx], prijs: roundedPrijs }
+    } else {
+      // Geen kozijnen regel gevonden — voeg toe aan begin
+      updated.unshift({ omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: roundedPrijs, btw_percentage: 21 })
+    }
+    return updated
+  }
+
   function handleMargeNext(marges: Record<string, number>) {
     setElementMarges(marges)
     // Calculate verkoop totaal with per-element marges and fill kozijnen prijs
@@ -166,15 +188,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
         const eMarge = marges[e.naam] ?? margePercentage
         return sum + e.prijs * (1 + eMarge / 100) * e.hoeveelheid
       }, 0)
-      const kozijnRegelIndex = regels.findIndex(r =>
-        r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-        r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-      )
-      if (kozijnRegelIndex !== -1) {
-        const updated = [...regels]
-        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(verkoopTotaal * 100) / 100 }
-        setRegels(updated)
-      }
+      setRegels(findOrCreateKozijnRegel(regels, verkoopTotaal))
     }
     setStep(5) // controleren
   }
@@ -183,15 +197,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     // Fill kozijnen prijs without marge — use element sum (not PDF total which may include discount)
     if (parsedPdfResult) {
       const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-      const kozijnRegelIndex = regels.findIndex(r =>
-        r.omschrijving.toLowerCase().includes('kunststof kozijnen leveren') ||
-        r.omschrijving.toLowerCase().includes('leveren kunststof kozijnen')
-      )
-      if (kozijnRegelIndex !== -1) {
-        const updated = [...regels]
-        updated[kozijnRegelIndex] = { ...updated[kozijnRegelIndex], prijs: Math.round(elementSum * 100) / 100 }
-        setRegels(updated)
-      }
+      setRegels(findOrCreateKozijnRegel(regels, elementSum))
     }
     setMargePercentage(0)
     setStep(5) // controleren

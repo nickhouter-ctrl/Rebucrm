@@ -295,8 +295,20 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                 )}
 
                 {pg.url && (
-                  <View style={{ alignItems: 'center', marginBottom: 8, overflow: 'hidden', maxHeight: 520 }}>
+                  <View style={{ alignItems: 'center', marginBottom: 8, overflow: 'hidden', maxHeight: pi === 0 && element.prijs > 0 ? 495 : 520 }}>
                     <Image src={pg.url} style={s.elementImageFullPage} />
+                  </View>
+                )}
+
+                {/* Verkoopprijs in groene letters (alleen op eerste pagina) */}
+                {pi === 0 && element.prijs > 0 && (
+                  <View style={{ alignItems: 'flex-end', marginBottom: 6 }} wrap={false}>
+                    <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: COLORS.green }}>
+                      {element.hoeveelheid > 1
+                        ? `${element.hoeveelheid}x ${formatCurrencyPdf(element.prijs)} = ${formatCurrencyPdf(element.hoeveelheid * element.prijs)}`
+                        : formatCurrencyPdf(element.prijs)
+                      }
+                    </Text>
                   </View>
                 )}
 
