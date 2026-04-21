@@ -69,7 +69,7 @@ export async function getRelaties() {
   const supabase = await createClient()
 
   const relaties = await fetchAllRows((from, to) =>
-    supabase.from('relaties').select('id, bedrijfsnaam, type, contactpersoon, email, telefoon, plaats').order('bedrijfsnaam').range(from, to)
+    supabase.from('relaties').select('id, bedrijfsnaam, type, contactpersoon, email, telefoon, plaats, standaard_marge').order('bedrijfsnaam').range(from, to)
   )
 
   if (relaties.length === 0) return []
@@ -253,18 +253,20 @@ export async function saveRelatie(formData: FormData) {
     btw_nummer: formData.get('btw_nummer') as string || null,
     iban: formData.get('iban') as string || null,
     opmerkingen: formData.get('opmerkingen') as string || null,
+    standaard_marge: formData.get('standaard_marge') ? parseFloat(formData.get('standaard_marge') as string) : null,
   }
 
   if (id) {
     const { error } = await supabase.from('relaties').update(record).eq('id', id)
     if (error) return { error: error.message }
+    revalidatePath('/relatiebeheer')
+    return { success: true, id }
   } else {
-    const { error } = await supabase.from('relaties').insert(record)
+    const { data, error } = await supabase.from('relaties').insert(record).select('id').single()
     if (error) return { error: error.message }
+    revalidatePath('/relatiebeheer')
+    return { success: true, id: data.id }
   }
-
-  revalidatePath('/relatiebeheer')
-  return { success: true }
 }
 
 export async function importRelaties(rows: {

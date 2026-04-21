@@ -46,7 +46,7 @@ const ZAKELIJK_REGELS: Regel[] = [
 
 export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder }: {
   offerte: Record<string, unknown> | null
-  relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
+  relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
   initialRelatieId?: string | null
   initialRelatieName?: string | null
@@ -76,7 +76,14 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
   const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
   const [renderedTekeningen, setRenderedTekeningen] = useState<RenderedTekening[]>([])
-  const [margePercentage, setMargePercentage] = useState(0)
+  const [margePercentage, setMargePercentage] = useState(() => {
+    const relatieId = initialRelatieId || (offerte?.relatie_id as string)
+    if (relatieId) {
+      const rel = relaties.find(r => r.id === relatieId)
+      if (rel?.standaard_marge != null) return rel.standaard_marge
+    }
+    return 0
+  })
   const [elementMarges, setElementMarges] = useState<Record<string, number>>({})
   const [savedOfferteId, setSavedOfferteId] = useState<string | null>(offerte ? (offerte.id as string) : null)
 
@@ -97,6 +104,11 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   function handleSelectRelatie(id: string, naam: string) {
     setSelectedRelatieId(id)
     setSelectedRelatieName(naam)
+    // Standaard marge van relatie voorvullen
+    const rel = relaties.find(r => r.id === id)
+    if (rel?.standaard_marge != null && margePercentage === 0) {
+      setMargePercentage(rel.standaard_marge)
+    }
     setStep(1) // project
   }
 
@@ -332,7 +344,7 @@ function EditOfferteView({
   linkedOrder,
 }: {
   offerte: Record<string, unknown>
-  relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null }[]
+  relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
   initialRegels: Regel[]
   selectedRelatieId: string

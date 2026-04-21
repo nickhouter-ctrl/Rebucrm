@@ -24,6 +24,7 @@ export default async function OfferteDetailPage({
     email: (r.email as string) || null,
     telefoon: (r.telefoon as string) || null,
     plaats: (r.plaats as string) || null,
+    standaard_marge: (r.standaard_marge as number) ?? null,
   }))
 
   // Look up relatie name if relatie_id is provided

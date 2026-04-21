@@ -24,6 +24,7 @@ interface RelatieData {
   btw_nummer: string | null
   iban: string | null
   opmerkingen: string | null
+  standaard_marge: number | null
 }
 
 interface KvkResult {
@@ -132,7 +133,7 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
       setError(result.error)
       setLoading(false)
     } else {
-      router.push('/relatiebeheer')
+      router.push(`/relatiebeheer/${result.id}`)
     }
   }
 
