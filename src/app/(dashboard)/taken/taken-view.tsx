@@ -113,19 +113,27 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     return Array.from(naamToIds.entries()).map(([naam, id]) => [id, naam] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))
   }, [taken])
 
-  // Tel per categorie (alleen open taken)
+  // Maak naam-lookup voor filter (zodat filter op naam werkt ipv alleen op ID)
+  const filterMedewerkerNaam = filterMedewerker ? medewerkers.find(([id]) => id === filterMedewerker)?.[1] : null
+
+  // Tel per categorie (alleen open taken), respecteer actieve medewerker/collega filters
   const counts = useMemo(() => {
-    const openTaken = taken.filter(t => t.status !== 'afgerond')
+    const gescopedTaken = taken.filter(t => {
+      if (filterCollega && t.toegewezen_aan !== filterCollega) return false
+      if (filterMedewerkerNaam) {
+        const taakNaam = t.medewerker?.naam || t.toegewezen?.naam
+        if (taakNaam !== filterMedewerkerNaam) return false
+      }
+      return true
+    })
+    const openTaken = gescopedTaken.filter(t => t.status !== 'afgerond')
     return {
       alle: openTaken.length,
       opvolgen: openTaken.filter(t => categorieTaak(t) === 'opvolgen').length,
       offerte: openTaken.filter(t => categorieTaak(t) === 'offerte').length,
-      afgerond: taken.filter(t => t.status === 'afgerond').length,
+      afgerond: gescopedTaken.filter(t => t.status === 'afgerond').length,
     }
-  }, [taken])
-
-  // Maak naam-lookup voor filter (zodat filter op naam werkt ipv alleen op ID)
-  const filterMedewerkerNaam = filterMedewerker ? medewerkers.find(([id]) => id === filterMedewerker)?.[1] : null
+  }, [taken, filterCollega, filterMedewerkerNaam])
 
   // Filter op basis van tab + URL params + medewerker dropdown
   const gefilterd = takenGesorteerd.filter(t => {
