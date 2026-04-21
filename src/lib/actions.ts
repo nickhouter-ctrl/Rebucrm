@@ -4164,6 +4164,7 @@ export interface ProjectTimeline {
   }
   pipeline: PipelineStage[]
   items: TimelineItem[]
+  laatsteOfferteId: string | null
 }
 
 export async function getProjectTimeline(projectId: string): Promise<ProjectTimeline | null> {
@@ -4322,6 +4323,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
     project: { ...project, geoffreerd, gefactureerd, betaald, openstaand },
     pipeline: stages,
     items,
+    laatsteOfferteId: (laatsteOfferte?.id as string) || null,
   }
 }
 

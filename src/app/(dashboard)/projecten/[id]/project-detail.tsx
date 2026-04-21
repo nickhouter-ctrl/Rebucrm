@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, getEmailLogDetail, getEmailBody, getDocumentUrl } from '@/lib/actions'
+import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl } from '@/lib/actions'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -293,10 +293,22 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
           {!editing && (
             <Button
               className="w-full"
-              onClick={() => router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)}
+              disabled={loading}
+              onClick={async () => {
+                if (timeline.laatsteOfferteId) {
+                  // Nieuwe versie van bestaande offerte
+                  setLoading(true)
+                  const result = await duplicateOfferte(timeline.laatsteOfferteId)
+                  if (result.error) { setError(result.error); setLoading(false) }
+                  else router.push(`/offertes/${result.id}?wizard=true`)
+                } else {
+                  // Nog geen offertes — maak nieuwe aan
+                  router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)
+                }
+              }}
             >
               <Plus className="h-4 w-4" />
-              Nieuwe offerte
+              {timeline.laatsteOfferteId ? 'Nieuwe versie offerte' : 'Nieuwe offerte'}
             </Button>
           )}
         </div>
