@@ -1002,7 +1002,30 @@ export async function getFactuurEmailDefaults(factuurId: string) {
   const totaalFormatted = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(factuur.totaal || 0)
   const vervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum).toLocaleDateString('nl-NL') : 'n.v.t.'
 
-  const betaalLink = factuur.betaal_link
+  // Auto-genereer Mollie betaallink als deze nog niet bestaat
+  let betaalLink = factuur.betaal_link as string | null
+  const openstaandBedrag = (factuur.totaal || 0) - (factuur.betaald_bedrag || 0)
+  if (!betaalLink && openstaandBedrag > 0 && process.env.MOLLIE_API_KEY) {
+    try {
+      const { createMolliePayment } = await import('@/lib/mollie')
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const payment = await createMolliePayment({
+        amount: openstaandBedrag,
+        description: `Factuur ${factuur.factuurnummer}`,
+        redirectUrl: `${appUrl}/betaling/succes`,
+        webhookUrl: `${appUrl}/api/mollie/webhook`,
+        metadata: { factuurId },
+      })
+      betaalLink = payment.checkoutUrl
+      await supabase
+        .from('facturen')
+        .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
+        .eq('id', factuurId)
+    } catch (err) {
+      console.error('Mollie auto-genereer betaallink mislukt:', err)
+    }
+  }
+
   const betaalSectie = betaalLink
     ? `U kunt direct online betalen via de volgende link:
 ${betaalLink}
@@ -1435,10 +1458,23 @@ export async function deleteUur(id: string) {
 }
 
 // === TAKEN ===
+export async function getCurrentMedewerkerId(): Promise<string | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase
+    .from('medewerkers')
+    .select('id')
+    .eq('profiel_id', user.id)
+    .eq('actief', true)
+    .maybeSingle()
+  return data?.id || null
+}
+
 export async function getTaken() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { taken: [] as never[], rol: 'medewerker' }
+  if (!user) return { taken: [] as never[], rol: 'medewerker', currentUserId: null as string | null }
 
   const { data: profiel } = await supabase
     .from('profielen')
@@ -1458,7 +1494,7 @@ export async function getTaken() {
   }
 
   const { data } = await query
-  return { taken: data || [], rol }
+  return { taken: data || [], rol, currentUserId: user.id }
 }
 
 export async function getAgendaLeveringen() {
@@ -1517,6 +1553,11 @@ export async function saveTaak(formData: FormData) {
     if (mw?.profiel_id) toegewezenAan = mw.profiel_id
   }
 
+  const deadlineRaw = formData.get('deadline') as string
+  const deadline = deadlineRaw ? deadlineRaw.slice(0, 10) : null
+  const deadlineTijdRaw = formData.get('deadline_tijd') as string
+  const deadlineTijd = deadlineTijdRaw ? deadlineTijdRaw : null
+
   const record: Record<string, unknown> = {
     administratie_id: adminId,
     titel: formData.get('titel') as string,
@@ -1524,25 +1565,28 @@ export async function saveTaak(formData: FormData) {
     project_id: formData.get('project_id') as string || null,
     status: formData.get('status') as string || 'open',
     prioriteit: formData.get('prioriteit') as string || 'normaal',
-    deadline: formData.get('deadline') as string || null,
+    deadline,
+    deadline_tijd: deadlineTijd,
     medewerker_id: medewerkerId,
     relatie_id: formData.get('relatie_id') as string || null,
     offerte_id: formData.get('offerte_id') as string || null,
     toegewezen_aan: toegewezenAan,
   }
 
+  let savedId = id
   if (id) {
     const { error } = await supabase.from('taken').update(record).eq('id', id)
     if (error) return { error: error.message }
   } else {
     ;(record as Record<string, unknown>).taaknummer = await getVolgendTaaknummer(supabase)
 
-    const { error } = await supabase.from('taken').insert(record)
+    const { data: inserted, error } = await supabase.from('taken').insert(record).select('id').single()
     if (error) return { error: error.message }
+    savedId = inserted?.id as string
   }
 
   revalidatePath('/taken')
-  return { success: true }
+  return { success: true, id: savedId }
 }
 
 export async function deleteTaak(id: string) {
@@ -4047,13 +4091,24 @@ export async function globalSearch(query: string) {
   if (!query || query.trim().length < 2) return { relaties: [], offertes: [], projecten: [] }
 
   const supabase = await createClient()
-  const searchTerm = `%${query.trim()}%`
+  const trimmed = query.trim()
+  const searchTerm = `%${trimmed}%`
+  const digitsOnly = trimmed.replace(/\D/g, '')
+  const digitsTerm = digitsOnly.length >= 3 ? `%${digitsOnly}%` : null
+
+  const relatieFilters = [
+    `bedrijfsnaam.ilike.${searchTerm}`,
+    `contactpersoon.ilike.${searchTerm}`,
+    `email.ilike.${searchTerm}`,
+    `telefoon.ilike.${searchTerm}`,
+  ]
+  if (digitsTerm) relatieFilters.push(`telefoon.ilike.${digitsTerm}`)
 
   const [relatiesRes, offertesRes, projectenRes] = await Promise.all([
     supabase
       .from('relaties')
-      .select('id, bedrijfsnaam, contactpersoon, plaats')
-      .or(`bedrijfsnaam.ilike.${searchTerm},contactpersoon.ilike.${searchTerm}`)
+      .select('id, bedrijfsnaam, contactpersoon, plaats, email, telefoon')
+      .or(relatieFilters.join(','))
       .limit(5),
     supabase
       .from('offertes')
@@ -5561,7 +5616,7 @@ export async function saveTaakNotitie(data: { taak_id: string; tekst: string }) 
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminId || !user) return { error: 'Niet ingelogd' }
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from('taak_notities')
     .insert({
       administratie_id: adminId,
@@ -5569,10 +5624,18 @@ export async function saveTaakNotitie(data: { taak_id: string; tekst: string }) 
       gebruiker_id: user.id,
       tekst: data.tekst,
     })
+    .select('id')
+    .single()
   if (error) return { error: error.message }
 
+  const { data: profiel } = await supabase
+    .from('profielen')
+    .select('naam')
+    .eq('id', user.id)
+    .single()
+
   revalidatePath(`/taken/${data.taak_id}`)
-  return { success: true }
+  return { success: true, id: inserted?.id, gebruikerNaam: profiel?.naam || 'Jij' }
 }
 
 export async function deleteTaakNotitie(id: string) {

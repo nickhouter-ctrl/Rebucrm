@@ -16,6 +16,7 @@ import { Pipeline } from '@/components/verkoopkans/pipeline'
 import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight, FileText, Download } from 'lucide-react'
+import { RecentTracker } from '@/components/layout/recent-tracker'
 
 interface ProjectEmail {
   id: string
@@ -162,8 +163,19 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   const relatieId = project.relatie_id as string | null
   const relatieNaam = (project.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam
 
+  const projectTotaal = (project as Record<string, unknown>).totaal as number | null | undefined
+
   return (
     <div>
+      <RecentTracker
+        type="verkoopkans"
+        id={project.id as string}
+        label={projectNaam}
+        sub={relatieNaam || null}
+        status={projectStatus}
+        bedrag={typeof projectTotaal === 'number' ? projectTotaal : null}
+        href={`/projecten/${project.id}`}
+      />
       <PageHeader
         title={projectNaam}
         actions={

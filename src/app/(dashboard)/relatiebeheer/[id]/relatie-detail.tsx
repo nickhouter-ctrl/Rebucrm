@@ -18,6 +18,7 @@ import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
 import { Dialog } from '@/components/ui/dialog'
+import { RecentTracker } from '@/components/layout/recent-tracker'
 
 interface RelatieData {
   id: string
@@ -245,6 +246,15 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   return (
     <div>
+      <RecentTracker
+        type="klant"
+        id={relatie.id}
+        label={relatie.bedrijfsnaam}
+        sub={relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)}
+        email={relatie.email}
+        telefoon={relatie.telefoon}
+        href={`/relatiebeheer/${relatie.id}`}
+      />
       <PageHeader
         title={relatie.bedrijfsnaam}
         description={`${relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)} ${relatie.plaats ? `- ${relatie.plaats}` : ''}`}

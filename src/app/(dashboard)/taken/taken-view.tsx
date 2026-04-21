@@ -20,6 +20,7 @@ interface Taak {
   status: string
   prioriteit: string
   deadline: string | null
+  deadline_tijd: string | null
   toegewezen_aan: string | null
   medewerker_id: string | null
   project: { naam: string } | null
@@ -65,7 +66,12 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
     { accessorKey: 'prioriteit', header: 'Prioriteit', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     { id: 'project', header: 'Verkoopkans', accessorFn: (row) => row.project?.naam || '-' },
     { id: 'bedrag', header: 'Bedrag', cell: ({ row }) => row.original.offerte?.totaal ? formatCurrency(row.original.offerte.totaal) : '-' },
-    { accessorKey: 'deadline', header: 'Deadline', cell: ({ getValue }) => getValue() ? formatDateShort(getValue() as string) : '-' },
+    { accessorKey: 'deadline', header: 'Deadline', cell: ({ row }) => {
+      const d = row.original.deadline
+      if (!d) return '-'
+      const tijd = row.original.deadline_tijd ? ` ${String(row.original.deadline_tijd).slice(0, 5)}` : ''
+      return `${formatDateShort(d)}${tijd}`
+    } },
   ]
   if (isAdmin) {
     cols.push({ id: 'toegewezen', header: 'Toegewezen aan', accessorFn: (row) => row.medewerker?.naam || row.toegewezen?.naam || '-' })
@@ -73,13 +79,25 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
   return cols
 }
 
-export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean }) {
+export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; isAdmin: boolean; currentUserId?: string | null }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterCollega = searchParams.get('collega')
   const filterCategorie = searchParams.get('categorie') as 'bellen' | 'uitwerken' | null
   const [filterMedewerker, setFilterMedewerker] = useState('')
   const [activeTab, setActiveTab] = useState<TabType>('alle')
+
+  // Sorteer: eigen taken eerst, dan op deadline, dan op created_at
+  const takenGesorteerd = useMemo(() => {
+    if (!currentUserId) return taken
+    const eigen: Taak[] = []
+    const rest: Taak[] = []
+    for (const t of taken) {
+      if (t.toegewezen_aan === currentUserId) eigen.push(t)
+      else rest.push(t)
+    }
+    return [...eigen, ...rest]
+  }, [taken, currentUserId])
 
   // Unieke medewerkers voor dropdown (groepeer op naam, niet op ID)
   const medewerkers = useMemo(() => {
@@ -107,7 +125,7 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
   const filterMedewerkerNaam = filterMedewerker ? medewerkers.find(([id]) => id === filterMedewerker)?.[1] : null
 
   // Filter op basis van tab + URL params + medewerker dropdown
-  const gefilterd = taken.filter(t => {
+  const gefilterd = takenGesorteerd.filter(t => {
     if (filterCollega && t.toegewezen_aan !== filterCollega) return false
     if (filterCategorie && {
       bellen: 'opvolgen' as TabType,
@@ -151,6 +169,7 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
       setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, status: 'afgerond' } : t))
       await completeTaak(id)
     }
+    router.refresh()
   }
 
   const tabs: { key: TabType; label: string; icon: typeof ListTodo; count: number }[] = [

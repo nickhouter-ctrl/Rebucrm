@@ -176,12 +176,27 @@ function Section({ title, icon: Icon, iconColor, count, children, defaultOpen, l
   linkLabel?: string
   accentColor?: string
 }) {
-  const [open, setOpen] = useState(defaultOpen ?? count > 0)
+  const storageKey = `dashboard:section:${title}`
+  const [open, setOpen] = useState(() => {
+    if (typeof window === 'undefined') return defaultOpen ?? count > 0
+    const stored = window.localStorage.getItem(storageKey)
+    if (stored === '1') return true
+    if (stored === '0') return false
+    return defaultOpen ?? count > 0
+  })
+
+  function toggle() {
+    setOpen(prev => {
+      const next = !prev
+      try { window.localStorage.setItem(storageKey, next ? '1' : '0') } catch {}
+      return next
+    })
+  }
 
   return (
     <div className={`rounded-xl bg-white overflow-hidden shadow-sm border border-gray-100 ${!open ? 'hover:shadow-md transition-shadow' : ''}`}>
       <button
-        onClick={() => setOpen(!open)}
+        onClick={toggle}
         className="w-full px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
       >
         <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">

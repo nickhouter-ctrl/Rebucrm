@@ -12,6 +12,7 @@ import { SearchSelect } from '@/components/ui/search-select'
 import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
+import { RecentTracker } from '@/components/layout/recent-tracker'
 
 type Notitie = {
   id: string
@@ -20,7 +21,7 @@ type Notitie = {
   gebruiker: { naam: string } | null
 }
 
-export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId }: {
+export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId, currentMedewerkerId }: {
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string; relatie_id?: string }[]
   medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
@@ -28,13 +29,14 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   offertes: { id: string; offertenummer: string; relatie_id: string }[]
   notities?: Notitie[]
   defaultRelatieId?: string
+  currentMedewerkerId?: string | null
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedRelatieId, setSelectedRelatieId] = useState((taak?.relatie_id as string) || defaultRelatieId || '')
   const [selectedProjectId, setSelectedProjectId] = useState((taak?.project_id as string) || '')
-  const [selectedMedewerkerId, setSelectedMedewerkerId] = useState((taak?.medewerker_id as string) || '')
+  const [selectedMedewerkerId, setSelectedMedewerkerId] = useState((taak?.medewerker_id as string) || (taak ? '' : currentMedewerkerId || ''))
   const [selectedOfferteId, setSelectedOfferteId] = useState((taak?.offerte_id as string) || '')
   const isNew = !taak
 
@@ -59,7 +61,11 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     formData.set('relatie_id', selectedRelatieId)
     const result = await saveTaak(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else router.push('/taken')
+    else {
+      const savedId = (taak?.id as string) || result.id
+      if (savedId) router.push(`/taken/${savedId}`)
+      else router.push('/taken')
+    }
   }
 
   async function handleDelete() {
@@ -76,8 +82,14 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     if (result.error) {
       setError(result.error as string)
     } else {
+      const nieuweNotitie: Notitie = {
+        id: (result.id as string) || `tmp-${Date.now()}`,
+        tekst: notitieText,
+        created_at: new Date().toISOString(),
+        gebruiker: { naam: (result.gebruikerNaam as string) || 'Jij' },
+      }
+      setNotities(prev => [nieuweNotitie, ...prev])
       setNotitieText('')
-      router.refresh()
     }
     setLoading(false)
   }
@@ -115,22 +127,38 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     }
   }
 
+  const trackerRelatie = relaties.find(r => r.id === selectedRelatieId)
+  const trackerDeadline = taak?.deadline
+    ? `${String(taak.deadline).slice(0, 10)}${taak.deadline_tijd ? `T${String(taak.deadline_tijd).slice(0, 5)}` : ''}`
+    : null
+
   return (
     <div>
+      {taak && (
+        <RecentTracker
+          type="taak"
+          id={taak.id as string}
+          label={(taak.titel as string) || 'Taak'}
+          sub={trackerRelatie?.bedrijfsnaam || null}
+          deadline={trackerDeadline}
+          href={`/taken/${taak.id}`}
+        />
+      )}
       <PageHeader title={isNew ? 'Nieuwe taak' : 'Taak bewerken'} actions={<Button variant="ghost" onClick={() => router.push('/taken')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit}>
         <Card>
           <CardContent className="space-y-4 pt-6">
             <Input id="titel" name="titel" label="Titel *" defaultValue={(taak?.titel as string) || ''} required />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Select id="status" name="status" label="Status" defaultValue={(taak?.status as string) || 'open'} options={[
                 { value: 'open', label: 'Open' }, { value: 'in_uitvoering', label: 'In uitvoering' }, { value: 'afgerond', label: 'Afgerond' },
               ]} />
               <Select id="prioriteit" name="prioriteit" label="Prioriteit" defaultValue={(taak?.prioriteit as string) || 'normaal'} options={[
                 { value: 'laag', label: 'Laag' }, { value: 'normaal', label: 'Normaal' }, { value: 'hoog', label: 'Hoog' }, { value: 'urgent', label: 'Urgent' },
               ]} />
-              <Input id="deadline" name="deadline" label="Deadline" type="date" defaultValue={(taak?.deadline as string) || ''} />
+              <Input id="deadline" name="deadline" label="Deadline" type="date" defaultValue={taak?.deadline ? String(taak.deadline).slice(0, 10) : ''} />
+              <Input id="deadline_tijd" name="deadline_tijd" label="Tijdstip" type="time" defaultValue={taak?.deadline_tijd ? String(taak.deadline_tijd).slice(0, 5) : ''} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <SearchSelect

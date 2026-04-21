@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2 } from 'lucide-react'
+import { RecentTracker } from '@/components/layout/recent-tracker'
 
 import { WizardStepper } from './wizard-stepper'
 import { StapKlant } from './steps/stap-klant'
@@ -543,6 +544,17 @@ function EditOfferteView({
 
   return (
     <div>
+      {Boolean(offerte?.id) && (
+        <RecentTracker
+          type="offerte"
+          id={offerte!.id as string}
+          label={(offerte!.offertenummer as string) || 'Offerte'}
+          sub={selectedRelatieName || ((offerte!.onderwerp as string) ?? null)}
+          status={(offerte!.status as string) || null}
+          bedrag={typeof totaal === 'number' ? totaal : null}
+          href={`/offertes/${offerte!.id}`}
+        />
+      )}
       {selectedRelatieIdState && selectedRelatieName && (
         <button
           onClick={() => router.push(`/relatiebeheer/${selectedRelatieIdState}`)}
