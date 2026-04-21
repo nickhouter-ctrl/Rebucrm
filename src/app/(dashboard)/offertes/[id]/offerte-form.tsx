@@ -72,7 +72,14 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [selectedProjectId, setSelectedProjectId] = useState<string>((offerte?.project_id as string) || '')
   const [selectedProjectName, setSelectedProjectName] = useState<string>('')
   const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew && !wizardMode ? null : isConceptWizard ? null : 'zakelijk')
-  const [regels, setRegels] = useState<Regel[]>((offerte?.regels as Regel[]) || [])
+  const [regels, setRegels] = useState<Regel[]>(() => {
+    const bestaandeRegels = (offerte?.regels as Regel[]) || []
+    // Bij nieuwe versie wizard: als regels leeg zijn, vul met standaard regels
+    if (bestaandeRegels.length === 0 && wizardMode) {
+      return [...ZAKELIJK_REGELS]
+    }
+    return bestaandeRegels
+  })
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
   const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
   const [renderedTekeningen, setRenderedTekeningen] = useState<RenderedTekening[]>([])
