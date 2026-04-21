@@ -79,15 +79,15 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
   const [filterMedewerker, setFilterMedewerker] = useState('')
   const [activeTab, setActiveTab] = useState<TabType>('alle')
 
-  // Unieke medewerkers voor dropdown
+  // Unieke medewerkers voor dropdown (groepeer op naam, niet op ID)
   const medewerkers = useMemo(() => {
-    const map = new Map<string, string>()
+    const naamToIds = new Map<string, string>()
     taken.forEach(t => {
       const id = t.medewerker_id || t.toegewezen_aan
       const naam = t.medewerker?.naam || t.toegewezen?.naam
-      if (id && naam) map.set(id, naam)
+      if (id && naam && !naamToIds.has(naam)) naamToIds.set(naam, id)
     })
-    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1]))
+    return Array.from(naamToIds.entries()).map(([naam, id]) => [id, naam] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))
   }, [taken])
 
   // Tel per categorie (alleen open taken)
@@ -101,6 +101,9 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
     }
   }, [taken])
 
+  // Maak naam-lookup voor filter (zodat filter op naam werkt ipv alleen op ID)
+  const filterMedewerkerNaam = filterMedewerker ? medewerkers.find(([id]) => id === filterMedewerker)?.[1] : null
+
   // Filter op basis van tab + URL params + medewerker dropdown
   const gefilterd = taken.filter(t => {
     if (filterCollega && t.toegewezen_aan !== filterCollega) return false
@@ -108,7 +111,10 @@ export function TakenView({ taken, isAdmin }: { taken: Taak[]; isAdmin: boolean 
       bellen: 'opvolgen' as TabType,
       uitwerken: 'offerte' as TabType,
     }[filterCategorie] && categorieTaak(t.titel, t.status) !== { bellen: 'opvolgen' as TabType, uitwerken: 'offerte' as TabType }[filterCategorie]) return false
-    if (filterMedewerker && (t.medewerker_id || t.toegewezen_aan) !== filterMedewerker) return false
+    if (filterMedewerkerNaam) {
+      const taakNaam = t.medewerker?.naam || t.toegewezen?.naam
+      if (taakNaam !== filterMedewerkerNaam) return false
+    }
 
     // Tab filter
     if (activeTab === 'afgerond') return t.status === 'afgerond'
