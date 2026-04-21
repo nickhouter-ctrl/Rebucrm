@@ -589,6 +589,10 @@ function EditOfferteView({
                 Factureren
               </Button>
             )}
+            <Button variant="danger" onClick={handleDelete} disabled={loading}>
+              <Trash2 className="h-4 w-4" />
+              Verwijderen
+            </Button>
           </div>
         }
       />
