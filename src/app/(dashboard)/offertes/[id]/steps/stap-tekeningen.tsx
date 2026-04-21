@@ -270,8 +270,8 @@ export function StapTekeningen({
         }
 
         // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|[\d.,]+\s*EUR?\b)$/i
-        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$)/i
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|[\d.,]+\s*EUR?\b)$/i
+        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$|^Raam$)/i
         // Also hide standalone price amounts near price labels (within 40px vertically)
         const priceAmountPattern = /^[\d\s.,]+$/
         const priceLabels = textItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
@@ -285,6 +285,20 @@ export function StapTekeningen({
           if (shouldHide || isNearPriceLabel) {
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
+          }
+        }
+
+        // Wis het hele Raam/Totaal tabelblok (inclusief lijnen)
+        const raamItem = textItems.find((ti: { str: string; cy: number }) => /^Raam$/i.test(ti.str) && ti.cy > h * 0.5)
+        const totaalItem = textItems.find((ti: { str: string; cy: number }) => /^Totaal$/i.test(ti.str) && ti.cy > h * 0.5)
+        if (raamItem || totaalItem) {
+          const topY = raamItem ? raamItem.cy - 25 : (totaalItem ? totaalItem.cy - 25 : 0)
+          const botY = totaalItem ? totaalItem.cy + 15 : (raamItem ? raamItem.cy + 40 : 0)
+          if (topY > 0 && botY > topY) {
+            // Wis het hele blok van links naar rechts
+            const blockLeft = Math.min(raamItem?.cx ?? w, totaalItem?.cx ?? w) - 40
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, blockLeft), topY, w - blockLeft, botY - topY)
           }
         }
 
