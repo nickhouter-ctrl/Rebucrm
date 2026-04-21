@@ -2,14 +2,14 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { saveTaak, deleteTaak, saveTaakNotitie, deleteTaakNotitie } from '@/lib/actions'
+import { saveTaak, deleteTaak, saveTaakNotitie, deleteTaakNotitie, completeTaak, uncompleteTaak } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { SearchSelect } from '@/components/ui/search-select'
-import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { RecentTracker } from '@/components/layout/recent-tracker'
@@ -73,6 +73,20 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     const result = await deleteTaak(taak.id as string)
     if (result.error) setError(result.error)
     else router.push('/taken')
+  }
+
+  const [afgerondState, setAfgerondState] = useState((taak?.status as string) === 'afgerond')
+  async function handleToggleAfgerond() {
+    if (!taak) return
+    setLoading(true); setError('')
+    const action = afgerondState ? uncompleteTaak : completeTaak
+    const result = await action(taak.id as string)
+    if (result.error) setError(result.error)
+    else {
+      setAfgerondState(prev => !prev)
+      router.refresh()
+    }
+    setLoading(false)
   }
 
   async function handleSaveNotitie() {
@@ -204,9 +218,22 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
               <textarea id="omschrijving" name="omschrijving" rows={4} defaultValue={(taak?.omschrijving as string) || ''} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
             </div>
           </CardContent>
-          <CardFooter className="flex justify-between">
+          <CardFooter className="flex justify-between flex-wrap gap-2">
             <div>{!isNew && <Button type="button" variant="danger" onClick={handleDelete}><Trash2 className="h-4 w-4" />Verwijderen</Button>}</div>
-            <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
+            <div className="flex gap-2 flex-wrap">
+              {!isNew && (
+                afgerondState ? (
+                  <Button type="button" variant="secondary" onClick={handleToggleAfgerond} disabled={loading}>
+                    <RotateCcw className="h-4 w-4" />Heropenen
+                  </Button>
+                ) : (
+                  <Button type="button" onClick={handleToggleAfgerond} disabled={loading} className="bg-[#00a66e] hover:bg-[#008f5f] text-white">
+                    <CheckCircle2 className="h-4 w-4" />Taak afronden
+                  </Button>
+                )
+              )}
+              <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
+            </div>
           </CardFooter>
         </Card>
       </form>
