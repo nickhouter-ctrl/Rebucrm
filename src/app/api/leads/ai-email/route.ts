@@ -13,26 +13,28 @@ export async function POST(request: NextRequest) {
 
     const BROCHURES = `- Brochure Rebu Kozijnen: https://drive.google.com/file/d/1eA1RR1Vn8M4UvYE5avS9IecRxfJ2Ucb_/view\n- Brochure Voordeuren: https://drive.google.com/file/d/1KArp4I9gKdUqQrGCehtrcYk-NUI89w85/view`
 
-    const systemPrompt = `Je schrijft een zakelijke, vriendelijke e-mail namens Rebu Kozijnen, een bedrijf dat hoogwaardige kunststof kozijnen, schuifpuien, deuren en aluminium kozijnen levert en plaatst. Schrijf in correct Nederlands, to-the-point, niet te formeel.
+    const systemPrompt = `Je schrijft een zakelijke, vriendelijke e-mail namens Rebu Kozijnen. Rebu is een LEVERANCIER van hoogwaardige kunststof en aluminium kozijnen. Wij richten ons uitsluitend op aannemers, bouwbedrijven en timmerbedrijven die zelf inmeten en plaatsen — Rebu doet dat NIET zelf. Dat houdt onze prijzen scherp.
+
+Schrijf in correct Nederlands, to-the-point, niet te formeel. Stel jezelf NIET persoonlijk voor ('Ik ben ...'). Schrijf namens 'Rebu Kozijnen'.
 
 Gebruik de placeholder {{naam}} voor de voornaam/contactpersoon van de ontvanger en {{bedrijfsnaam}} voor het bedrijf.
 
-Vaste onderdelen die je mee mag nemen afhankelijk van context:
-- A-merken: Aluplast, Schüco, K-Vision, Gealan
+Vaste feiten om in te zetten waar relevant:
+- Kunststof A-merken: Aluplast, Gealan, Schüco
 - Aluminium merken: Reynaers, Cortizo, Aliplast, Aluprof
-- Alles in eigen beheer: inmeten, tekenen, produceren, leveren
-- Tot 20% prijsvoordeel t.o.v. standaard leveranciers
+- Wij LEVEREN alleen — inmeten, tekenen en plaatsen doet de klant zelf
+- Scherpe prijzen t.o.v. standaard leveranciers doordat wij geen plaatsingskosten maken
 - Offertes en tekeningen binnen 24 uur
 - Levertijden gemiddeld 4 à 5 weken
 - Betrouwbare nazorg
-- Showroom/locatie: Samsonweg 26F, 1521 RM Wormerveer
+- Adres: Samsonweg 26F, 1521 RM Wormerveer
 
 Brochure-links (opnemen waar passend):
 ${BROCHURES}
 
-Handtekening altijd:
+Handtekening altijd (zonder voornaam in de intro):
 "Met vriendelijke groet,
-${medewerkerNaam}
+Rebu Kozijnen
 verkoop@rebukozijnen.nl
 www.rebukozijnen.nl
 +31 6 2384 9067
@@ -41,8 +43,8 @@ Samsonweg 26F, 1521 RM Wormerveer"
 Geef als antwoord ALLEEN de body van de mail, geen onderwerp erboven.`
 
     const userPrompt = template === 'na_bellen'
-      ? `Schrijf een e-mail voor ná een telefonisch contact. Bedank voor het gesprek, verwijs naar de toegezegde brochures (neem beide Drive-links letterlijk op in de tekst), geef een korte samenvatting van wat Rebu onderscheidend maakt (kwaliteit A-merken, 24u offerte, eigen productie, prijsvoordeel, nazorg), nodig uit voor persoonlijk contact op de showroom in Wormerveer. Eindig met uitnodiging om vrijblijvend een scherpe prijsopgave te maken als ze afmetingen of tekeningen aanleveren. ${extraInstructie}`
-      : `Schrijf een kennismakings-/introductie-e-mail voor een bedrijf dat we NIET eerder hebben gesproken. Stel Rebu Kozijnen kort voor, geef aan wat we onderscheidend aanbieden (A-merken, alles in eigen beheer, 24u offerte, prijsvoordeel), en nodig uit om samen te werken voor projecten met kunststof/aluminium kozijnen. Neem beide brochure-links op. Sluit af met vraag of we contact kunnen opnemen voor een kennismakingsgesprek. ${extraInstructie}`
+      ? `Schrijf een e-mail voor ná een telefonisch contact met een aannemer/bouwbedrijf/timmerbedrijf. Bedank voor het gesprek, verwijs naar de toegezegde brochures (neem beide Drive-links letterlijk op in de tekst), geef een korte samenvatting van wat Rebu onderscheidend maakt (leverancier-only = scherpe prijzen, A-merken Aluplast/Gealan/Schüco, aluminium Reynaers/Cortizo/Aliplast/Aluprof, offerte+tekening binnen 24u, nazorg). Eindig met uitnodiging om vrijblijvend een scherpe prijsopgave te maken als ze afmetingen of tekeningen aanleveren. ${extraInstructie}`
+      : `Schrijf een kennismakings-/introductie-e-mail aan een aannemer, bouwbedrijf of timmerbedrijf dat we NIET eerder hebben gesproken. Positioneer Rebu als scherp geprijsde LEVERANCIER van kunststof én aluminium kozijnen voor bouwpartners die zelf inmeten en plaatsen. Benoem de voordelen (A-merken, 24u offerte, levertijd 4-5 weken, nazorg, geen plaatsingskosten). Neem beide brochure-links op. Sluit af met uitnodiging om een vrijblijvende prijsopgave te maken op een lopend of aankomend project. ${extraInstructie}`
 
     const onderwerp = template === 'na_bellen'
       ? 'Als besproken - brochures en informatie Rebu Kozijnen'
