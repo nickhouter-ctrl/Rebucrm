@@ -37,37 +37,67 @@ const statusTabs = [
   { label: 'Offerte verstuurd', value: 'offerte_verstuurd' },
 ]
 
-const columns: ColumnDef<Lead, unknown>[] = [
-  { accessorKey: 'bedrijfsnaam', header: 'Bedrijfsnaam' },
-  { accessorKey: 'contactpersoon', header: 'Contactpersoon' },
-  { accessorKey: 'telefoon', header: 'Telefoon' },
-  {
-    accessorKey: 'status',
-    header: 'Status',
-    cell: ({ getValue }) => <Badge status={getValue() as string} />,
-  },
-  {
-    accessorKey: 'terugbel_datum',
-    header: 'Terugbellen',
-    cell: ({ getValue }) => {
-      const val = getValue() as string | null
-      if (!val) return <span className="text-gray-400">-</span>
-      const date = new Date(val)
-      const isPast = date < new Date()
-      return (
-        <span className={isPast ? 'text-red-600 font-medium' : 'text-gray-700'}>
-          <Phone className="inline h-3 w-3 mr-1" />
-          {formatDateShort(val)}
-        </span>
-      )
+function buildColumns(
+  selected: Set<string>,
+  toggle: (id: string) => void,
+  toggleAll: () => void,
+  allIds: string[],
+): ColumnDef<Lead, unknown>[] {
+  return [
+    {
+      id: 'select',
+      size: 40,
+      header: () => (
+        <input
+          type="checkbox"
+          checked={allIds.length > 0 && allIds.every(id => selected.has(id))}
+          onChange={toggleAll}
+          className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer"
+          onClick={e => e.stopPropagation()}
+        />
+      ),
+      cell: ({ row }) => (
+        <input
+          type="checkbox"
+          checked={selected.has(row.original.id)}
+          onChange={() => toggle(row.original.id)}
+          onClick={e => e.stopPropagation()}
+          className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer"
+        />
+      ),
     },
-  },
-  {
-    accessorKey: 'created_at',
-    header: 'Aangemaakt',
-    cell: ({ getValue }) => formatDateShort(getValue() as string),
-  },
-]
+    { accessorKey: 'bedrijfsnaam', header: 'Bedrijfsnaam' },
+    { accessorKey: 'contactpersoon', header: 'Contactpersoon' },
+    { accessorKey: 'email', header: 'E-mail', cell: ({ getValue }) => (getValue() as string) || <span className="text-gray-300">-</span> },
+    { accessorKey: 'telefoon', header: 'Telefoon' },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ getValue }) => <Badge status={getValue() as string} />,
+    },
+    {
+      accessorKey: 'terugbel_datum',
+      header: 'Terugbellen',
+      cell: ({ getValue }) => {
+        const val = getValue() as string | null
+        if (!val) return <span className="text-gray-400">-</span>
+        const date = new Date(val)
+        const isPast = date < new Date()
+        return (
+          <span className={isPast ? 'text-red-600 font-medium' : 'text-gray-700'}>
+            <Phone className="inline h-3 w-3 mr-1" />
+            {formatDateShort(val)}
+          </span>
+        )
+      },
+    },
+    {
+      accessorKey: 'created_at',
+      header: 'Aangemaakt',
+      cell: ({ getValue }) => formatDateShort(getValue() as string),
+    },
+  ]
+}
 
 export function LeadsView({ leads }: { leads: Lead[] }) {
   const router = useRouter()
@@ -79,12 +109,27 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
   const [kvkImportResult, setKvkImportResult] = useState<string | null>(null)
   const [bulkMailOpen, setBulkMailOpen] = useState(false)
   const [mailResult, setMailResult] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const filtered = activeTab === 'alle'
     ? leads
     : leads.filter(l => l.status === activeTab)
+
+  function toggleSelect(id: string) {
+    setSelected(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s })
+  }
+  function toggleSelectAll() {
+    setSelected(prev => {
+      const allSelected = filtered.every(l => prev.has(l.id))
+      if (allSelected) return new Set()
+      return new Set(filtered.map(l => l.id))
+    })
+  }
+  const mailLeads = selected.size > 0
+    ? leads.filter(l => selected.has(l.id))
+    : filtered
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -108,9 +153,9 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
         description="Beheer uw verkooppijplijn"
         actions={
           <div className="flex gap-2 flex-wrap">
-            <Button variant="secondary" onClick={() => setBulkMailOpen(true)} disabled={filtered.length === 0}>
+            <Button variant="secondary" onClick={() => setBulkMailOpen(true)} disabled={mailLeads.length === 0}>
               <Mail className="h-4 w-4" />
-              Mail naar {filtered.length}
+              Mail naar {mailLeads.length}{selected.size > 0 ? ' (geselecteerd)' : ''}
             </Button>
             <Button variant="secondary" onClick={() => setKvkOpen(true)}>
               <UserSearch className="h-4 w-4" />
@@ -165,7 +210,7 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
         />
       ) : (
         <DataTable
-          columns={columns}
+          columns={buildColumns(selected, toggleSelect, toggleSelectAll, filtered.map(l => l.id))}
           data={filtered}
           searchPlaceholder="Zoek lead..."
           onRowClick={(row) => router.push(`/leads/${row.id}`)}
@@ -260,7 +305,7 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
       <BulkMailDialog
         open={bulkMailOpen}
         onClose={() => setBulkMailOpen(false)}
-        leads={filtered}
+        leads={mailLeads}
         onSent={(aantal) => {
           setMailResult(`${aantal} mail${aantal === 1 ? '' : 's'} verstuurd`)
           setBulkMailOpen(false)
