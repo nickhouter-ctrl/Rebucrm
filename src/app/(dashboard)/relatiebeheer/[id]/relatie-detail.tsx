@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -106,6 +106,17 @@ interface RelatieEmail {
   richting: string | null
 }
 
+interface Contactpersoon {
+  id: string
+  naam: string
+  functie: string | null
+  email: string | null
+  telefoon: string | null
+  mobiel: string | null
+  is_primair: boolean
+  opmerkingen: string | null
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
@@ -120,12 +131,13 @@ interface Props {
     }
   }
   notities: Notitie[]
+  contactpersonen?: Contactpersoon[]
   klantAccounts: KlantAccount[]
   relatieTaken?: RelatieTaak[]
   relatieEmails?: RelatieEmail[]
 }
 
-export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [] }: Props) {
+export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
   const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
@@ -135,6 +147,43 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   // Notities state
   const [notities, setNotities] = useState(initialNotities)
+
+  // Contactpersonen state
+  const [contactpersonen, setContactpersonen] = useState(initialContactpersonen)
+  const [contactDialogOpen, setContactDialogOpen] = useState(false)
+  const [contactEdit, setContactEdit] = useState<Contactpersoon | null>(null)
+  const [contactForm, setContactForm] = useState({ naam: '', functie: '', email: '', telefoon: '', mobiel: '', is_primair: false, opmerkingen: '' })
+
+  function openNieuwContact() {
+    setContactEdit(null)
+    setContactForm({ naam: '', functie: '', email: '', telefoon: '', mobiel: '', is_primair: false, opmerkingen: '' })
+    setContactDialogOpen(true)
+  }
+  function openBewerkContact(c: Contactpersoon) {
+    setContactEdit(c)
+    setContactForm({ naam: c.naam, functie: c.functie || '', email: c.email || '', telefoon: c.telefoon || '', mobiel: c.mobiel || '', is_primair: c.is_primair, opmerkingen: c.opmerkingen || '' })
+    setContactDialogOpen(true)
+  }
+  async function handleSaveContact() {
+    if (!contactForm.naam.trim()) return
+    const payload = { ...contactForm, relatie_id: relatie.id, ...(contactEdit ? { id: contactEdit.id } : {}) }
+    const result = await saveContactpersoon(payload)
+    if (result.error) { setError(result.error); return }
+    // Optimistic refresh
+    if (contactEdit) {
+      setContactpersonen(prev => prev.map(c => c.id === contactEdit.id ? { ...c, ...contactForm, id: contactEdit.id, functie: contactForm.functie || null, email: contactForm.email || null, telefoon: contactForm.telefoon || null, mobiel: contactForm.mobiel || null, opmerkingen: contactForm.opmerkingen || null } : c))
+    } else {
+      setContactpersonen(prev => [...prev, { id: `tmp-${Date.now()}`, ...contactForm, functie: contactForm.functie || null, email: contactForm.email || null, telefoon: contactForm.telefoon || null, mobiel: contactForm.mobiel || null, opmerkingen: contactForm.opmerkingen || null } as Contactpersoon])
+    }
+    setContactDialogOpen(false)
+    router.refresh()
+  }
+  async function handleDeleteContact(id: string) {
+    if (!confirm('Contactpersoon verwijderen?')) return
+    const result = await deleteContactpersoon(id, relatie.id)
+    if (result.error) setError(result.error)
+    else setContactpersonen(prev => prev.filter(c => c.id !== id))
+  }
 
   // Portaal state
   const [klantAccounts, setKlantAccounts] = useState(initialKlantAccounts)
@@ -343,6 +392,48 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                     <p className="text-gray-400 text-xs">Geen contactgegevens ingevuld</p>
                   )}
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Contactpersonen */}
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <UserPlus className="h-4 w-4 text-gray-400" />
+                    Contactpersonen
+                    <span className="text-xs font-normal text-gray-400">({contactpersonen.length})</span>
+                  </h3>
+                  <button onClick={openNieuwContact} className="text-xs text-primary hover:underline flex items-center gap-1">
+                    <Plus className="h-3 w-3" />Toevoegen
+                  </button>
+                </div>
+                {contactpersonen.length === 0 ? (
+                  <p className="text-gray-400 text-xs">Nog geen contactpersonen toegevoegd</p>
+                ) : (
+                  <div className="space-y-2">
+                    {contactpersonen.map(c => (
+                      <div key={c.id} className="group flex items-start justify-between gap-2 text-sm border border-gray-100 rounded-md p-2 hover:bg-gray-50">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="font-medium text-gray-900">{c.naam}</span>
+                            {c.is_primair && <span className="text-[10px] bg-[#00a66e]/10 text-[#00a66e] px-1.5 py-0.5 rounded-full">Primair</span>}
+                            {c.functie && <span className="text-xs text-gray-500">· {c.functie}</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-0.5">
+                            {c.email && <a href={`mailto:${c.email}`} className="hover:text-primary inline-flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</a>}
+                            {c.telefoon && <a href={`tel:${c.telefoon}`} className="hover:text-primary inline-flex items-center gap-1"><Phone className="h-3 w-3" />{c.telefoon}</a>}
+                            {c.mobiel && <a href={`tel:${c.mobiel}`} className="hover:text-primary inline-flex items-center gap-1"><Phone className="h-3 w-3" />{c.mobiel}</a>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => openBewerkContact(c)} className="p-1 text-gray-400 hover:text-gray-700"><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={() => handleDeleteContact(c.id)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1069,6 +1160,32 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </CardFooter>
           </Card>
         </form>
+      )}
+
+      {contactDialogOpen && (
+        <Dialog open={contactDialogOpen} onClose={() => setContactDialogOpen(false)} title={contactEdit ? 'Contactpersoon bewerken' : 'Contactpersoon toevoegen'} className="max-w-md">
+          <div className="space-y-3">
+            <Input id="cp_naam" label="Naam *" value={contactForm.naam} onChange={e => setContactForm(f => ({ ...f, naam: e.target.value }))} required />
+            <Input id="cp_functie" label="Functie" value={contactForm.functie} onChange={e => setContactForm(f => ({ ...f, functie: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-2">
+              <Input id="cp_telefoon" label="Telefoon" value={contactForm.telefoon} onChange={e => setContactForm(f => ({ ...f, telefoon: e.target.value }))} />
+              <Input id="cp_mobiel" label="Mobiel" value={contactForm.mobiel} onChange={e => setContactForm(f => ({ ...f, mobiel: e.target.value }))} />
+            </div>
+            <Input id="cp_email" label="E-mail" type="email" value={contactForm.email} onChange={e => setContactForm(f => ({ ...f, email: e.target.value }))} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={contactForm.is_primair} onChange={e => setContactForm(f => ({ ...f, is_primair: e.target.checked }))} className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e]" />
+              Primaire contactpersoon
+            </label>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Opmerkingen</label>
+              <textarea rows={2} value={contactForm.opmerkingen} onChange={e => setContactForm(f => ({ ...f, opmerkingen: e.target.value }))} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent" />
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" onClick={() => setContactDialogOpen(false)}>Annuleren</Button>
+              <Button onClick={handleSaveContact} disabled={!contactForm.naam.trim()}>{contactEdit ? 'Opslaan' : 'Toevoegen'}</Button>
+            </div>
+          </div>
+        </Dialog>
       )}
     </div>
   )

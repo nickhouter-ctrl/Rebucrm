@@ -4195,6 +4195,64 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 }
 
 // === NOTITIES ===
+export async function getContactpersonen(relatieId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('contactpersonen')
+    .select('*')
+    .eq('relatie_id', relatieId)
+    .order('is_primair', { ascending: false })
+    .order('naam')
+  return data || []
+}
+
+export async function saveContactpersoon(data: {
+  id?: string
+  relatie_id: string
+  naam: string
+  functie?: string | null
+  email?: string | null
+  telefoon?: string | null
+  mobiel?: string | null
+  is_primair?: boolean
+  opmerkingen?: string | null
+}) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const record = {
+    administratie_id: adminId,
+    relatie_id: data.relatie_id,
+    naam: data.naam,
+    functie: data.functie || null,
+    email: data.email || null,
+    telefoon: data.telefoon || null,
+    mobiel: data.mobiel || null,
+    is_primair: data.is_primair || false,
+    opmerkingen: data.opmerkingen || null,
+  }
+
+  if (data.id) {
+    const { error } = await supabase.from('contactpersonen').update(record).eq('id', data.id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('contactpersonen').insert(record)
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath(`/relatiebeheer/${data.relatie_id}`)
+  return { success: true }
+}
+
+export async function deleteContactpersoon(id: string, relatieId: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('contactpersonen').delete().eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath(`/relatiebeheer/${relatieId}`)
+  return { success: true }
+}
+
 export async function getNotities(relatieId: string) {
   const supabase = await createClient()
   // 1. Directe klant-notities
