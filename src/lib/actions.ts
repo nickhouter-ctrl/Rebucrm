@@ -2088,11 +2088,13 @@ export async function getDashboardData() {
     const o = f.snelstart_openstaand
     return o != null ? sum + Number(o) : sum
   }, 0)
+  // Vervallen-logica identiek aan SnelStart: alle openstaand (incl negatieve credit)
+  // waar vervaldatum <= vandaag (inclusief vandaag zelf).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const achterstallig = facturenData.reduce((sum, f: any) => {
     const o = f.snelstart_openstaand
-    if (o == null || Number(o) <= 0) return sum
-    if (!f.vervaldatum || f.vervaldatum >= vandaagStr) return sum
+    if (o == null) return sum
+    if (!f.vervaldatum || f.vervaldatum > vandaagStr) return sum
     return sum + Number(o)
   }, 0)
   const openOffertes = offertesData.filter(o => o.status === 'verzonden').length
