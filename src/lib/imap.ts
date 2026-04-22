@@ -760,13 +760,21 @@ async function processNewEmail(
       .eq('administratie_id', administratieId)
       .eq('message_id', email.message_id)
 
+    // Prioriteit: relatie van afzender-email. Alleen als die niet bestaat, valt
+    // terug op relatie van de offerte. Anders ontstaan taken op de verkeerde klant
+    // wanneer iemand anders reageert op een offerte-thread.
+    let finaleRelatieId = relatieId
+    if (!finaleRelatieId && offerteId) {
+      const { data: off } = await supabase.from('offertes').select('relatie_id').eq('id', offerteId).maybeSingle()
+      if (off?.relatie_id) finaleRelatieId = off.relatie_id
+    }
     await supabase.from('taken').insert({
       administratie_id: administratieId,
       titel: `Offerte reactie: ${offerte?.offertenummer || 'onbekend'} - offerte aanpassen`,
       omschrijving: `Reactie ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"`,
       prioriteit: 'normaal',
       status: 'open',
-      relatie_id: relatieId,
+      relatie_id: finaleRelatieId,
       offerte_id: offerteId,
       medewerker_id: toegewezenMedewerker?.id || null,
       toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
