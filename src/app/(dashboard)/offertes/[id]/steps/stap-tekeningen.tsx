@@ -351,7 +351,7 @@ export function StapTekeningen({
         for (let pi = 0; pi < pageNums.length; pi++) {
           const croppedCanvas = await renderPageWithHeaderCrop(pageNums[pi])
           const blob = await new Promise<Blob>((resolve) => {
-            croppedCanvas.toBlob((b) => resolve(b!), 'image/png', 0.9)
+            croppedCanvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85)
           })
           croppedCanvas.remove()
 

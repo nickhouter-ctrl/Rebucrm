@@ -372,14 +372,14 @@ export function StapControleren({
         for (let pi = 0; pi < pageNums.length; pi++) {
           const croppedCanvas = await renderPageWithHeaderCrop(pageNums[pi])
           const blob = await new Promise<Blob>((resolve) => {
-            croppedCanvas.toBlob((b) => resolve(b!), 'image/png', 0.9)
+            croppedCanvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85)
           })
           croppedCanvas.remove()
 
           const imgFormData = new FormData()
-          imgFormData.set('image', blob, `tekening-${pageNums[pi]}.png`)
+          imgFormData.set('image', blob, `tekening-${pageNums[pi]}.jpg`)
           const uploadResult = await uploadLeverancierTekening(offerteId, pageNums[pi], imgFormData)
-          const path = ('path' in uploadResult && uploadResult.path) ? uploadResult.path : `leverancier-pdfs/${offerteId}/tekening-${pageNums[pi]}.png`
+          const path = ('path' in uploadResult && uploadResult.path) ? uploadResult.path : `leverancier-pdfs/${offerteId}/tekening-${pageNums[pi]}.jpg`
           tekeningData.push({ naam, tekeningPath: path, pageIndex: pi, totalPages: pageNums.length })
         }
       }
@@ -446,20 +446,31 @@ export function StapControleren({
 
       // Step 2: Upload pre-rendered PNGs
       const tekeningData: { naam: string; tekeningPath: string; pageIndex: number; totalPages: number }[] = []
+      const uploadErrors: string[] = []
 
       for (let i = 0; i < tekeningen.length; i++) {
         const { pageNum, naam, blob, pageIndex, totalPages } = tekeningen[i]
         setPdfProgress(`Tekeningen uploaden (${i + 1}/${tekeningen.length})...`)
 
         const imgFormData = new FormData()
-        imgFormData.set('image', blob, `tekening-${pageNum}.png`)
+        imgFormData.set('image', blob, `tekening-${pageNum}.jpg`)
         const uploadResult = await uploadLeverancierTekening(offerteId, pageNum, imgFormData)
 
-        const path = ('path' in uploadResult && uploadResult.path)
-          ? uploadResult.path
-          : `leverancier-pdfs/${offerteId}/tekening-${pageNum}.png`
-
+        if ('error' in uploadResult && uploadResult.error) {
+          uploadErrors.push(`p${pageNum}: ${uploadResult.error}`)
+          continue
+        }
+        const path = ('path' in uploadResult && uploadResult.path) ? uploadResult.path : null
+        if (!path) {
+          uploadErrors.push(`p${pageNum}: geen path`)
+          continue
+        }
         tekeningData.push({ naam, tekeningPath: path, pageIndex: pageIndex ?? 0, totalPages: totalPages ?? 1 })
+      }
+
+      if (uploadErrors.length > 0) {
+        console.error('Tekening uploads failed:', uploadErrors)
+        setError(`Tekeningen upload mislukt (${uploadErrors.length}/${tekeningen.length}): ${uploadErrors.slice(0, 3).join(', ')}`)
       }
 
       // Step 3: Save tekening mappings + marge (per-element) + element prices
@@ -470,7 +481,11 @@ export function StapControleren({
           elementPrijzen[el.naam] = { prijs: el.prijs, hoeveelheid: el.hoeveelheid }
         }
       }
-      await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage, elementMarges, elementPrijzen)
+      const saveResult = await saveLeverancierTekeningen(offerteId, tekeningData, margePercentage, elementMarges, elementPrijzen)
+      if (saveResult && 'error' in saveResult && saveResult.error) {
+        console.error('saveLeverancierTekeningen error:', saveResult.error)
+        setError(`Opslaan van tekeningen mislukt: ${saveResult.error}`)
+      }
 
       setLeverancierPdf({
         bestandsnaam: file.name,

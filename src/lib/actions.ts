@@ -4964,11 +4964,16 @@ export async function uploadLeverancierTekening(offerteId: string, pageNum: numb
   if (!file) return { error: 'Geen afbeelding' }
 
   const buffer = Buffer.from(await file.arrayBuffer())
-  const path = `leverancier-pdfs/${offerteId}/tekening-${pageNum}.png`
+  // Leg extensie en content-type uit het blob zelf — tekeningen zijn nu JPEG (kleiner
+  // dan PNG zodat ze onder de server-action body limit blijven).
+  const isJpeg = (file.type || '').includes('jpeg') || (file.type || '').includes('jpg')
+  const ext = isJpeg ? 'jpg' : 'png'
+  const contentType = isJpeg ? 'image/jpeg' : 'image/png'
+  const path = `leverancier-pdfs/${offerteId}/tekening-${pageNum}.${ext}`
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from('documenten')
-    .upload(path, buffer, { contentType: 'image/png', upsert: true })
+    .upload(path, buffer, { contentType, upsert: true })
 
   if (uploadError) return { error: uploadError.message }
   return { path }
