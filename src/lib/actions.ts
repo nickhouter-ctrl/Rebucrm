@@ -1308,11 +1308,12 @@ export async function syncSnelstartBetalingen() {
   // Alle facturen uit CRM die een factuurnummer hebben (ongeacht sync status)
   const crmFacturen = await fetchAllRows<{
     id: string; factuurnummer: string; totaal: number; betaald_bedrag: number | null;
-    status: string; vervaldatum: string | null; snelstart_boeking_id: string | null
+    status: string; vervaldatum: string | null; snelstart_boeking_id: string | null;
+    snelstart_openstaand: number | null;
   }>((from, to) =>
     supabaseAdmin
       .from('facturen')
-      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id, snelstart_openstaand')
       .eq('administratie_id', adminId)
       .not('factuurnummer', 'is', null)
       .range(from, to)
@@ -1344,12 +1345,14 @@ export async function syncSnelstartBetalingen() {
     }
 
     const totaal = Number(f.totaal || 0)
-    const openstaandSS = Math.max(0, Number(ss.openstaand || 0))
-    const betaaldSS = Math.max(0, Math.round((totaal - openstaandSS) * 100) / 100)
+    const openstaandSS = Number(ss.openstaand || 0)
+    // betaald_bedrag = totaal - openstaand (kan groter dan totaal zijn bij overbetaling/credit)
+    const betaaldSS = Math.round((totaal - openstaandSS) * 100) / 100
 
     // Status afleiden uit SnelStart openstaand
     let nieuweStatus = f.status
-    if (ss.gecrediteerd) {
+    if (ss.gecrediteerd || openstaandSS < -0.01) {
+      // Negatief openstaand = credit-overschot → gecrediteerd
       nieuweStatus = 'gecrediteerd'
     } else if (openstaandSS <= 0.01) {
       nieuweStatus = 'betaald'
@@ -1363,13 +1366,15 @@ export async function syncSnelstartBetalingen() {
     }
 
     const huidigBetaald = Number(f.betaald_bedrag || 0)
+    const huidigOpen = f.snelstart_openstaand == null ? null : Number(f.snelstart_openstaand)
     const statusChanged = nieuweStatus !== f.status
     const betaaldChanged = Math.abs(huidigBetaald - betaaldSS) > 0.01
-    if (!statusChanged && !betaaldChanged) continue
+    const openChanged = huidigOpen == null || Math.abs(huidigOpen - openstaandSS) > 0.01
+    if (!statusChanged && !betaaldChanged && !openChanged) continue
 
     const { error } = await supabaseAdmin
       .from('facturen')
-      .update({ betaald_bedrag: betaaldSS, status: nieuweStatus })
+      .update({ betaald_bedrag: betaaldSS, status: nieuweStatus, snelstart_openstaand: openstaandSS })
       .eq('id', f.id)
     if (error) {
       console.error('Sync update fout', f.factuurnummer, error.message)
@@ -2037,7 +2042,7 @@ export async function getDashboardData() {
 
   // Grote tabellen pagineren (Supabase max-rows = 1000)
   const [facturenData, offertesData, takenData] = await Promise.all([
-    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, relatie_id').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
   ])
@@ -2070,9 +2075,21 @@ export async function getDashboardData() {
       return fd.getFullYear() === huidigJaar && fd.getMonth() + 1 === huidigeMaand
     })
     .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
-  const openstaand = facturenData
-    .filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status))
-    .reduce((sum, f) => sum + (f.totaal || 0) - (f.betaald_bedrag || 0), 0)
+  // Openstaand + vervallen uit SnelStart openstaandSaldo (via sync gevuld).
+  // Facturen zonder snelstart_openstaand tellen niet mee (zijn historisch/niet gesynchroniseerd).
+  const vandaagStr = new Date().toISOString().slice(0, 10)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const openstaand = facturenData.reduce((sum, f: any) => {
+    const o = f.snelstart_openstaand
+    return o != null ? sum + Number(o) : sum
+  }, 0)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const achterstallig = facturenData.reduce((sum, f: any) => {
+    const o = f.snelstart_openstaand
+    if (o == null || Number(o) <= 0) return sum
+    if (!f.vervaldatum || f.vervaldatum >= vandaagStr) return sum
+    return sum + Number(o)
+  }, 0)
   const openOffertes = offertesData.filter(o => o.status === 'verzonden').length
   const openTaken = takenData.filter(t => t.status !== 'afgerond').length
 
@@ -2505,7 +2522,7 @@ export async function getDashboardData() {
   }))
 
   return {
-    omzet, openstaand, openOffertes, openTaken,
+    omzet, openstaand, achterstallig, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
     offertesPerMaand, totaalOffertes,
