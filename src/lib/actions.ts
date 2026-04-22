@@ -2066,7 +2066,6 @@ export async function getDashboardData() {
   const profielNaamMap = new Map(profielenData.map(p => [p.id, p.naam]))
   const mijnTaken = takenData
     .filter(t => t.status !== 'afgerond' && (isAdmin || t.toegewezen_aan === user.id))
-    .slice(0, 100)
     .map(t => ({
       id: t.id,
       titel: t.titel,
