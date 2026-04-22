@@ -7,8 +7,13 @@ export interface KvkResult {
   kvkNummer: string
   naam: string
   adres: string
+  straat?: string
+  huisnummer?: string
   postcode: string
   plaats: string
+  email?: string
+  telefoon?: string
+  website?: string
   type: string
 }
 
@@ -57,11 +62,25 @@ export function KvkSearch({ onSelect, placeholder = 'Zoek op bedrijfsnaam of KVK
     debounceRef.current = setTimeout(() => search(v), 300)
   }
 
-  function pick(r: KvkResult) {
-    onSelect(r)
+  async function pick(r: KvkResult) {
+    setOpen(false)
+    setSearching(true)
+    try {
+      // Verrijk met contactgegevens uit basisprofiel/hoofdvestiging
+      const res = await fetch(`/api/kvk/detail?kvkNummer=${encodeURIComponent(r.kvkNummer)}`)
+      if (res.ok) {
+        const detail = await res.json()
+        onSelect({ ...r, ...detail })
+      } else {
+        onSelect(r)
+      }
+    } catch {
+      onSelect(r)
+    } finally {
+      setSearching(false)
+    }
     setQuery('')
     setResults([])
-    setOpen(false)
   }
 
   return (

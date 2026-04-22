@@ -4,8 +4,13 @@ interface KvkResult {
   kvkNummer: string
   naam: string
   adres: string
+  straat: string
+  huisnummer: string
   postcode: string
   plaats: string
+  email: string
+  telefoon: string
+  website: string
   type: string
 }
 

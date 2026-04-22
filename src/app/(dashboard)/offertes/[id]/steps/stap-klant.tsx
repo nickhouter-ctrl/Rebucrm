@@ -96,7 +96,15 @@ export function StapKlant({
             <h3 className="font-semibold text-gray-900 mb-2">Nieuwe klant aanmaken</h3>
             <KvkSearch
               label="Zoek in KVK-register (optioneel)"
-              onSelect={r => setNieuwRelatieData(d => ({ ...d, bedrijfsnaam: r.naam, adres: r.adres, postcode: r.postcode, plaats: r.plaats }))}
+              onSelect={r => setNieuwRelatieData(d => ({
+                ...d,
+                bedrijfsnaam: r.naam,
+                adres: r.adres,
+                postcode: r.postcode,
+                plaats: r.plaats,
+                email: r.email || d.email,
+                telefoon: r.telefoon || d.telefoon,
+              }))}
             />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Input id="n_bedrijfsnaam" label="Naam / Bedrijfsnaam *" value={nieuwRelatieData.bedrijfsnaam} onChange={e => setNieuwRelatieData(d => ({ ...d, bedrijfsnaam: e.target.value }))} required />

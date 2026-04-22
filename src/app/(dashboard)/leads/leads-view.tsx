@@ -163,7 +163,16 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <KvkSearch
             label="Zoek in KVK-register (optioneel)"
-            onSelect={r => setLeadForm(f => ({ ...f, bedrijfsnaam: r.naam, adres: r.adres, postcode: r.postcode, plaats: r.plaats, kvk_nummer: r.kvkNummer }))}
+            onSelect={r => setLeadForm(f => ({
+              ...f,
+              bedrijfsnaam: r.naam,
+              adres: r.adres,
+              postcode: r.postcode,
+              plaats: r.plaats,
+              kvk_nummer: r.kvkNummer,
+              email: r.email || f.email,
+              telefoon: r.telefoon || f.telefoon,
+            }))}
           />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Bedrijfsnaam *</label>

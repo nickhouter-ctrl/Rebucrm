@@ -58,6 +58,9 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const plaatsRef = useRef<HTMLInputElement>(null)
   const kvkNummerRef = useRef<HTMLInputElement>(null)
   const typeRef = useRef<HTMLSelectElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
+  const telefoonRef = useRef<HTMLInputElement>(null)
+  const websiteRef = useRef<HTMLInputElement>(null)
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -103,11 +106,20 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
     debounceRef.current = setTimeout(() => searchKvk(value), 300)
   }
 
-  function selectKvkResult(result: KvkResult) {
-    // Auto-fill alle velden
+  async function selectKvkResult(baseResult: KvkResult) {
+    setShowKvkDropdown(false)
+    // Verrijk via /api/kvk/detail voor email/telefoon/website/huisnummer
+    let result = baseResult
+    try {
+      const res = await fetch(`/api/kvk/detail?kvkNummer=${encodeURIComponent(baseResult.kvkNummer)}`)
+      if (res.ok) {
+        const detail = await res.json() as Partial<KvkResult>
+        result = { ...baseResult, ...detail }
+      }
+    } catch {}
+
     if (bedrijfsnaamRef.current) {
       bedrijfsnaamRef.current.value = result.naam
-      // Trigger React change event
       const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
       if (nativeInputValueSetter) {
         nativeInputValueSetter.call(bedrijfsnaamRef.current, result.naam)
@@ -119,6 +131,9 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
     if (plaatsRef.current) plaatsRef.current.value = result.plaats
     if (kvkNummerRef.current) kvkNummerRef.current.value = result.kvkNummer
     if (typeRef.current) typeRef.current.value = 'zakelijk'
+    if (emailRef.current && (result as { email?: string }).email) emailRef.current.value = (result as { email?: string }).email as string
+    if (telefoonRef.current && (result as { telefoon?: string }).telefoon) telefoonRef.current.value = (result as { telefoon?: string }).telefoon as string
+    if (websiteRef.current && (result as { website?: string }).website) websiteRef.current.value = (result as { website?: string }).website as string
 
     setKvkQuery(result.naam)
     setShowKvkDropdown(false)
@@ -244,8 +259,8 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
                 ]}
               />
               <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie?.contactpersoon || ''} />
-              <Input id="email" name="email" label="E-mail" type="email" defaultValue={relatie?.email || ''} />
-              <Input id="telefoon" name="telefoon" label="Telefoon" defaultValue={relatie?.telefoon || ''} />
+              <Input ref={emailRef} id="email" name="email" label="E-mail" type="email" defaultValue={relatie?.email || ''} />
+              <Input ref={telefoonRef} id="telefoon" name="telefoon" label="Telefoon" defaultValue={relatie?.telefoon || ''} />
               <Input ref={adresRef} id="adres" name="adres" label="Adres" defaultValue={relatie?.adres || ''} />
               <Input ref={postcodeRef} id="postcode" name="postcode" label="Postcode" defaultValue={relatie?.postcode || ''} />
               <Input ref={plaatsRef} id="plaats" name="plaats" label="Plaats" defaultValue={relatie?.plaats || ''} />
