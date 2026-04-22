@@ -3728,7 +3728,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
             let tekeningUrl = ''
             if (imgFile) {
               const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
-              tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
+              const mime = /\.jpe?g$/i.test(tekening.tekeningPath) ? 'image/jpeg' : 'image/png'
+              tekeningUrl = `data:${mime};base64,${imgBuffer.toString('base64')}`
             }
 
             const matchingElement = elementData.find(e => e.naam === tekening.naam)

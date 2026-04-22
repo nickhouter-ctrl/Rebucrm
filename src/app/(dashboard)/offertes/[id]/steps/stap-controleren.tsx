@@ -427,7 +427,7 @@ export function StapControleren({
     offerteId: string,
     parsed: ParsedPdfResult,
     tekeningen: RenderedTekening[]
-  ) {
+  ): Promise<{ ok: boolean }> {
     setPdfUploading(true)
     setPdfProgress('PDF uploaden...')
 
@@ -441,7 +441,7 @@ export function StapControleren({
         setError(result.error as string)
         setPdfUploading(false)
         setPdfProgress('')
-        return
+        return { ok: false }
       }
 
       // Step 2: Upload pre-rendered PNGs
@@ -495,11 +495,13 @@ export function StapControleren({
 
       setPdfUploading(false)
       setPdfProgress('')
+      return { ok: uploadErrors.length === 0 && !(saveResult && 'error' in saveResult && saveResult.error) }
     } catch (err) {
       console.error('PDF upload error:', err)
       setError('Fout bij uploaden van PDF')
       setPdfUploading(false)
       setPdfProgress('')
+      return { ok: false }
     }
   }
 
@@ -537,7 +539,9 @@ export function StapControleren({
     // Upload pre-processed PDF data or process from scratch
     if (pendingPdfFile && parsedPdfResult && renderedTekeningen && renderedTekeningen.length > 0) {
       setLoading(false)
-      await uploadPreProcessedPdf(pendingPdfFile, offerteId, parsedPdfResult, renderedTekeningen)
+      const res = await uploadPreProcessedPdf(pendingPdfFile, offerteId, parsedPdfResult, renderedTekeningen)
+      // Als upload mislukt blijven we op deze pagina zodat user de error ziet
+      if (!res.ok) return
     } else if (pendingPdfFile) {
       // Fallback for edit mode or when PDF wasn't pre-processed
       setLoading(false)

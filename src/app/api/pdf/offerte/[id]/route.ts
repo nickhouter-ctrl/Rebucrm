@@ -113,7 +113,8 @@ export async function GET(
           let tekeningUrl = ''
           if (imgFile) {
             const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
-            tekeningUrl = `data:image/png;base64,${imgBuffer.toString('base64')}`
+            const mime = /\.jpe?g$/i.test(tekening.tekeningPath) ? 'image/jpeg' : 'image/png'
+            tekeningUrl = `data:${mime};base64,${imgBuffer.toString('base64')}`
           }
 
           const pageIndex = tekening.pageIndex ?? 0
