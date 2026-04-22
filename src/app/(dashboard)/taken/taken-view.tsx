@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { type ColumnDef } from '@tanstack/react-table'
@@ -99,22 +99,24 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     return Array.from(naamToIds.entries()).map(([naam, id]) => [id, naam] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))
   }, [taken])
 
-  // Default medewerker-filter = ingelogde gebruiker (persisteer via localStorage zodat keuze blijft)
-  const [filterMedewerker, setFilterMedewerker] = useState(() => {
-    if (typeof window === 'undefined') return ''
-    const stored = window.localStorage.getItem('taken:filterMedewerker')
-    if (stored !== null) return stored
-    return currentUserId || ''
-  })
+  // Medewerker-filter + tab persisteren in localStorage, default medewerker = ingelogde gebruiker
+  const [filterMedewerker, setFilterMedewerker] = useState<string>('')
+  const [activeTab, setActiveTab] = useState<TabType>('alle')
+
+  // Laad opgeslagen waarden na mount
+  useEffect(() => {
+    try {
+      const storedMw = window.localStorage.getItem('taken:filterMedewerker')
+      setFilterMedewerker(storedMw !== null ? storedMw : (currentUserId || ''))
+      const storedTab = window.localStorage.getItem('taken:activeTab') as TabType | null
+      if (storedTab) setActiveTab(storedTab)
+    } catch {}
+  }, [currentUserId])
+
   function setFilterMedewerkerPersist(v: string) {
     setFilterMedewerker(v)
     try { window.localStorage.setItem('taken:filterMedewerker', v) } catch {}
   }
-  const [activeTab, setActiveTab] = useState<TabType>(() => {
-    if (typeof window === 'undefined') return 'alle'
-    const stored = window.localStorage.getItem('taken:activeTab') as TabType | null
-    return stored || 'alle'
-  })
   function setActiveTabPersist(v: TabType) {
     setActiveTab(v)
     try { window.localStorage.setItem('taken:activeTab', v) } catch {}
