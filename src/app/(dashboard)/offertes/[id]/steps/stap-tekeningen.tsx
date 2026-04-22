@@ -118,6 +118,8 @@ export function StapTekeningen({
       // Scan all pages for element names and drawing markers
       // Match element headers — Positie must be followed by exactly 3 digits and then non-digit (prevents matching "908" from prices like "908,16")
       const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+[\dA-Z]+|Positie\s*\d{3}(?!\d|[.,]\d)/i
+      // Gealan S9000NL: "Productie maten <Element-naam> Aantal:N Verbinding:XX Systeem: Gealan ..."
+      const gealanNLHeaderPattern = /Productie\s+maten\s+([\s\S]+?)\s+Aantal\s*:\s*\d+\s+Verbinding\s*:/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
       for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
@@ -126,11 +128,16 @@ export function StapTekeningen({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
         const headerMatch = pageText.match(elementHeaderPattern)
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT/i.test(pageText)
+        const gealanNLMatch = !headerMatch ? pageText.match(gealanNLHeaderPattern) : null
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         // Normalize Kochs "Positie" format to match parsed element names
-        let elementNaam = headerMatch ? headerMatch[0] : null
-        if (elementNaam) elementNaam = elementNaam.replace(/Positie\s*(\d{3})/, 'Positie $1')
+        let elementNaam: string | null = null
+        if (headerMatch) {
+          elementNaam = headerMatch[0].replace(/Positie\s*(\d{3})/, 'Positie $1')
+        } else if (gealanNLMatch) {
+          elementNaam = gealanNLMatch[1].replace(/\s+/g, ' ').trim()
+        }
         allPageScans.push({ pageNum, naam: elementNaam, hasDrawing, isStandaloneProduct })
       }
 
@@ -199,11 +206,11 @@ export function StapTekeningen({
             cy: Math.round(h - item.transform[5] * 2),
           }))
 
-        // Find the element header line (e.g. "Element 001", "Deur 001", "Merk 1")
+        // Find the element header line (e.g. "Element 001", "Deur 001", "Merk 1", "Productie maten")
         const headerMatch = textItems.find((i: { str: string; cy: number }) =>
-          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+[\dA-Z]+|Positie|Binnenzicht/i.test(i.str)
+          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+[\dA-Z]+|Positie|Binnenzicht|Productie\s+maten/i.test(i.str)
         )
-        const isGealanPage = headerMatch && /Merk\s+[\dA-Z]+/i.test(headerMatch.str)
+        const isGealanPage = !!headerMatch && (/Merk\s+[\dA-Z]+/i.test(headerMatch.str) || /Productie\s+maten/i.test(headerMatch.str))
 
         // Crop just above the element header (remove leverancier branding)
         let cropTop = Math.floor(h * 0.04)
