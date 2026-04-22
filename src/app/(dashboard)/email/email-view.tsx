@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ToastContainer, showToast } from '@/components/ui/toast'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check, Sparkles } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties } from '@/lib/actions'
@@ -81,6 +81,49 @@ export function EmailView({
   const [assignLoading, setAssignLoading] = useState(false)
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null)
   const [projectZoek, setProjectZoek] = useState('')
+
+  // AI reply state
+  const [aiReplyEmail, setAiReplyEmail] = useState<Email | null>(null)
+  const [aiReplyText, setAiReplyText] = useState('')
+  const [aiReplyInstructie, setAiReplyInstructie] = useState('')
+  const [aiReplyLoading, setAiReplyLoading] = useState(false)
+  const [aiReplyError, setAiReplyError] = useState('')
+
+  async function handleAiReply(email: Email) {
+    setAiReplyEmail(email)
+    setAiReplyText('')
+    setAiReplyError('')
+    setAiReplyInstructie('')
+    await genereerAiReply(email, '')
+  }
+
+  async function genereerAiReply(email: Email, extraInstructie: string) {
+    setAiReplyLoading(true)
+    setAiReplyError('')
+    try {
+      const body = emailBodies[email.id]
+      const origineleTekst = email.body_text || body?.text || (email.body_html || body?.html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      const res = await fetch('/api/email/ai-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vanNaam: email.van_naam,
+          vanEmail: email.van_email,
+          onderwerp: email.onderwerp,
+          origineleTekst,
+          klantNaam: email.relatie?.bedrijfsnaam || '',
+          extraInstructie,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) setAiReplyError(data.error)
+      else setAiReplyText(data.tekst || '')
+    } catch (err) {
+      setAiReplyError(err instanceof Error ? err.message : 'AI genereren mislukt')
+    } finally {
+      setAiReplyLoading(false)
+    }
+  }
 
   // Broadcast state
   const [broadcastOpen, setBroadcastOpen] = useState(false)
@@ -508,6 +551,14 @@ export function EmailView({
                             return <pre className="whitespace-pre-wrap text-gray-700 font-sans">{bodyText || '(geen inhoud)'}</pre>
                           })()}
                           <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200 flex-wrap items-start">
+                            <Button
+                              size="sm"
+                              className="bg-[#00a66e] text-white hover:bg-[#008f5f]"
+                              onClick={(e) => { e.stopPropagation(); handleAiReply(email) }}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Reageer met AI
+                            </Button>
                             {email.relatie && (
                               <Link href={`/relatiebeheer/${email.relatie.id}`}>
                                 <Button size="sm" variant="secondary">
@@ -795,6 +846,71 @@ export function EmailView({
                   </>
                 )}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Reply modal */}
+      {aiReplyEmail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setAiReplyEmail(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-[#00a66e]" />
+                AI-antwoord: {aiReplyEmail.onderwerp || '(geen onderwerp)'}
+              </h2>
+              <button onClick={() => setAiReplyEmail(null)} className="p-1 text-gray-400 hover:text-gray-700"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              <div className="text-xs text-gray-500">
+                <span className="font-medium">Aan:</span> {aiReplyEmail.van_naam || aiReplyEmail.van_email} &lt;{aiReplyEmail.van_email}&gt;
+              </div>
+              {aiReplyError && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{aiReplyError}</p>}
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Extra instructies voor de AI (optioneel)</label>
+                <input
+                  value={aiReplyInstructie}
+                  onChange={e => setAiReplyInstructie(e.target.value)}
+                  placeholder="bijv. ‘vraag om afmetingen en foto's’"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                />
+              </div>
+
+              {aiReplyLoading ? (
+                <div className="flex items-center justify-center py-10 text-gray-500 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />AI schrijft antwoord...
+                </div>
+              ) : (
+                <textarea
+                  rows={14}
+                  value={aiReplyText}
+                  onChange={e => setAiReplyText(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm font-sans focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                  placeholder="AI-antwoord verschijnt hier..."
+                />
+              )}
+            </div>
+            <div className="flex items-center justify-between gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50">
+              <Button variant="secondary" size="sm" onClick={() => genereerAiReply(aiReplyEmail, aiReplyInstructie)} disabled={aiReplyLoading}>
+                <RefreshCw className="h-3.5 w-3.5" />
+                Opnieuw genereren
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" size="sm" onClick={() => { navigator.clipboard.writeText(aiReplyText); }}>
+                  <Check className="h-3.5 w-3.5" />
+                  Kopieer
+                </Button>
+                <Button size="sm" onClick={() => {
+                  const subject = 'Re: ' + (aiReplyEmail.onderwerp || '')
+                  const mailto = `mailto:${encodeURIComponent(aiReplyEmail.van_email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(aiReplyText)}`
+                  window.location.href = mailto
+                }} disabled={!aiReplyText}>
+                  <Send className="h-3.5 w-3.5" />
+                  Open in mail
+                </Button>
+              </div>
             </div>
           </div>
         </div>
