@@ -28,6 +28,7 @@ interface TePlannenOrder {
 interface DashboardData {
   omzet: number
   openstaand: number
+  achterstallig: number
   openOffertes: number
   openTaken: number
   ongelezenBerichten: number
@@ -381,7 +382,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const conversieGraad = data.totaalOffertes > 0
     ? Math.round((data.offertesPerFase.find(f => f.status === 'geaccepteerd')?.aantal || 0) / data.totaalOffertes * 100)
     : 0
-  const achterstalligBedrag = achterstalligeFacturen.reduce((sum, f) => sum + f.openstaand_bedrag, 0)
+  // Bedrag komt uit SnelStart sync (zelfde getal als SS UI); de lijst/teller blijft op
+  // de CRM-lokale berekening voor de rijen.
+  const achterstalligBedrag = data.achterstallig ?? achterstalligeFacturen.reduce((sum, f) => sum + f.openstaand_bedrag, 0)
 
   const doelen = data.omzetdoelen
   const doelenItems: Record<string, { label: string; omzet: number; doel: number }> = {
