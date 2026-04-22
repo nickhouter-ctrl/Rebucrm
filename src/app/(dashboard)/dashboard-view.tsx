@@ -223,7 +223,7 @@ function Section({ title, icon: Icon, iconColor, count, children, defaultOpen, l
           {open ? <ChevronUp className="h-4 w-4 text-gray-300" /> : <ChevronDown className="h-4 w-4 text-gray-300" />}
         </div>
       </button>
-      {open && count > 0 && <div className="border-t border-gray-100">{children}</div>}
+      {open && count > 0 && <div className="border-t border-gray-100 max-h-[520px] overflow-y-auto">{children}</div>}
       {open && count === 0 && (
         <div className="border-t border-gray-100 px-4 py-6 sm:py-8 text-center">
           <Icon className="h-6 w-6 text-gray-200 mx-auto mb-2" />
@@ -301,7 +301,16 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     maand_doel: data?.omzetdoelen?.maand_doel?.toString() || '0',
     jaar_doel: data?.omzetdoelen?.jaar_doel?.toString() || '0',
   })
-  const [takenLijst, setTakenLijst] = useState(data?.mijnTaken || [])
+  const [takenLijst, setTakenLijst] = useState(() => {
+    const lst = [...(data?.mijnTaken || [])]
+    lst.sort((a, b) => {
+      if (!a.deadline && !b.deadline) return 0
+      if (!a.deadline) return 1
+      if (!b.deadline) return -1
+      return a.deadline.localeCompare(b.deadline)
+    })
+    return lst
+  })
 
   async function handleCompleteTaak(id: string, e: React.MouseEvent) {
     e.stopPropagation()

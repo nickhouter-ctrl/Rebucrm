@@ -87,20 +87,6 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
   const searchParams = useSearchParams()
   const filterCollega = searchParams.get('collega')
   const filterCategorie = searchParams.get('categorie') as 'bellen' | 'uitwerken' | null
-  const [filterMedewerker, setFilterMedewerker] = useState('')
-  const [activeTab, setActiveTab] = useState<TabType>('alle')
-
-  // Sorteer: eigen taken eerst, dan op deadline, dan op created_at
-  const takenGesorteerd = useMemo(() => {
-    if (!currentUserId) return taken
-    const eigen: Taak[] = []
-    const rest: Taak[] = []
-    for (const t of taken) {
-      if (t.toegewezen_aan === currentUserId) eigen.push(t)
-      else rest.push(t)
-    }
-    return [...eigen, ...rest]
-  }, [taken, currentUserId])
 
   // Unieke medewerkers voor dropdown (groepeer op naam, niet op ID)
   const medewerkers = useMemo(() => {
@@ -111,6 +97,39 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
       if (id && naam && !naamToIds.has(naam)) naamToIds.set(naam, id)
     })
     return Array.from(naamToIds.entries()).map(([naam, id]) => [id, naam] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))
+  }, [taken])
+
+  // Default medewerker-filter = ingelogde gebruiker (persisteer via localStorage zodat keuze blijft)
+  const [filterMedewerker, setFilterMedewerker] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    const stored = window.localStorage.getItem('taken:filterMedewerker')
+    if (stored !== null) return stored
+    return currentUserId || ''
+  })
+  function setFilterMedewerkerPersist(v: string) {
+    setFilterMedewerker(v)
+    try { window.localStorage.setItem('taken:filterMedewerker', v) } catch {}
+  }
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window === 'undefined') return 'alle'
+    const stored = window.localStorage.getItem('taken:activeTab') as TabType | null
+    return stored || 'alle'
+  })
+  function setActiveTabPersist(v: TabType) {
+    setActiveTab(v)
+    try { window.localStorage.setItem('taken:activeTab', v) } catch {}
+  }
+
+  // Sorteer op deadline oplopend (geen deadline → helemaal achteraan)
+  const takenGesorteerd = useMemo(() => {
+    return [...taken].sort((a, b) => {
+      if (!a.deadline && !b.deadline) return 0
+      if (!a.deadline) return 1
+      if (!b.deadline) return -1
+      const da = a.deadline + (a.deadline_tijd || '00:00')
+      const db = b.deadline + (b.deadline_tijd || '00:00')
+      return da.localeCompare(db)
+    })
   }, [taken])
 
   // Maak naam-lookup voor filter (zodat filter op naam werkt ipv alleen op ID)
@@ -210,7 +229,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
           return (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => setActiveTabPersist(tab.key)}
               className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
                 activeTab === tab.key
                   ? 'border-[#00a66e] text-[#00a66e]'
@@ -231,10 +250,10 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
 
       {/* Filters */}
       <div className="mb-4 flex items-center gap-3 flex-wrap">
-        {isAdmin && medewerkers.length > 1 && (
+        {medewerkers.length > 1 && (
           <select
             value={filterMedewerker}
-            onChange={(e) => setFilterMedewerker(e.target.value)}
+            onChange={(e) => setFilterMedewerkerPersist(e.target.value)}
             className="px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
           >
             <option value="">Alle medewerkers</option>
