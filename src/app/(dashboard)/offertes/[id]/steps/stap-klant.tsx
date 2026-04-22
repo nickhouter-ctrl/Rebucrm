@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Search, UserPlus, ArrowLeft } from 'lucide-react'
+import { KvkSearch } from '@/components/kvk-search'
 
 interface RelatieData {
   id: string
@@ -93,6 +94,10 @@ export function StapKlant({
         <Card className="mb-4">
           <CardContent className="pt-6 space-y-3">
             <h3 className="font-semibold text-gray-900 mb-2">Nieuwe klant aanmaken</h3>
+            <KvkSearch
+              label="Zoek in KVK-register (optioneel)"
+              onSelect={r => setNieuwRelatieData(d => ({ ...d, bedrijfsnaam: r.naam, adres: r.adres, postcode: r.postcode, plaats: r.plaats }))}
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Input id="n_bedrijfsnaam" label="Naam / Bedrijfsnaam *" value={nieuwRelatieData.bedrijfsnaam} onChange={e => setNieuwRelatieData(d => ({ ...d, bedrijfsnaam: e.target.value }))} required />
               <Input id="n_contactpersoon" label="Contactpersoon" value={nieuwRelatieData.contactpersoon} onChange={e => setNieuwRelatieData(d => ({ ...d, contactpersoon: e.target.value }))} />

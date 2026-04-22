@@ -13,6 +13,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Plus, UserSearch, Loader2, Phone, Upload } from 'lucide-react'
 import { createLead } from '@/lib/actions'
 import { ImportLeadsDialog } from './import-leads-dialog'
+import { KvkSearch } from '@/components/kvk-search'
 import { formatDateShort } from '@/lib/utils'
 
 interface Lead {
@@ -70,6 +71,7 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('alle')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [leadForm, setLeadForm] = useState({ bedrijfsnaam: '', contactpersoon: '', telefoon: '', email: '', plaats: '', adres: '', postcode: '', kvk_nummer: '', notities: '' })
   const [importOpen, setImportOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -159,28 +161,42 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} title="Lead toevoegen">
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+          <KvkSearch
+            label="Zoek in KVK-register (optioneel)"
+            onSelect={r => setLeadForm(f => ({ ...f, bedrijfsnaam: r.naam, adres: r.adres, postcode: r.postcode, plaats: r.plaats, kvk_nummer: r.kvkNummer }))}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Bedrijfsnaam *</label>
-            <Input name="bedrijfsnaam" required />
+            <Input name="bedrijfsnaam" required value={leadForm.bedrijfsnaam} onChange={e => setLeadForm(f => ({ ...f, bedrijfsnaam: e.target.value }))} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Contactpersoon</label>
-              <Input name="contactpersoon" />
+              <Input name="contactpersoon" value={leadForm.contactpersoon} onChange={e => setLeadForm(f => ({ ...f, contactpersoon: e.target.value }))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Telefoon</label>
-              <Input name="telefoon" />
+              <Input name="telefoon" value={leadForm.telefoon} onChange={e => setLeadForm(f => ({ ...f, telefoon: e.target.value }))} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
-              <Input name="email" type="email" />
+              <Input name="email" type="email" value={leadForm.email} onChange={e => setLeadForm(f => ({ ...f, email: e.target.value }))} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Plaats</label>
-              <Input name="plaats" />
+              <Input name="plaats" value={leadForm.plaats} onChange={e => setLeadForm(f => ({ ...f, plaats: e.target.value }))} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Adres</label>
+              <Input name="adres" value={leadForm.adres} onChange={e => setLeadForm(f => ({ ...f, adres: e.target.value }))} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
+              <Input name="postcode" value={leadForm.postcode} onChange={e => setLeadForm(f => ({ ...f, postcode: e.target.value }))} />
             </div>
           </div>
           <div>
@@ -188,6 +204,8 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
             <textarea
               name="notities"
               rows={3}
+              value={leadForm.notities}
+              onChange={e => setLeadForm(f => ({ ...f, notities: e.target.value }))}
               className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
