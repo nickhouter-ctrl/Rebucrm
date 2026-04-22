@@ -103,18 +103,34 @@ export interface SnelStartBtwTarief {
 
 // ---------- Relaties ----------
 
+// Cache: alle relaties ophalen en client-side matchen, omdat SnelStart OData filter op
+// 'email' een 400 geeft ("Could not find property named 'email'"). Cache 10 min.
+let cachedAlleRelaties: { at: number; list: SnelStartRelatie[] } | null = null
+async function getAllSnelStartRelaties(): Promise<SnelStartRelatie[]> {
+  if (cachedAlleRelaties && Date.now() - cachedAlleRelaties.at < 10 * 60 * 1000) return cachedAlleRelaties.list
+  const all: SnelStartRelatie[] = []
+  for (let skip = 0; skip < 20000; skip += 100) {
+    const list = await snelstartFetch<SnelStartRelatie[]>(`/relaties?$top=100&$skip=${skip}`)
+    if (!Array.isArray(list) || list.length === 0) break
+    all.push(...list)
+    if (list.length < 100) break
+  }
+  cachedAlleRelaties = { at: Date.now(), list: all }
+  return all
+}
+
 export async function findRelatieByEmail(email: string): Promise<SnelStartRelatie | null> {
   if (!email) return null
-  const filter = encodeURIComponent(`email eq '${email.replace(/'/g, "''")}'`)
-  const list = await snelstartFetch<SnelStartRelatie[]>(`/relaties?$filter=${filter}&$top=1`)
-  return list && list.length > 0 ? list[0] : null
+  const target = email.toLowerCase().trim()
+  const all = await getAllSnelStartRelaties()
+  return all.find(r => (r.email || '').toLowerCase().trim() === target) || null
 }
 
 export async function findRelatieByNaam(naam: string): Promise<SnelStartRelatie | null> {
   if (!naam) return null
-  const filter = encodeURIComponent(`naam eq '${naam.replace(/'/g, "''")}'`)
-  const list = await snelstartFetch<SnelStartRelatie[]>(`/relaties?$filter=${filter}&$top=1`)
-  return list && list.length > 0 ? list[0] : null
+  const target = naam.toLowerCase().trim()
+  const all = await getAllSnelStartRelaties()
+  return all.find(r => (r.naam || '').toLowerCase().trim() === target) || null
 }
 
 export async function createRelatie(input: {
@@ -128,9 +144,11 @@ export async function createRelatie(input: {
   kvk_nummer?: string | null
   iban?: string | null
 }): Promise<SnelStartRelatie> {
+  // SnelStart: naam max 50 chars
+  const naam = input.naam.length > 50 ? input.naam.slice(0, 50).trim() : input.naam
   const body: Record<string, unknown> = {
     relatiesoort: ['Klant'],
-    naam: input.naam,
+    naam,
   }
   if (input.email) body.email = input.email
   if (input.btw_nummer) body.btwNummer = input.btw_nummer
