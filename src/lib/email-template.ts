@@ -1,4 +1,9 @@
-export function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: string): string {
+export function buildRebuEmailHtml(
+  body: string,
+  ctaLink?: string,
+  ctaLabel?: string,
+  medewerker?: { naam?: string; email?: string; telefoon?: string },
+): string {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const logoUrl = `${baseUrl}/images/logo-rebu.png`
 
@@ -72,9 +77,10 @@ export function buildRebuEmailHtml(body: string, ctaLink?: string, ctaLabel?: st
                         </p>
                       </td>
                       <td style="vertical-align:top;width:50%;padding-left:12px;border-left:2px solid #00a66e;">
+                        ${medewerker?.naam ? `<p style="margin:0 0 4px 0;font-size:13px;font-weight:600;color:#064e3b;">${medewerker.naam}</p>` : ''}
                         <p style="margin:0;font-size:13px;color:#4b5563;line-height:1.8;">
-                          <a href="tel:+31658866070" style="color:#00a66e;text-decoration:none;font-weight:500;">📞 +31 6 58 86 60 70</a><br>
-                          <a href="mailto:info@rebukozijnen.nl" style="color:#00a66e;text-decoration:none;font-weight:500;">✉️ info@rebukozijnen.nl</a><br>
+                          <a href="tel:${(medewerker?.telefoon || '+31658866070').replace(/\s/g, '')}" style="color:#00a66e;text-decoration:none;font-weight:500;">📞 ${medewerker?.telefoon || '+31 6 58 86 60 70'}</a><br>
+                          <a href="mailto:${medewerker?.email || 'info@rebukozijnen.nl'}" style="color:#00a66e;text-decoration:none;font-weight:500;">✉️ ${medewerker?.email || 'info@rebukozijnen.nl'}</a><br>
                           <a href="https://www.rebukozijnen.nl" style="color:#00a66e;text-decoration:none;font-weight:500;">🌐 www.rebukozijnen.nl</a>
                         </p>
                       </td>

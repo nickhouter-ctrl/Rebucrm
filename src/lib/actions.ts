@@ -1098,7 +1098,18 @@ export async function sendFactuurEmail(factuurId: string, options: {
   if (!factuur) return { error: 'Factuur niet gevonden' }
   if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
-  const emailHtml = buildRebuEmailHtml(options.body)
+  // Medewerker-info voor mail-footer + Reply-To
+  const supabaseAdmin2 = createAdminClient()
+  const { data: { user: currentUser } } = await supabase.auth.getUser()
+  let mwInfo: { naam?: string; email?: string; telefoon?: string } | undefined
+  if (currentUser) {
+    const { data: profiel } = await supabaseAdmin2.from('profielen').select('naam, email').eq('id', currentUser.id).single()
+    if (profiel) {
+      const { data: mw } = await supabaseAdmin2.from('medewerkers').select('telefoon').eq('profiel_id', currentUser.id).maybeSingle()
+      mwInfo = { naam: profiel.naam || undefined, email: profiel.email || undefined, telefoon: mw?.telefoon || undefined }
+    }
+  }
+  const emailHtml = buildRebuEmailHtml(options.body, undefined, undefined, mwInfo)
 
   // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
@@ -1130,6 +1141,8 @@ export async function sendFactuurEmail(factuurId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
+      fromName: mwInfo?.naam ? `${mwInfo.naam} - Rebu Kozijnen` : 'Rebu Kozijnen',
+      replyTo: mwInfo?.email,
     })
   } catch (err) {
     console.error('Factuur e-mail verzenden mislukt:', err)
@@ -1468,7 +1481,8 @@ export async function saveBoeking(formData: FormData) {
 export async function getProjecten() {
   const supabase = await createClient()
   // Supabase limiteert tot 1000 rijen per request; we pagineren door alles heen
-  const data = await fetchAllRows<Record<string, unknown>>((from, to) =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
       .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, totaal)')
@@ -3639,10 +3653,28 @@ export async function sendOfferteEmail(offerteId: string, options: {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const link = `${baseUrl}/offerte/${offerte.publiek_token}`
 
-  const emailHtml = buildRebuEmailHtml(options.body, link, 'Offerte bekijken &amp; accepteren')
-
-  // Load kozijn elements for PDF generation
+  // Haal medewerker-gegevens op voor de mail-footer (en Reply-To)
   const supabaseAdmin = createAdminClient()
+  const { data: offerteUserData } = await supabase.auth.getUser()
+  const offerteUser = offerteUserData?.user
+  let medewerkerInfo: { naam?: string; email?: string; telefoon?: string } | undefined
+  if (offerteUser) {
+    const { data: profiel } = await supabaseAdmin
+      .from('profielen')
+      .select('naam, email')
+      .eq('id', offerteUser.id)
+      .single()
+    if (profiel) {
+      const { data: mw } = await supabaseAdmin
+        .from('medewerkers')
+        .select('telefoon')
+        .eq('profiel_id', offerteUser.id)
+        .maybeSingle()
+      medewerkerInfo = { naam: profiel.naam || undefined, email: profiel.email || undefined, telefoon: mw?.telefoon || undefined }
+    }
+  }
+
+  const emailHtml = buildRebuEmailHtml(options.body, link, 'Offerte bekijken &amp; accepteren', medewerkerInfo)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let kozijnElementen: any[] | undefined
 
@@ -3782,6 +3814,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
+      fromName: medewerkerInfo?.naam ? `${medewerkerInfo.naam} - Rebu Kozijnen` : 'Rebu Kozijnen',
+      replyTo: medewerkerInfo?.email,
     })
   } catch (err) {
     console.error('E-mail verzenden mislukt:', err)

@@ -16,8 +16,11 @@ export async function sendEmail(options: {
   html: string
   bcc?: string[]
   attachments?: { filename: string; content: Buffer | string; encoding?: string }[]
+  replyTo?: string
+  fromName?: string
 }) {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || 'Nick@rebukozijnen.nl'
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER || 'info@rebukozijnen.nl'
+  const from = options.fromName ? `"${options.fromName}" <${fromAddress}>` : fromAddress
 
   await transporter.sendMail({
     from,
@@ -25,6 +28,7 @@ export async function sendEmail(options: {
     subject: options.subject,
     html: options.html,
     bcc: options.bcc,
+    replyTo: options.replyTo,
     attachments: options.attachments,
   })
 }
