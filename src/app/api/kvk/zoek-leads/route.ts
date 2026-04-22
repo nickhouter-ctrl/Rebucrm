@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       resultatenPerPagina: '100',
       type: 'hoofdvestiging',
     })
-    if (sbi) params.set('hoofdSbi', sbi)
+    if (sbi) params.set('sbi', sbi)
     if (plaats) params.set('plaats', plaats)
     if (naamFilter) params.set('naam', naamFilter)
 

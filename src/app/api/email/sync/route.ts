@@ -3,7 +3,7 @@ import { syncEmails } from '@/lib/imap'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+export const maxDuration = 300
 
 async function handle(request: Request) {
   // Verify cron secret or allow unauthenticated (manual trigger from frontend)

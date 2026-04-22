@@ -179,7 +179,9 @@ export async function syncEmails(administratieId: string) {
     // Zorg dat INBOX in elk geval erbij zit
     if (!folders.some(f => f.path.toLowerCase() === 'inbox')) folders.unshift({ path: 'INBOX' })
 
+    const MAX_PER_RUN = 150 // voorkom timeout op Vercel (60s hard limit)
     for (const folder of folders) {
+      if (newEmails.length >= MAX_PER_RUN) break
       let lock
       try {
         lock = await client.getMailboxLock(folder.path)
@@ -204,6 +206,10 @@ export async function syncEmails(administratieId: string) {
           uids = []
         }
         if (uids.length === 0) { lock.release(); continue }
+
+        // Pak eerste N uids om timeout te voorkomen — volgende cron-run pakt de rest
+        const remaining = MAX_PER_RUN - newEmails.length
+        if (uids.length > remaining) uids = uids.slice(0, remaining)
 
         const uidRange = uids.join(',')
         try {
