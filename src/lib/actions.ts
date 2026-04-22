@@ -511,21 +511,30 @@ export async function deleteProduct(id: string) {
 // === OFFERTES ===
 export async function getOffertes() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('offertes')
-    .select('*, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
-    .order('datum', { ascending: false })
-  return data || []
+  // Supabase limiteert tot 1000 rijen per request — pagineren door alles heen
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('*, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
+      .order('datum', { ascending: false })
+      .range(from, to)
+  )
+  return data
 }
 
 export async function getConceptOffertes() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('offertes')
-    .select('id, offertenummer, datum, onderwerp, totaal, created_at, relatie:relaties(id, bedrijfsnaam), project:projecten(id, naam)')
-    .eq('status', 'concept')
-    .order('created_at', { ascending: false })
-  return data || []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('id, offertenummer, datum, onderwerp, totaal, created_at, relatie:relaties(id, bedrijfsnaam), project:projecten(id, naam)')
+      .eq('status', 'concept')
+      .order('created_at', { ascending: false })
+      .range(from, to)
+  )
+  return data
 }
 
 export async function getOfferte(id: string) {
