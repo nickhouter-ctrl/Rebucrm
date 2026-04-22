@@ -362,8 +362,17 @@ export function StapControleren({
           }
         }
 
-        // FAIL-SAFE: onderste 10% van de pagina volledig wit + elke tekstregel in onderste 18%
-        const bottomCutoff = Math.floor(h * 0.90)
+        // FAIL-SAFE: vind de BOVENSTE prijs/tabel-label in de onderste helft en wis
+        // alles vanaf daar tot de bodem volledig wit.
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Raam|Totaal|Subtotaal|Cena|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
+        let bottomCutoff = Math.floor(h * 0.90)
+        for (const ti of txtItems) {
+          if (ti.cy > h * 0.50 && bottomBlockPattern.test(ti.str)) {
+            const candidate = Math.max(0, ti.cy - 20)
+            if (candidate < bottomCutoff) bottomCutoff = candidate
+          }
+        }
+        bottomCutoff = Math.min(bottomCutoff, Math.floor(h * 0.90))
         ctx.fillStyle = '#FFFFFF'
         ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         for (const ti of txtItems) {

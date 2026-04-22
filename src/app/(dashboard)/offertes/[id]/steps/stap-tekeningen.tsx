@@ -351,14 +351,23 @@ export function StapTekeningen({
           }
         }
 
-        // FAIL-SAFE: bepaal de onderkant van het tekening-gebied (laatste grote afbeelding/tabelline)
-        // en overschrijf alles DAARONDER volledig wit. Voorkomt dat elke niet-afgevangen
-        // leveranciersprijs nog ergens zichtbaar is. Criterium: na het laatste item met
-        // substantieel tekeninghoofd, wis alles t/m cropBottom.
-        const bottomCutoff = Math.min(cropBottom, Math.floor(h * 0.90))
+        // FAIL-SAFE: vind de BOVENSTE prijs/tabel-label in de onderste helft van de
+        // pagina, en wis alles vanaf daar tot de onderkant volledig wit. Zo verdwijnt
+        // het hele onderste tabel-blok (NETTO/BTW/BRUTO, Producten, Artikelen, Diensten,
+        // Extra kosten, Totaal netto/bruto, Cena/Kosztorys/Raam/Totaal, enz).
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Raam|Totaal|Subtotaal|Cena|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
+        let bottomCutoff = Math.floor(h * 0.90)
+        for (const ti of textItems) {
+          if (ti.cy > h * 0.50 && bottomBlockPattern.test(ti.str)) {
+            const candidate = Math.max(0, ti.cy - 20)
+            if (candidate < bottomCutoff) bottomCutoff = candidate
+          }
+        }
+        // Altijd minstens onderste 10% wit (extra zekerheid)
+        bottomCutoff = Math.min(bottomCutoff, Math.floor(h * 0.90))
         ctx.fillStyle = '#FFFFFF'
         ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
-        // Bonus: extra brede wipe van alle resterende tekst-items in onderste 15%
+        // Bonus: extra brede wipe van alle resterende tekst-items in onderste 18%
         for (const ti of textItems) {
           if (ti.cy > h * 0.82) {
             ctx.fillStyle = '#FFFFFF'

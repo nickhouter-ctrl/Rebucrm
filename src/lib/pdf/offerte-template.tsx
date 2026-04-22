@@ -297,8 +297,11 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                 )}
 
                 {pg.url && (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6, overflow: 'hidden' }}>
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6, overflow: 'hidden', position: 'relative' }}>
                     <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    {/* Server-side safety: witte balk over onderste ~22% van de tekening-afbeelding
+                        voor oude offertes waar de client-side wipe nog niet toegepast was */}
+                    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '22%', backgroundColor: '#FFFFFF' }} />
                   </View>
                 )}
 
