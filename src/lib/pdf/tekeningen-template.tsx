@@ -84,7 +84,7 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
         return (
           <React.Fragment key={`tekening-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`tekening-${idx}-p${pi}`} size="A4" style={[s.page, { padding: 20 }]}>
+              <Page key={`tekening-${idx}-p${pi}`} size="A4" style={[s.page, { padding: 20, display: 'flex', flexDirection: 'column' }]} wrap={false}>
                 <View style={{ marginBottom: 6 }}>
                   <Text style={s.elementNameText}>
                     {element.naam.toUpperCase()}
@@ -100,8 +100,8 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
                 )}
 
                 {pg.url && (
-                  <View style={{ alignItems: 'center', overflow: 'hidden', flex: 1 }}>
-                    <Image src={pg.url} style={s.elementImageFullPage} />
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                    <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   </View>
                 )}
               </Page>

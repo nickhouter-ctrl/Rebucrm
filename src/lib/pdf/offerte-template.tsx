@@ -274,7 +274,7 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         return (
           <React.Fragment key={`kozijn-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, s.contentPage]}>
+              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 30, paddingBottom: 70, paddingLeft: 30, paddingRight: 50, position: 'relative', display: 'flex', flexDirection: 'column' }]} wrap={false}>
                 <View style={s.contentSidebar} />
                 <Image src={rkIconPath} style={s.watermarkImage} />
                 <View style={s.logoArea}>
@@ -297,8 +297,8 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                 )}
 
                 {pg.url && (
-                  <View style={{ alignItems: 'center', marginBottom: 8, overflow: 'hidden', maxHeight: pi === 0 && element.prijs > 0 ? 495 : 520 }}>
-                    <Image src={pg.url} style={s.elementImageFullPage} />
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6, overflow: 'hidden' }}>
+                    <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   </View>
                 )}
 

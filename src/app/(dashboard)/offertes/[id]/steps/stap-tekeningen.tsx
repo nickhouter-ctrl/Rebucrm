@@ -256,23 +256,27 @@ export function StapTekeningen({
             barStart = -1
           }
         }
-        // For each green bar, find the actual green pixel range per row
-        // and fill only that range with white (not the full page width)
+        // Per groene balk: vind de volledige bounding-box (left/right over alle rijen
+        // in de bar) en vul die complete rechthoek wit. Dit dekt ook de prijs-tekst
+        // die bovenop de balk staat en soms niet-groene pixels heeft.
         for (const bar of bars) {
+          let barLeft = w, barRight = 0
           for (let y = bar.start; y < bar.end; y++) {
-            let left = w, right = 0
             for (let x = 0; x < w; x++) {
               const idx = (y * w + x) * 4
               const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
               if (g > 80 && g > r + 20 && g > b + 20) {
-                if (x < left) left = x
-                if (x > right) right = x
+                if (x < barLeft) barLeft = x
+                if (x > barRight) barRight = x
               }
             }
-            if (right > left) {
-              ctx.fillStyle = '#FFFFFF'
-              ctx.fillRect(left, y, right - left + 1, 1)
-            }
+          }
+          if (barRight > barLeft) {
+            // Iets uitbreiden voor randen/antialiasing
+            const padL = Math.max(0, barLeft - 3)
+            const padR = Math.min(w, barRight + 4)
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(padL, bar.start, padR - padL, bar.end - bar.start)
           }
         }
 

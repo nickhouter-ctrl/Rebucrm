@@ -306,21 +306,24 @@ export function StapControleren({
             barStart = -1
           }
         }
+        // Volledige bar-rechthoek witten (dekt ook niet-groene prijs-tekst op de balk)
         for (const bar of bars) {
+          let barLeft = w, barRight = 0
           for (let y = bar.start; y < bar.end; y++) {
-            let left = w, right = 0
             for (let x = 0; x < w; x++) {
               const idx = (y * w + x) * 4
               const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
               if (g > 80 && g > r + 20 && g > b + 20) {
-                if (x < left) left = x
-                if (x > right) right = x
+                if (x < barLeft) barLeft = x
+                if (x > barRight) barRight = x
               }
             }
-            if (right > left) {
-              ctx.fillStyle = '#FFFFFF'
-              ctx.fillRect(left, y, right - left + 1, 1)
-            }
+          }
+          if (barRight > barLeft) {
+            const padL = Math.max(0, barLeft - 3)
+            const padR = Math.min(w, barRight + 4)
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(padL, bar.start, padR - padL, bar.end - bar.start)
           }
         }
 
