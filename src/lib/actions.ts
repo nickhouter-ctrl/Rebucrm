@@ -1485,13 +1485,14 @@ export async function getProjecten() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, totaal)')
+      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal)')
       .order('created_at', { ascending: false })
       .range(from, to)
   )
-  // Per project alleen de laatste offerte tonen (hoogste versie_nummer)
+  // Per project alleen de laatste offerte tonen (hoogste versie_nummer).
+  // Bedrag is excl BTW (subtotaal) — niet het totaal incl BTW.
   return (data || []).map(p => {
-    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; totaal: number }[]
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number }[]
     const laatsteOfferte = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
     return {
       ...p,
@@ -1499,7 +1500,7 @@ export async function getProjecten() {
       laatste_offerte_id: laatsteOfferte?.id || null,
       laatste_offerte_nummer: laatsteOfferte?.offertenummer || null,
       laatste_offerte_status: laatsteOfferte?.status || null,
-      laatste_offerte_bedrag: laatsteOfferte?.totaal || null,
+      laatste_offerte_bedrag: laatsteOfferte?.subtotaal || null,
     }
   })
 }
@@ -4532,7 +4533,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
       .single(),
     supabase
       .from('offertes')
-      .select('id, offertenummer, versie_nummer, datum, status, totaal, onderwerp, created_at, facturen:facturen(id, factuurnummer, datum, status, totaal, betaald_bedrag, factuur_type, created_at), email_log:email_log(id, aan, onderwerp, verstuurd_op), berichten:berichten(id, tekst, afzender_type, afzender_naam, created_at)')
+      .select('id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, onderwerp, created_at, facturen:facturen(id, factuurnummer, datum, status, subtotaal, totaal, betaald_bedrag, factuur_type, created_at), email_log:email_log(id, aan, onderwerp, verstuurd_op), berichten:berichten(id, tekst, afzender_type, afzender_naam, created_at)')
       .eq('project_id', projectId)
       .order('versie_nummer', { ascending: false }),
     supabase
@@ -4554,13 +4555,15 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
   const taken = takenRes.data || []
   const afspraken = afsprakenRes.data || []
 
-  // Financiële samenvatting — geoffreerd = alleen de laatste offerte (hoogste versie)
+  // Financiële samenvatting — bedragen excl BTW (subtotaal).
+  // geoffreerd = alleen de laatste offerte (hoogste versie). Betaald/openstaand
+  // werken nog met totaal incl BTW omdat betaal_bedrag incl BTW is.
   const allFacturen = offertes.flatMap((o: Record<string, unknown>) => (o.facturen as Record<string, unknown>[]) || [])
   const laatsteOfferte = offertes[0] as Record<string, unknown> | undefined // al gesorteerd op versie_nummer desc
-  const geoffreerd = (laatsteOfferte?.totaal as number) || 0
-  const gefactureerd = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.totaal as number) || 0), 0)
+  const geoffreerd = (laatsteOfferte?.subtotaal as number) || 0
+  const gefactureerd = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.subtotaal as number) || 0), 0)
   const betaald = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.betaald_bedrag as number) || 0), 0)
-  const openstaand = gefactureerd - betaald
+  const openstaand = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.totaal as number) || 0) - ((f.betaald_bedrag as number) || 0), 0)
 
   // Pipeline stages afleiden
   const heeftOffertes = offertes.length > 0
@@ -4601,7 +4604,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
       datum: o.created_at as string,
       titel: `${o.offertenummer} v${(o.versie_nummer as number) || 1}`,
       ondertitel: (o.onderwerp as string) || undefined,
-      bedrag: o.totaal as number,
+      bedrag: (o.subtotaal as number) ?? (o.totaal as number),
       status: o.status as string,
       link: `/offertes/${o.id}`,
     })
@@ -4616,7 +4619,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
         datum: f.created_at as string,
         titel: `Factuur ${f.factuurnummer}`,
         ondertitel: f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : undefined,
-        bedrag: f.totaal as number,
+        bedrag: (f.subtotaal as number) ?? (f.totaal as number),
         status: fStatus,
         link: `/facturatie`,
       })

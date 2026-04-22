@@ -39,13 +39,22 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // Belangrijk: Aluplast/Deur-Element format (originele) eerst testen. Gealan-detectie
   // was te breed en ving ook Aluplast PDFs waar 'Merk A Aantal: 1' toevallig voorkomt.
   const isAluplast = /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
-  const isGealan = !isAluplast && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text)
-  const isKochs = !isGealan && !isAluplast && /K-Vision\s+\d+/.test(text)
-  const isEkoOkna = !isGealan && !isKochs && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
+  // Gealan S9000NL / Hef-schuif: locatie-gebaseerde element namen (Zolder voorzijde li ...),
+  // per-element sectie start met "Productie maten", prijzen in "Netto prijs / Raam / Totaal" tabel.
+  const isGealanNL = !isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
+  const isGealan = !isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text)
+  const isKochs = !isGealan && !isGealanNL && !isAluplast && /K-Vision\s+\d+/.test(text)
+  const isEkoOkna = !isGealan && !isGealanNL && !isKochs && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
   let totaal = 0
-  if (isGealan) {
+  if (isGealanNL) {
+    // Zelfde "Netto totaal\nTotaal X.XXX,XX" patroon als oude Gealan
+    const totaalMatch = text.match(/Netto\s*totaal[\s\n]*Totaal\s+([\d.,]+)/)
+    if (totaalMatch) {
+      totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    }
+  } else if (isGealan) {
     const totaalMatch = text.match(/Netto\s*totaal[\s\n]*Totaal\s*([\d.,]+)/)
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
@@ -86,7 +95,39 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // Find element headers (name, hoeveelheid, systeem, kleur)
   const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
   let match
-  if (isGealan) {
+  if (isGealanNL) {
+    // Element header format: "<Naam (mogelijk multi-line)>\nAantal:N Verbinding:XX Systeem: Gealan\nS9000NL (Basis|Hef-schuif)"
+    // Begin altijd na "Productie maten\n".
+    const elementPattern = /Productie\s+maten\s*\n([\s\S]*?)Aantal\s*:\s*(\d+)\s+Verbinding\s*:\s*(\w+)\s+Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
+    while ((match = elementPattern.exec(text)) !== null) {
+      const nextPattern = /Productie\s+maten\s*\n[\s\S]*?Aantal\s*:\s*\d+\s+Verbinding\s*:/g
+      nextPattern.lastIndex = match.index + match[0].length
+      const nextMatch = nextPattern.exec(text)
+      const sectionEnd = nextMatch ? nextMatch.index : text.length
+      const section = text.substring(match.index, sectionEnd)
+      // Kleur: "Kader <profiel> <RAL_buiten> <omschr_buiten> <RAL_binnen> <omschr_binnen>"
+      const kleurLine = section.match(/Kader\s+([^\n]+)/)
+      let kleur = ''
+      if (kleurLine) {
+        const kl = kleurLine[1].trim()
+        const ralMatch = kl.match(/(\d{4}\s+[^\d][^\n]*?)\s+(\d{4}\s+[^\n]+)$/)
+        if (ralMatch) {
+          kleur = `${ralMatch[1].trim()} / ${ralMatch[2].trim()}`
+        } else {
+          kleur = kl
+        }
+      }
+      const rawName = match[1].replace(/\n/g, ' ').replace(/\s+/g, ' ').trim()
+      headers.push({
+        naam: rawName,
+        hoeveelheid: parseInt(match[2]),
+        systeem: ('Gealan ' + match[4].replace(/^Gealan\s*/i, '')).trim().replace(/\n/g, ' ').replace(/\s+/g, ' '),
+        kleur,
+        idx: match.index,
+        endIdx: match.index + match[0].length,
+      })
+    }
+  } else if (isGealan) {
     const elementPattern = /Merk\s+([\dA-Z]+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
     while ((match = elementPattern.exec(text)) !== null) {
       // Find next Merk header to determine section boundary
@@ -158,7 +199,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // Find all Buitenaanzicht positions (only for original format where specs appear BEFORE each header)
   const allBuitenPositions: number[] = []
   const specsPositions: number[] = []
-  if (!isEkoOkna && !isGealan && !isKochs) {
+  if (!isEkoOkna && !isGealan && !isGealanNL && !isKochs) {
     const buitenPattern = /Buitenaanzicht\n/g
     while ((match = buitenPattern.exec(text)) !== null) {
       allBuitenPositions.push(match.index)
@@ -172,7 +213,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
 
   // Extract ALL price lines in order (only for original format; Eko-Okna uses only totaal)
   const allPrices: number[] = []
-  if (!isEkoOkna && !isGealan && !isKochs) {
+  if (!isEkoOkna && !isGealan && !isGealanNL && !isKochs) {
     const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
     let priceMatch
     while ((priceMatch = pricePattern.exec(text)) !== null) {
@@ -190,7 +231,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     let notesText: string
     let searchText: string
 
-    if (isGealan) {
+    if (isGealan || isGealanNL) {
       // In Gealan, all specs come AFTER the header (like Eko-Okna)
       const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
       searchText = text.substring(header.endIdx, nextIdx)
@@ -224,7 +265,13 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
 
     // --- Prijs ---
     let prijs = 0
-    if (isGealan) {
+    if (isGealanNL) {
+      // "Netto prijs\nRaam <unit>\nTotaal <aantal*unit>" — Raam = per-stuk prijs
+      const gnlPriceMatch = searchText.match(/Netto\s*prijs\s*\n\s*Raam\s+([\d.,]+)/i)
+      if (gnlPriceMatch) {
+        prijs = parseFloat(gnlPriceMatch[1].replace(/\./g, '').replace(',', '.'))
+      }
+    } else if (isGealan) {
       const gealanPriceMatch = searchText.match(/Netto\s*prijs[\s\n]+\w+?\s*([\d.,]+)/)
       if (gealanPriceMatch) {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
@@ -275,6 +322,26 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       const hasVast = beslagEntries.some(b => /Vast/i.test(b))
       if (hasDraaikiep) type = 'Draai-kiep raam'
       else if (hasVast) type = 'Vast raam'
+    } else if (isGealanNL) {
+      // Vleugel regels in S9000NL: "Vleugel DK Raam 6003", "Vleugel Deur binnendr. 6025",
+      // "Vleugel Deur buitendr. 6027", "Vleugel Hef-schuif 2 delig- 6362", "Vleugel Valraam 6003".
+      const vleugelLines = searchText.match(/Vleugel\s+[^\n]+/gi)
+      if (/Hef-schuif/i.test(header.systeem)) {
+        type = 'Schuifpui'
+      } else if (vleugelLines) {
+        for (const v of vleugelLines) {
+          if (/Hef-schuif/i.test(v)) { type = 'Schuifpui' }
+          else if (/Stolpdeur\s+buitendr/i.test(v)) { type = 'Stolpdeur'; drapirichting = 'Naar buiten draaiend' }
+          else if (/Stolpdeur\s+binnendr/i.test(v)) { type = 'Stolpdeur'; drapirichting = 'Naar binnen draaiend' }
+          else if (/Deur\s+binnendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar binnen draaiend' }
+          else if (/Deur\s+buitendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar buiten draaiend' }
+          else if (/DK\s*Raam/i.test(v)) { type = 'Draai-kiep raam' }
+          else if (/Valraam/i.test(v)) { type = 'Valraam' }
+          else if (/Draai\s*Raam/i.test(v)) { type = 'Draairaam' }
+        }
+      } else {
+        type = 'Vast raam'
+      }
     } else if (isGealan) {
       const vleugelGealanMatches = searchText.match(/Vleugel\s+[^\n]+/g)
       if (vleugelGealanMatches) {
@@ -289,7 +356,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       }
     }
 
-    const vleugelMatches = !isGealan ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
+    const vleugelMatches = !isGealan && !isGealanNL ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
     if (vleugelMatches) {
       // Check ALL vleugels — door/terras types take priority over Vast raam
       let allVast = true
@@ -322,7 +389,11 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
     const beslagRaw = beslagMatch ? beslagMatch[1].trim() : ''
     const gealanBeslagMatch = isGealan ? searchText.match(/Raamkruk\s*\n\s*\n([^\n]+)/i) : null
-    let beslag = cleanField(beslagRaw || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
+    // In S9000NL staat beslag in "Vleugel <type> 60XX\n<BESLAG_OMSCHR>" bv.
+    // "Vleugel DK Raam 6003\nROTO STANDAARD BESLAG" / "Vleugel Deur binnendr. 6025\nDEUR BINNEN DR ENKEL"
+    // / "Vleugel Hef-schuif 2 delig- 6362\n2 DELIG- ENKEL HEF-SCHUIF DEUR"
+    const gealanNLBeslagMatch = isGealanNL ? searchText.match(/Vleugel\s+[^\n]*?\d{4}\s*\n([A-Z0-9][A-Z0-9\s\-.,+]+?)\s*\n/i) : null
+    let beslag = cleanField(beslagRaw || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : '') || (gealanNLBeslagMatch ? gealanNLBeslagMatch[1].trim() : ''))
     if (isKochs) {
       const allBeslag = [...searchText.matchAll(/Beslag\s+([^\n]+)/gi)].map(m => m[1].trim())
       beslag = cleanField([...new Set(allBeslag)].join(' + '))
@@ -344,9 +415,32 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     }
 
     // --- Afmetingen ---
+    let afmetingen = ''
     const afmMatch = searchText.match(/Afmetingen[\s\S]{0,30}?(\d+\s*mm\s*x\s*\d+\s*mm)/) ||
                      searchText.match(/Afmeting\s*:\s*(\d+\s*x\s*\d+\s*mm)/)
-    const afmetingen = afmMatch ? afmMatch[1] : ''
+    if (afmMatch) {
+      afmetingen = afmMatch[1]
+    } else if (isGealanNL) {
+      // In S9000NL zijn totale afmetingen de laatste 2 stand-alone integer regels VOOR
+      // "Beschrijving Kleur test" (volgorde: height, width). Kleinere sub-breedtes staan
+      // op regels met meerdere getallen en worden genegeerd.
+      const beschrIdx = searchText.search(/Beschrijving\s+Kleur\s+test/i)
+      if (beschrIdx > 0) {
+        const before = searchText.substring(0, beschrIdx)
+        const standalones: number[] = []
+        const lineRe = /^\s*(\d{3,4})\s*$/gm
+        let lm
+        while ((lm = lineRe.exec(before)) !== null) {
+          const n = parseInt(lm[1])
+          if (n >= 100 && n <= 9999) standalones.push(n)
+        }
+        if (standalones.length >= 2) {
+          const h = standalones[standalones.length - 2]
+          const w = standalones[standalones.length - 1]
+          afmetingen = `${w} mm x ${h} mm`
+        }
+      }
+    }
 
     // Detect HST / schuifpui from system name or combined text
     if (/HST|hef.*schui|\bschuif/i.test(header.systeem) || /HST|hef.*schui|\bschuif/i.test(searchText)) {
@@ -394,7 +488,7 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       glasType = glasTypes.join(' / ')
     }
     // Step 4: Gealan fallback — extract from "Beglazingen & panelen" section
-    if (isGealan && !glasType) {
+    if ((isGealan || isGealanNL) && !glasType) {
       const glasSection = searchText.match(/Beglazingen & panelen[\s\S]*?(?=Netto prijs|$)/)
       if (glasSection) {
         const glasTypes = new Set<string>()
@@ -412,9 +506,16 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     }
 
     // --- Specs fields ---
-    // Gealan helper: extract spec value from "  Label\n \nValue\n" format
+    // Gealan (oude) helper: "Label\n \nValue\n"
     const gealanSpec = isGealan ? (label: string) => {
       const m = searchText.match(new RegExp(label + '\\s*\\n\\s*\\n([^\\n]+)', 'i'))
+      return m ? cleanField(m[1].trim()) : ''
+    } : () => ''
+    // Gealan NL helper: "Label Value" op één regel (bv. "Dorpel Isostone", "Slot Fuhr SKG Cilinderbediend",
+    // "Cilinder Doorgaand 45/65", "Kleur scharnieren Wit 9016", "Uitv. scharnieren 3+1 scharnieren",
+    // "Kruk binnen Kruk HVN Bi", "Kruk buiten Kruk kerntr+Cil", "Raamkruk Wit niet afsluitbaar").
+    const gealanNLSpec = isGealanNL ? (label: string) => {
+      const m = searchText.match(new RegExp('^\\s*' + label + '\\s+([^\\n]+)', 'im'))
       return m ? cleanField(m[1].trim()) : ''
     } : () => ''
 
@@ -452,9 +553,9 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       beslag,
       uwWaarde: uwMatch ? cleanField(uwMatch[1].trim()) : '',
       drapirichting,
-      dorpel: (dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '') || gealanSpec('Dorpel'),
-      sluiting: (sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '') || gealanSpec('Slot'),
-      scharnieren: (scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '') || gealanSpec('Uitv\\. scharnieren'),
+      dorpel: (dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '') || gealanSpec('Dorpel') || gealanNLSpec('Dorpel'),
+      sluiting: (sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '') || gealanSpec('Slot') || gealanNLSpec('Slot'),
+      scharnieren: (isGealanNL ? gealanNLSpec('Uitv\\. scharnieren') : '') || (scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '') || gealanSpec('Uitv\\. scharnieren'),
       gewicht: gewichtMatch ? gewichtMatch[1].trim() : '',
       omtrek: omtrekMatch ? omtrekMatch[1].trim() : '',
       paneel: paneelMatch ? cleanField(paneelMatch[1].trim()) : '',
@@ -463,13 +564,13 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       hoekverbinding: hoekverbindingMatch ? cleanField(hoekverbindingMatch[1].trim()) : '',
       montageGaten: montageGatenMatch ? cleanField(montageGatenMatch[1].trim()) : '',
       afwatering: afwateringMatch ? cleanField(afwateringMatch[1].trim()) : '',
-      scharnierenKleur: (scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '') || gealanSpec('Kleur scharnieren'),
+      scharnierenKleur: (scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '') || gealanSpec('Kleur scharnieren') || gealanNLSpec('Kleur scharnieren'),
       lakKleur: lakKleurMatch ? cleanField(lakKleurMatch[1].trim()) : '',
-      sluitcilinder: (sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '') || gealanSpec('Cilinder'),
+      sluitcilinder: (sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '') || gealanSpec('Cilinder') || gealanNLSpec('Cilinder'),
       aantalSleutels: aantalSleutelsMatch ? cleanField(aantalSleutelsMatch[1].trim()) : '',
       gelijksluitend: gelijksluitendMatch ? cleanField(gelijksluitendMatch[1].trim()) : '',
-      krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen'),
-      krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten'),
+      krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen') || gealanNLSpec('Kruk binnen'),
+      krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten') || gealanNLSpec('Kruk Buiten') || gealanNLSpec('Kruk buiten'),
     })
   }
 
