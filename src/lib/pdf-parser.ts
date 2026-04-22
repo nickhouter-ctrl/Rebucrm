@@ -36,10 +36,12 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
   // Detect format - flexible whitespace to handle different PDF text extractors
-  // Gealan uses "Merk 1" (numeric) or "Merk A" (letter) element names
-  const isGealan = /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text)
-  const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
-  const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
+  // Belangrijk: Aluplast/Deur-Element format (originele) eerst testen. Gealan-detectie
+  // was te breed en ving ook Aluplast PDFs waar 'Merk A Aantal: 1' toevallig voorkomt.
+  const isAluplast = /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
+  const isGealan = !isAluplast && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text)
+  const isKochs = !isGealan && !isAluplast && /K-Vision\s+\d+/.test(text)
+  const isEkoOkna = !isGealan && !isKochs && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
   let totaal = 0

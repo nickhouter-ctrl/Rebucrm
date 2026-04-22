@@ -5251,6 +5251,72 @@ export async function getLeadTaken(leadId: string) {
   return data || []
 }
 
+// === LEADS BULK-MAIL ===
+export async function sendLeadsBulkEmail(leadIds: string[], onderwerp: string, bericht: string): Promise<{ success?: boolean; verstuurd?: number; mislukt?: number; error?: string }> {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  if (leadIds.length === 0) return { error: 'Geen leads geselecteerd' }
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const supabaseAdmin = createAdminClient()
+
+  let medewerkerNaam = 'Rebu Kozijnen'
+  if (user) {
+    const { data: profiel } = await supabaseAdmin.from('profielen').select('naam').eq('id', user.id).single()
+    if (profiel?.naam) medewerkerNaam = profiel.naam
+  }
+
+  const { data: leads } = await supabaseAdmin
+    .from('leads')
+    .select('id, bedrijfsnaam, contactpersoon, email')
+    .eq('administratie_id', adminId)
+    .in('id', leadIds)
+    .not('email', 'is', null)
+    .neq('email', '')
+
+  if (!leads || leads.length === 0) return { error: 'Geen leads met e-mailadres gevonden' }
+
+  const { sendEmail } = await import('@/lib/email')
+  const { buildRebuEmailHtml } = await import('@/lib/email-template')
+
+  let verstuurd = 0
+  let mislukt = 0
+
+  for (const lead of leads) {
+    const naam = lead.contactpersoon || lead.bedrijfsnaam || ''
+    const personalised = bericht
+      .replace(/\{\{naam\}\}/g, naam)
+      .replace(/\{\{bedrijfsnaam\}\}/g, lead.bedrijfsnaam || '')
+      .replace(/\{\{medewerker\}\}/g, medewerkerNaam)
+    const onderwerpPers = onderwerp
+      .replace(/\{\{naam\}\}/g, naam)
+      .replace(/\{\{bedrijfsnaam\}\}/g, lead.bedrijfsnaam || '')
+
+    try {
+      await sendEmail({
+        to: lead.email as string,
+        subject: onderwerpPers,
+        html: buildRebuEmailHtml(personalised),
+      })
+      await supabaseAdmin.from('email_log').insert({
+        administratie_id: adminId,
+        aan: lead.email,
+        onderwerp: onderwerpPers,
+        body_html: buildRebuEmailHtml(personalised),
+        verstuurd_door: user?.id || null,
+      })
+      verstuurd++
+    } catch (err) {
+      console.error('Lead bulk mail mislukt voor', lead.email, err)
+      mislukt++
+    }
+  }
+
+  revalidatePath('/leads')
+  return { success: true, verstuurd, mislukt }
+}
+
 export async function bulkCreateLeadsFromKvk(kandidaten: Array<{
   kvkNummer: string
   naam: string
