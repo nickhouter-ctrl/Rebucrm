@@ -1392,15 +1392,21 @@ export async function syncSnelstartBetalingen() {
   const pushbaar = crmFacturen.filter(f => {
     if (!niet_gevonden.includes(f.factuurnummer)) return false
     if (f.snelstart_boeking_id) return false
-    if (!['verzonden', 'deels_betaald', 'betaald', 'vervallen'].includes(f.status)) return false
-    // Alleen F-YYYY-NNNNN met jaar >= 2026 en nummer >= 166
-    const m = f.factuurnummer.match(/^F-(\d{4})-0*(\d+)$/)
-    if (!m) return false
-    const jaar = parseInt(m[1])
-    const nr = parseInt(m[2])
-    if (jaar < 2026) return false
-    if (jaar === 2026 && nr < 166) return false
-    return true
+    // Openstaande facturen (verzonden/deels_betaald/vervallen) ALTIJD pushen — ongeacht
+    // factuurnummer. Betaalde facturen alleen pushen als het een nieuwe CRM-nummering
+    // is (F-YYYY-NNNNN vanaf F-2026-00166), zodat we geen oude geïmporteerde historie
+    // dubbel in SnelStart krijgen.
+    if (['verzonden', 'deels_betaald', 'vervallen'].includes(f.status)) return true
+    if (f.status === 'betaald') {
+      const m = f.factuurnummer.match(/^F-(\d{4})-0*(\d+)$/)
+      if (!m) return false
+      const jaar = parseInt(m[1])
+      const nr = parseInt(m[2])
+      if (jaar < 2026) return false
+      if (jaar === 2026 && nr < 166) return false
+      return true
+    }
+    return false
   })
   for (const f of pushbaar) {
     try {
