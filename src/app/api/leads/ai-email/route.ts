@@ -1,15 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateText } from 'ai'
 import { anthropic } from '@ai-sdk/anthropic'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { template = 'eerste_contact', extraInstructie = '', medewerkerNaam = 'Jordy' } = body as Record<string, string>
+    const { template = 'eerste_contact', extraInstructie = '' } = body as Record<string, string>
 
     if (!process.env.ANTHROPIC_API_KEY) {
       return NextResponse.json({ error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
     }
+
+    // Haal laatste 5 gebruikers-aanpassingen op om van te leren
+    let feedbackBlock = ''
+    try {
+      const supabase = await createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        const supabaseAdmin = createAdminClient()
+        const { data: profiel } = await supabaseAdmin.from('profielen').select('administratie_id').eq('id', user.id).single()
+        if (profiel?.administratie_id) {
+          const { data: eerder } = await supabaseAdmin
+            .from('ai_email_feedback')
+            .select('ai_origineel, user_verzonden')
+            .eq('administratie_id', profiel.administratie_id)
+            .eq('context', 'leads_bulk')
+            .order('created_at', { ascending: false })
+            .limit(5)
+          if (eerder && eerder.length > 0) {
+            feedbackBlock = '\n\nEerdere handmatige correcties van deze gebruiker — PAS JE STIJL HIEROP AAN, maak niet dezelfde fouten nogmaals:\n\n' +
+              eerder.map((f, i) => `VOORBEELD ${i + 1}:\n--- AI schreef ---\n${f.ai_origineel.slice(0, 1000)}\n--- Gebruiker heeft aangepast naar ---\n${f.user_verzonden.slice(0, 1000)}`).join('\n\n')
+          }
+        }
+      }
+    } catch {}
 
     const BROCHURES = `- Brochure Rebu Kozijnen: https://drive.google.com/file/d/1eA1RR1Vn8M4UvYE5avS9IecRxfJ2Ucb_/view\n- Brochure Voordeuren: https://drive.google.com/file/d/1KArp4I9gKdUqQrGCehtrcYk-NUI89w85/view`
 
@@ -52,7 +78,7 @@ Geef als antwoord ALLEEN de body van de mail, geen onderwerp erboven.`
 
     const result = await generateText({
       model: anthropic('claude-sonnet-4-5'),
-      system: systemPrompt,
+      system: systemPrompt + feedbackBlock,
       prompt: userPrompt,
       maxOutputTokens: 1200,
     })

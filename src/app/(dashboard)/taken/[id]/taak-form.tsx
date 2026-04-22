@@ -258,7 +258,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
       {/* Notities sectie - alleen bij bestaande taken */}
       {!isNew && (
-        <div className="mt-6 space-y-4">
+        <div className="mt-6 space-y-4 pb-80">
           <h3 className="text-sm font-semibold text-gray-900">Notities</h3>
 
           {/* Notitie invoer */}

@@ -1467,10 +1467,14 @@ export async function saveBoeking(formData: FormData) {
 // === PROJECTEN ===
 export async function getProjecten() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('projecten')
-    .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, totaal)')
-    .order('created_at', { ascending: false })
+  // Supabase limiteert tot 1000 rijen per request; we pagineren door alles heen
+  const data = await fetchAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from('projecten')
+      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, totaal)')
+      .order('created_at', { ascending: false })
+      .range(from, to)
+  )
   // Per project alleen de laatste offerte tonen (hoogste versie_nummer)
   return (data || []).map(p => {
     const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; totaal: number }[]
@@ -5240,6 +5244,28 @@ export async function getLeadTaken(leadId: string) {
     .eq('lead_id', leadId)
     .order('created_at', { ascending: false })
   return data || []
+}
+
+// === AI email feedback (leert van handmatige aanpassingen) ===
+export async function saveAiEmailFeedback(data: { context: 'leads_bulk' | 'email_reply'; template?: string; ai_origineel: string; user_verzonden: string }) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  // Alleen opslaan als er een daadwerkelijk verschil is
+  if (data.ai_origineel.trim() === data.user_verzonden.trim()) return { success: true, skipped: true }
+
+  const supabaseAdmin = createAdminClient()
+  await supabaseAdmin.from('ai_email_feedback').insert({
+    administratie_id: adminId,
+    gebruiker_id: user.id,
+    context: data.context,
+    template: data.template || null,
+    ai_origineel: data.ai_origineel,
+    user_verzonden: data.user_verzonden,
+  })
+  return { success: true }
 }
 
 // === LEADS BULK-MAIL ===

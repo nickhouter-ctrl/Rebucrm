@@ -85,6 +85,7 @@ export function EmailView({
   // AI reply state
   const [aiReplyEmail, setAiReplyEmail] = useState<Email | null>(null)
   const [aiReplyText, setAiReplyText] = useState('')
+  const [aiReplyOrigineel, setAiReplyOrigineel] = useState('')
   const [aiReplyInstructie, setAiReplyInstructie] = useState('')
   const [aiReplyLoading, setAiReplyLoading] = useState(false)
   const [aiReplyError, setAiReplyError] = useState('')
@@ -117,7 +118,7 @@ export function EmailView({
       })
       const data = await res.json()
       if (data.error) setAiReplyError(data.error)
-      else setAiReplyText(data.tekst || '')
+      else { setAiReplyText(data.tekst || ''); setAiReplyOrigineel(data.tekst || '') }
     } catch (err) {
       setAiReplyError(err instanceof Error ? err.message : 'AI genereren mislukt')
     } finally {

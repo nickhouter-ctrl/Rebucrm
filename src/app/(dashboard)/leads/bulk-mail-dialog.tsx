@@ -5,7 +5,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Loader2, Sparkles, Send, Check } from 'lucide-react'
-import { sendLeadsBulkEmail } from '@/lib/actions'
+import { sendLeadsBulkEmail, saveAiEmailFeedback } from '@/lib/actions'
 
 interface Lead {
   id: string
@@ -22,6 +22,7 @@ export function BulkMailDialog({ open, onClose, leads, onSent }: { open: boolean
   const [genereren, setGenereren] = useState(false)
   const [versturen, setVersturen] = useState(false)
   const [error, setError] = useState('')
+  const [aiOrigineel, setAiOrigineel] = useState('')
 
   const leadsMetMail = leads.filter(l => l.email)
 
@@ -35,7 +36,7 @@ export function BulkMailDialog({ open, onClose, leads, onSent }: { open: boolean
       })
       const data = await res.json()
       if (data.error) setError(data.error)
-      else { setOnderwerp(data.onderwerp); setBericht(data.bericht) }
+      else { setOnderwerp(data.onderwerp); setBericht(data.bericht); setAiOrigineel(data.bericht) }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'AI genereren mislukt')
     } finally {
@@ -50,6 +51,10 @@ export function BulkMailDialog({ open, onClose, leads, onSent }: { open: boolean
     try {
       const result = await sendLeadsBulkEmail(leadsMetMail.map(l => l.id), onderwerp, bericht)
       if (result.error) { setError(result.error); return }
+      // Leer van verschil tussen AI origineel en wat user stuurde
+      if (aiOrigineel && aiOrigineel !== bericht) {
+        saveAiEmailFeedback({ context: 'leads_bulk', template, ai_origineel: aiOrigineel, user_verzonden: bericht }).catch(() => {})
+      }
       onSent(result.verstuurd || 0)
       onClose()
     } catch (err) {
