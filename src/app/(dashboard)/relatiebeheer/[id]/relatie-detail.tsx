@@ -496,11 +496,16 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                             <span className="font-semibold text-gray-700">Taak</span>
                             <span className="text-gray-600 font-medium">· {t.titel}</span>
                           </div>
-                          {t.deadline && (
-                            <span className="text-xs text-red-600 shrink-0">
-                              {formatDateShort(t.deadline)}
-                            </span>
-                          )}
+                          {t.deadline && (() => {
+                            const vandaag = new Date(); vandaag.setHours(0,0,0,0)
+                            const dl = new Date(t.deadline); dl.setHours(0,0,0,0)
+                            const overschreden = dl < vandaag
+                            return (
+                              <span className={`text-xs shrink-0 ${overschreden ? 'text-red-600' : 'text-gray-500'}`}>
+                                {formatDateShort(t.deadline)}
+                              </span>
+                            )
+                          })()}
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-500">
                           <Badge status={t.prioriteit}>{t.prioriteit}</Badge>
