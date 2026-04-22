@@ -4198,12 +4198,40 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 // === NOTITIES ===
 export async function getNotities(relatieId: string) {
   const supabase = await createClient()
-  const { data } = await supabase
+  // 1. Directe klant-notities
+  const { data: direct } = await supabase
     .from('notities')
     .select('*, gebruiker:profielen(naam)')
     .eq('relatie_id', relatieId)
     .order('created_at', { ascending: false })
-  return data || []
+
+  // 2. Taak-notities: notities op taken van deze klant
+  const { data: taken } = await supabase.from('taken').select('id, titel, taaknummer').eq('relatie_id', relatieId)
+  const taakIds = (taken || []).map(t => t.id)
+  const taakMap = new Map((taken || []).map(t => [t.id, t]))
+  let taakNotities: Record<string, unknown>[] = []
+  if (taakIds.length > 0) {
+    const { data: tn } = await supabase
+      .from('taak_notities')
+      .select('id, taak_id, tekst, created_at, gebruiker:profielen(naam)')
+      .in('taak_id', taakIds)
+      .order('created_at', { ascending: false })
+    taakNotities = (tn || []).map(n => ({
+      id: n.id,
+      relatie_id: relatieId,
+      tekst: n.tekst,
+      herinnering_datum: null,
+      herinnering_verstuurd: false,
+      created_at: n.created_at,
+      gebruiker: n.gebruiker,
+      taak: taakMap.get(n.taak_id as string) || null,
+    }))
+  }
+
+  // Samenvoegen en sorteren op datum
+  const alles = [...(direct || []), ...taakNotities]
+  alles.sort((a, b) => new Date((b as { created_at: string }).created_at).getTime() - new Date((a as { created_at: string }).created_at).getTime())
+  return alles
 }
 
 export async function getEmailsByRelatie(relatieId: string) {
