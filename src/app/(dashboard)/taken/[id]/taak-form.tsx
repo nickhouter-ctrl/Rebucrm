@@ -55,17 +55,32 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     ? offertes.filter(o => o.relatie_id === selectedRelatieId)
     : offertes
 
+  function navigateAfterSave(savedId?: string) {
+    // Als de gebruiker via een klant-pagina op deze taak kwam → terug naar klant
+    if (typeof window !== 'undefined') {
+      const ref = document.referrer
+      const match = ref.match(/\/relatiebeheer\/([^\/?#]+)/)
+      if (match && match[1] !== 'nieuw') {
+        router.push(`/relatiebeheer/${match[1]}`)
+        return
+      }
+    }
+    // Anders: als taak een relatie heeft, terug naar die klant
+    if (selectedRelatieId) {
+      router.push(`/relatiebeheer/${selectedRelatieId}`)
+      return
+    }
+    if (savedId) router.push(`/taken/${savedId}`)
+    else router.push('/taken')
+  }
+
   async function handleSubmit(formData: FormData) {
     setLoading(true); setError('')
     if (taak) formData.set('id', taak.id as string)
     formData.set('relatie_id', selectedRelatieId)
     const result = await saveTaak(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else {
-      const savedId = (taak?.id as string) || result.id
-      if (savedId) router.push(`/taken/${savedId}`)
-      else router.push('/taken')
-    }
+    else navigateAfterSave((taak?.id as string) || (result.id as string | undefined))
   }
 
   async function handleDelete() {
@@ -122,13 +137,13 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     const result = await saveTaak(formData)
     if (result.error) {
       setError(result.error)
+      setLoading(false)
     } else {
       setVervolgAangemaakt(true)
       setVervolgTitel('')
       setVervolgDeadline('')
-      setTimeout(() => setVervolgAangemaakt(false), 3000)
+      navigateAfterSave()
     }
-    setLoading(false)
   }
 
   async function handleDeleteNotitie(id: string) {
