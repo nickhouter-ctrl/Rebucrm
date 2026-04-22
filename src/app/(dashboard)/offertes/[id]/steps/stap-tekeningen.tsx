@@ -302,6 +302,17 @@ export function StapTekeningen({
           }
         }
 
+        // Wis het groene 'Prijs / Element' label-blok (Aluplast/Gealan onderaan pagina).
+        // Alleen smalle rect rond het label, niet de volledige paginabreedte.
+        const prijsLabel = textItems.find((ti: { str: string; cy: number }) => /^Prijs$/i.test(ti.str) && ti.cy > h * 0.55)
+        const elementLabel = textItems.find((ti: { str: string; cy: number }) => /^Element$/i.test(ti.str) && ti.cy > h * 0.55)
+        for (const lbl of [prijsLabel, elementLabel]) {
+          if (!lbl) continue
+          ctx.fillStyle = '#FFFFFF'
+          // Smalle witte rect rondom alleen dit label (ca. 140px breed, 18px hoog)
+          ctx.fillRect(Math.max(0, lbl.cx - 10), lbl.cy - 14, 160, 22)
+        }
+
         // For Kochs pages: crop out the bottom "Beschrijving" detail table (all 0,00 rows)
         let cropBottom = Math.floor(h * 0.97)
         const isKochsPage = textItems.some((i: { str: string }) => /^Binnenzicht$/i.test(i.str))

@@ -101,14 +101,8 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
         return (
           <React.Fragment key={`tekening-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`tekening-${idx}-p${pi}`} size="A4" style={[s.page, s.contentPage]}>
-                <View style={s.contentSidebar} />
-                <Image src={rkIconPath} style={s.watermarkImage} />
-                <View style={s.logoArea}>
-                  <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
-                </View>
-
-                <View style={{ marginBottom: 4, marginTop: 20 }}>
+              <Page key={`tekening-${idx}-p${pi}`} size="A4" style={[s.page, { padding: 20 }]}>
+                <View style={{ marginBottom: 6 }}>
                   <Text style={s.elementNameText}>
                     {element.naam.toUpperCase()}
                     {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
@@ -123,28 +117,10 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
                 )}
 
                 {pg.url && (
-                  <View style={{ alignItems: 'center', marginBottom: 8, overflow: 'hidden', maxHeight: 520 }}>
+                  <View style={{ alignItems: 'center', overflow: 'hidden', flex: 1 }}>
                     <Image src={pg.url} style={s.elementImageFullPage} />
                   </View>
                 )}
-
-                <View style={s.footer}>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerLabel}>{COMPANY.naam}</Text>
-                    <Text style={s.footerText}>{COMPANY.adres}</Text>
-                    <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
-                  </View>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerText}>{COMPANY.telefoon}</Text>
-                    <Text style={s.footerText}>{COMPANY.email}</Text>
-                    <Text style={s.footerText}>{COMPANY.website}</Text>
-                  </View>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
-                  </View>
-                </View>
               </Page>
             ))}
           </React.Fragment>

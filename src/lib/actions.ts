@@ -3740,17 +3740,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
       filename: `Offerte-${offerte.offertenummer}.pdf`,
       content: pdfBase64,
     })
-
-    // Zakelijke klanten: extra PDF zonder prijzen
-    if (offerte.relatie?.type === 'zakelijk') {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pdfNoPriceBuffer = await renderToBuffer(OfferteDocument({ offerte: offerteData, hidePrices: true }) as any)
-      const pdfNoPriceBase64 = Buffer.from(pdfNoPriceBuffer).toString('base64')
-      attachments.push({
-        filename: `Offerte-${offerte.offertenummer}-zonder-prijzen.pdf`,
-        content: pdfNoPriceBase64,
-      })
-    }
+    // De 'offerte zonder prijzen' is vervangen door de 'Tekeningen-*.pdf' hieronder,
+    // zodat er altijd maar 2 bestanden meegaan: offerte-met-prijzen + tekeningen.
   } catch (err) {
     console.error('PDF generatie voor email mislukt:', err)
   }
