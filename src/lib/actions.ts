@@ -2528,6 +2528,24 @@ export async function getDashboardData() {
     datum: o.datum,
   }))
 
+  // Recente notities (laatste 10 over alle klanten/taken) voor dashboard
+  const { data: recenteNotitiesData } = await supabaseAdmin
+    .from('notities')
+    .select('id, tekst, created_at, relatie:relaties(id, bedrijfsnaam), gebruiker:profielen(naam)')
+    .eq('administratie_id', adminId)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  const recenteNotities = (recenteNotitiesData || []).map(n => ({
+    id: n.id as string,
+    tekst: n.tekst as string,
+    created_at: n.created_at as string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    relatie: (n.relatie as any) ? { id: ((n.relatie as any)?.id) || '', bedrijfsnaam: ((n.relatie as any)?.bedrijfsnaam) || '' } : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    gebruikerNaam: ((n.gebruiker as any)?.naam) || null,
+  }))
+
   return {
     omzet, openstaand, achterstallig, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
@@ -2535,6 +2553,7 @@ export async function getDashboardData() {
     offertesPerMaand, totaalOffertes,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
+    recenteNotities,
   }
 }
 
@@ -6270,11 +6289,22 @@ export async function getTaakNotities(taakId: string) {
   return data || []
 }
 
-export async function saveTaakNotitie(data: { taak_id: string; tekst: string }) {
+export async function saveTaakNotitie(data: { id?: string; taak_id: string; tekst: string }) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  if (data.id) {
+    // Update bestaande notitie
+    const { error } = await supabase
+      .from('taak_notities')
+      .update({ tekst: data.tekst })
+      .eq('id', data.id)
+    if (error) return { error: error.message }
+    revalidatePath(`/taken/${data.taak_id}`)
+    return { success: true, id: data.id }
+  }
 
   const { data: inserted, error } = await supabase
     .from('taak_notities')

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { SearchSelect } from '@/components/ui/search-select'
-import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw, Pencil } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { RecentTracker } from '@/components/layout/recent-tracker'
@@ -42,6 +42,8 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   const [notities, setNotities] = useState(initialNotities)
   const [notitieText, setNotitieText] = useState('')
+  const [editNotitieId, setEditNotitieId] = useState<string | null>(null)
+  const [editNotitieText, setEditNotitieText] = useState('')
   const [showVervolgTaak, setShowVervolgTaak] = useState(false)
   const [vervolgTitel, setVervolgTitel] = useState('')
   const [vervolgDeadline, setVervolgDeadline] = useState('')
@@ -147,6 +149,23 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
       setVervolgDeadline('')
       navigateAfterSave()
     }
+  }
+
+  async function handleUpdateNotitie(id: string) {
+    if (!editNotitieText.trim()) return
+    const result = await saveTaakNotitie({ id, taak_id: taak!.id as string, tekst: editNotitieText })
+    if (result.error) {
+      setError(result.error as string)
+    } else {
+      setNotities(prev => prev.map(n => n.id === id ? { ...n, tekst: editNotitieText } : n))
+      setEditNotitieId(null)
+      setEditNotitieText('')
+    }
+  }
+
+  function startEditNotitie(n: Notitie) {
+    setEditNotitieId(n.id)
+    setEditNotitieText(n.tekst)
   }
 
   async function handleDeleteNotitie(id: string) {
@@ -359,17 +378,43 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
                             <span className="text-sm font-semibold text-gray-900">{n.gebruiker?.naam || 'Onbekend'}</span>
                             <span className="text-xs text-gray-400">{datumStr}</span>
                           </div>
-                          {/* Notitietekst */}
-                          <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{n.tekst}</p>
+                          {editNotitieId === n.id ? (
+                            <div className="mt-1 space-y-2">
+                              <textarea
+                                value={editNotitieText}
+                                onChange={e => setEditNotitieText(e.target.value)}
+                                rows={3}
+                                className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <Button variant="ghost" size="sm" onClick={() => { setEditNotitieId(null); setEditNotitieText('') }}>Annuleren</Button>
+                                <Button size="sm" onClick={() => handleUpdateNotitie(n.id)}>Opslaan</Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-700 whitespace-pre-wrap mt-1">{n.tekst}</p>
+                          )}
                         </div>
-                        {/* Verwijder knop */}
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteNotitie(n.id)}
-                          className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {editNotitieId !== n.id && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditNotitie(n)}
+                              className="p-1 text-gray-300 hover:text-[#00a66e]"
+                              title="Bewerken"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNotitie(n.id)}
+                              className="p-1 text-gray-300 hover:text-red-500"
+                              title="Verwijderen"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        )}
                       </div>
 
                       {/* Scheidingslijn tussen notities */}
