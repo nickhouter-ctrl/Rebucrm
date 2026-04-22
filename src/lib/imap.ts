@@ -119,10 +119,21 @@ export function classifyEmail(
   return 'onzeker'
 }
 
+// Folders die we NIET syncen — bulk/junk noise
+const SKIP_FOLDERS = ['spam', 'junk', 'trash', 'prullenbak', 'deleted items', 'drafts', 'concepten']
+function shouldSyncFolder(path: string, specialUse?: string): boolean {
+  const p = path.toLowerCase()
+  if (SKIP_FOLDERS.some(s => p.includes(s))) return false
+  if (specialUse && ['\\trash','\\junk','\\drafts'].includes(specialUse.toLowerCase())) return false
+  return true
+}
+
+// Track per email de folder waarin hij gevonden is
+type ParsedEmailWithFolder = ParsedEmail & { _folder: string }
+
 export async function syncEmails(administratieId: string) {
   const supabase = createAdminClient()
 
-  // Get or create sync state
   let { data: syncState } = await supabase
     .from('email_sync_state')
     .select('*')
@@ -138,88 +149,104 @@ export async function syncEmails(administratieId: string) {
     syncState = newState
   }
 
-  // Mark as syncing
   await supabase
     .from('email_sync_state')
     .update({ status: 'syncing', updated_at: new Date().toISOString() })
     .eq('administratie_id', administratieId)
 
   const client = createImapClient()
-  const newEmails: ParsedEmail[] = []
+  const newEmails: ParsedEmailWithFolder[] = []
+  const folderUids: Record<string, number> = (syncState?.folder_uids as Record<string, number>) || {}
+  // Backward compat: legacy INBOX laatste_uid
+  if (!folderUids['INBOX'] && syncState?.laatste_uid) folderUids['INBOX'] = syncState.laatste_uid
 
   try {
     await client.connect()
-    const lock = await client.getMailboxLock('INBOX')
 
+    // Lijst alle folders
+    const folders: Array<{ path: string; specialUse?: string }> = []
     try {
-      const laatsteUid = syncState?.laatste_uid || 0
-      const isFirstSync = laatsteUid === 0
-
-      // Get UIDs to fetch
-      let uids: number[] = []
-
-      if (isFirstSync) {
-        // First sync: use SEARCH to find emails from last 30 days
-        const sinceDate = new Date()
-        sinceDate.setDate(sinceDate.getDate() - 30)
-        uids = await client.search({ since: sinceDate }, { uid: true }) as number[]
-      } else {
-        // Incremental: fetch UIDs > laatsteUid
-        uids = await client.search({ uid: `${laatsteUid + 1}:*` }, { uid: true }) as number[]
-        uids = uids.filter(uid => uid > laatsteUid)
+      const list = await client.list()
+      for (const f of list) {
+        const path = (f as unknown as { path?: string; name?: string }).path || (f as unknown as { name?: string }).name || ''
+        if (!path) continue
+        const specialUse = (f as unknown as { specialUse?: string }).specialUse
+        if (shouldSyncFolder(path, specialUse)) folders.push({ path, specialUse })
       }
+    } catch {
+      folders.push({ path: 'INBOX' })
+    }
+    // Zorg dat INBOX in elk geval erbij zit
+    if (!folders.some(f => f.path.toLowerCase() === 'inbox')) folders.unshift({ path: 'INBOX' })
 
-      if (uids.length === 0) {
-        lock.release()
-        await client.logout()
-        await supabase
-          .from('email_sync_state')
-          .update({ laatste_sync: new Date().toISOString(), status: 'idle', updated_at: new Date().toISOString() })
-          .eq('administratie_id', administratieId)
-        return { synced: 0 }
+    for (const folder of folders) {
+      let lock
+      try {
+        lock = await client.getMailboxLock(folder.path)
+      } catch {
+        continue // folder niet selectable
       }
+      try {
+        const laatsteUid = folderUids[folder.path] || 0
+        const isFirstSync = laatsteUid === 0
 
-      // Fetch envelope + headers (fast) for found UIDs
-      const uidRange = uids.join(',')
-      for await (const message of client.fetch(uidRange, {
-        envelope: true,
-        uid: true,
-        headers: ['references', 'in-reply-to'],
-      }, { uid: true })) {
-
-        const envelope = message.envelope
-        if (!envelope) continue
-
-        const from = parseAddress(envelope.from as { address?: string; name?: string }[])
-        const to = parseAddress(envelope.to as { address?: string; name?: string }[])
-
-        // Parse References from headers
-        const referenceIds: string[] = []
-        if (message.headers) {
-          const headerStr = message.headers.toString()
-          const refMatch = headerStr.match(/^References:\s*([\s\S]*?)(?=\r?\n\S|\r?\n\r?\n|$)/mi)
-          if (refMatch) {
-            const refs = refMatch[1].match(/<[^>]+>/g)
-            if (refs) referenceIds.push(...refs)
+        let uids: number[] = []
+        try {
+          if (isFirstSync) {
+            const sinceDate = new Date()
+            sinceDate.setDate(sinceDate.getDate() - 30)
+            uids = await client.search({ since: sinceDate }, { uid: true }) as number[]
+          } else {
+            uids = await client.search({ uid: `${laatsteUid + 1}:*` }, { uid: true }) as number[]
+            uids = uids.filter(uid => uid > laatsteUid)
           }
+        } catch {
+          uids = []
         }
+        if (uids.length === 0) { lock.release(); continue }
 
-        newEmails.push({
-          message_id: envelope.messageId || null,
-          in_reply_to: envelope.inReplyTo || null,
-          reference_ids: referenceIds,
-          van_email: from.email,
-          van_naam: from.naam,
-          aan_email: to.email,
-          onderwerp: envelope.subject || null,
-          body_text: null,
-          body_html: null,
-          datum: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
-          imap_uid: message.uid,
-        })
+        const uidRange = uids.join(',')
+        try {
+          for await (const message of client.fetch(uidRange, {
+            envelope: true,
+            uid: true,
+            headers: ['references', 'in-reply-to'],
+          }, { uid: true })) {
+            const envelope = message.envelope
+            if (!envelope) continue
+            const from = parseAddress(envelope.from as { address?: string; name?: string }[])
+            const to = parseAddress(envelope.to as { address?: string; name?: string }[])
+            const referenceIds: string[] = []
+            if (message.headers) {
+              const headerStr = message.headers.toString()
+              const refMatch = headerStr.match(/^References:\s*([\s\S]*?)(?=\r?\n\S|\r?\n\r?\n|$)/mi)
+              if (refMatch) {
+                const refs = refMatch[1].match(/<[^>]+>/g)
+                if (refs) referenceIds.push(...refs)
+              }
+            }
+            newEmails.push({
+              message_id: envelope.messageId || null,
+              in_reply_to: envelope.inReplyTo || null,
+              reference_ids: referenceIds,
+              van_email: from.email,
+              van_naam: from.naam,
+              aan_email: to.email,
+              onderwerp: envelope.subject || null,
+              body_text: null,
+              body_html: null,
+              datum: envelope.date ? new Date(envelope.date).toISOString() : new Date().toISOString(),
+              imap_uid: message.uid,
+              _folder: folder.path,
+            })
+            if (message.uid > (folderUids[folder.path] || 0)) folderUids[folder.path] = message.uid
+          }
+        } catch (err) {
+          console.error('Fetch folder', folder.path, 'error:', err)
+        }
+      } finally {
+        lock.release()
       }
-    } finally {
-      lock.release()
     }
 
     await client.logout()
@@ -331,7 +358,7 @@ export async function syncEmails(administratieId: string) {
       project_id: matchedProjectId,
       labels,
       imap_uid: email.imap_uid,
-      imap_folder: 'INBOX',
+      imap_folder: (email as ParsedEmailWithFolder)._folder || 'INBOX',
       gelezen: richting === 'uitgaand',
       verwerkt,
     }
@@ -383,11 +410,12 @@ export async function syncEmails(administratieId: string) {
     }
   }
 
-  // Update sync state
+  // Update sync state: laatste_uid blijft de INBOX uid (backward compat), folder_uids houdt alle folders bij
   await supabase
     .from('email_sync_state')
     .update({
-      laatste_uid: maxUid,
+      laatste_uid: folderUids['INBOX'] || maxUid,
+      folder_uids: folderUids,
       laatste_sync: new Date().toISOString(),
       status: 'idle',
       error_bericht: null,
@@ -398,15 +426,15 @@ export async function syncEmails(administratieId: string) {
   return { synced: newEmails.length }
 }
 
-// Fetch email body on-demand by IMAP UID
-export async function fetchEmailBody(imapUid: number): Promise<{ text: string | null; html: string | null }> {
+// Fetch email body on-demand by IMAP UID (in gespecificeerde folder)
+export async function fetchEmailBody(imapUid: number, folder: string = 'INBOX'): Promise<{ text: string | null; html: string | null }> {
   const client = createImapClient()
   let text: string | null = null
   let html: string | null = null
 
   try {
     await client.connect()
-    const lock = await client.getMailboxLock('INBOX')
+    const lock = await client.getMailboxLock(folder)
     try {
       const msg = await client.fetchOne(String(imapUid), { source: true }, { uid: true }) as { source?: Buffer } | false
       if (msg && 'source' in msg && msg.source) {
@@ -425,14 +453,14 @@ export async function fetchEmailBody(imapUid: number): Promise<{ text: string | 
   return { text, html }
 }
 
-// Fetch email attachments on-demand by IMAP UID
-export async function fetchEmailAttachments(imapUid: number): Promise<{ filename: string; contentType: string; size: number; data: string }[]> {
+// Fetch email attachments on-demand by IMAP UID (in folder)
+export async function fetchEmailAttachments(imapUid: number, folder: string = 'INBOX'): Promise<{ filename: string; contentType: string; size: number; data: string }[]> {
   const client = createImapClient()
   const attachments: { filename: string; contentType: string; size: number; data: string }[] = []
 
   try {
     await client.connect()
-    const lock = await client.getMailboxLock('INBOX')
+    const lock = await client.getMailboxLock(folder)
     try {
       const msg = await client.fetchOne(String(imapUid), { source: true }, { uid: true }) as { source?: Buffer } | false
       if (msg && 'source' in msg && msg.source) {

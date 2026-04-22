@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-export async function POST(request: Request) {
+async function handle(request: Request) {
   // Verify cron secret or allow unauthenticated (manual trigger from frontend)
   const authHeader = request.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
@@ -40,3 +40,6 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export const POST = handle
+export const GET = handle

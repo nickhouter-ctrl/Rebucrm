@@ -147,6 +147,23 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   // Notities state
   const [notities, setNotities] = useState(initialNotities)
+  const [editNotitieId, setEditNotitieId] = useState<string | null>(null)
+  const [editNotitieText, setEditNotitieText] = useState('')
+
+  async function handleEditNotitie(id: string) {
+    if (!editNotitieText.trim()) return
+    const result = await saveNotitie({ id, relatie_id: relatie.id, tekst: editNotitieText })
+    if (result.error) setError(result.error)
+    else {
+      setNotities(prev => prev.map(n => n.id === id ? { ...n, tekst: editNotitieText } : n))
+      setEditNotitieId(null)
+      setEditNotitieText('')
+    }
+  }
+  function startEdit(n: Notitie) {
+    setEditNotitieId(n.id)
+    setEditNotitieText(n.tekst)
+  }
 
   // Contactpersonen state
   const [contactpersonen, setContactpersonen] = useState(initialContactpersonen)
@@ -991,20 +1008,32 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                           {isTaak && n.taak?.titel && <span className="text-gray-600 font-medium">· {n.taak.titel}</span>}
                           {isTaak && n.taak?.taaknummer && <span className="text-gray-400">({n.taak.taaknummer})</span>}
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-xs text-gray-400">{datumStr}</span>
-                          {!isTaak && (
-                            <button
-                              onClick={() => handleDeleteNotitie(n.id)}
-                              className="p-0.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className="text-xs text-gray-400 mr-1">{datumStr}</span>
+                          {!isTaak && editNotitieId !== n.id && (
+                            <>
+                              <button onClick={() => handleDeleteNotitie(n.id)} className="p-1 text-gray-400 hover:text-red-500 transition-colors" title="Verwijderen">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => startEdit(n)} className="p-1 text-gray-400 hover:text-[#00a66e] transition-colors" title="Bewerken">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
                       <div className="text-xs text-gray-500 mb-1">{n.gebruiker?.naam || 'Onbekend'}</div>
-                      <p className={`text-sm whitespace-pre-wrap ${isTaak ? 'text-gray-800' : 'text-amber-900'}`}>{n.tekst}</p>
+                      {editNotitieId === n.id ? (
+                        <div className="space-y-2">
+                          <textarea value={editNotitieText} onChange={e => setEditNotitieText(e.target.value)} rows={3} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]" />
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => { setEditNotitieId(null); setEditNotitieText('') }}>Annuleren</Button>
+                            <Button size="sm" onClick={() => handleEditNotitie(n.id)}>Opslaan</Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className={`text-sm whitespace-pre-wrap ${isTaak ? 'text-gray-800' : 'text-amber-900'}`}>{n.tekst}</p>
+                      )}
                       {n.herinnering_datum && (
                         <span className={`inline-flex items-center gap-1 text-xs mt-2 ${n.herinnering_verstuurd ? 'text-green-600' : 'text-orange-500'}`}>
                           <Bell className="h-3 w-3" />
