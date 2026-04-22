@@ -1383,6 +1383,30 @@ export async function syncSnelstartBetalingen() {
     }
   }
 
+  // Push CRM facturen die in SnelStart ontbreken (orphans) — zodat CRM én SS hetzelfde tonen.
+  // Alleen 'verzonden' / 'deels_betaald' / 'betaald' / 'vervallen' facturen zonder snelstart_boeking_id.
+  let gepushtNieuw = 0
+  const pushErrors: string[] = []
+  const pushbaar = crmFacturen.filter(f =>
+    niet_gevonden.includes(f.factuurnummer) &&
+    !f.snelstart_boeking_id &&
+    ['verzonden', 'deels_betaald', 'betaald', 'vervallen'].includes(f.status)
+  )
+  for (const f of pushbaar) {
+    try {
+      // Reset gefaalde sync-stempel zodat pushFactuurToSnelStart opnieuw probeert
+      await supabaseAdmin.from('facturen').update({ snelstart_synced_at: null }).eq('id', f.id)
+      const res = await pushFactuurToSnelStart(f.id)
+      if (res && 'error' in res && res.error) {
+        pushErrors.push(`${f.factuurnummer}: ${res.error}`)
+      } else if (res && 'success' in res && res.success) {
+        gepushtNieuw++
+      }
+    } catch (err) {
+      pushErrors.push(`${f.factuurnummer}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   revalidatePath('/facturatie')
   revalidatePath('/')
 
@@ -1394,6 +1418,8 @@ export async function syncSnelstartBetalingen() {
     betaaldGeworden: betaaldNieuw,
     deelsBetaaldGeworden: deelsBetaaldNieuw,
     vervallenGeworden: vervallenNieuw,
+    gepushtNaarSnelstart: gepushtNieuw,
+    pushErrors: pushErrors.slice(0, 20),
     nietGevonden: niet_gevonden.slice(0, 20),
   }
 }

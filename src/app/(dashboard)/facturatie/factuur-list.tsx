@@ -139,7 +139,8 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
       if (res && 'error' in res && res.error) {
         showToast(res.error, 'error')
       } else if (res && 'success' in res && res.success) {
-        showToast(`SnelStart sync klaar: ${res.bijgewerkt} facturen bijgewerkt (${res.betaaldGeworden} betaald)`, 'success')
+        const pushMsg = res.gepushtNaarSnelstart && res.gepushtNaarSnelstart > 0 ? `, ${res.gepushtNaarSnelstart} naar SnelStart gepusht` : ''
+        showToast(`SnelStart sync klaar: ${res.bijgewerkt} bijgewerkt (${res.betaaldGeworden} betaald)${pushMsg}`, 'success')
         router.refresh()
       }
     } catch (err) {
