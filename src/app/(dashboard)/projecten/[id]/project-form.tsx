@@ -36,7 +36,7 @@ export function ProjectForm({ project, relaties }: {
 
   return (
     <div>
-      <PageHeader title={isNew ? 'Nieuw project' : 'Project bewerken'} actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+      <PageHeader title={isNew ? 'Nieuw project' : 'Project bewerken'} actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit}>
         <Card>

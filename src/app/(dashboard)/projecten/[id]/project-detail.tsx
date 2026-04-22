@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl } from '@/lib/actions'
+import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus } from '@/lib/actions'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -119,7 +119,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   if (isNew) {
     return (
       <div>
-        <PageHeader title="Nieuwe verkoopkans" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Nieuwe verkoopkans" actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
         {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
         <form action={handleSubmit}>
           <Card>
@@ -128,8 +128,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 <Input id="naam" name="naam" label="Naam verkoopkans *" required />
                 <Select id="relatie_id" name="relatie_id" label="Klant" placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
                 <Select id="status" name="status" label="Status" defaultValue="actief" options={[
-                  { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
-                  { value: 'on_hold', label: 'On hold' }, { value: 'geannuleerd', label: 'Geannuleerd' },
+                  { value: 'actief', label: 'Actief' },
+                  { value: 'gewonnen', label: 'Gewonnen' },
+                  { value: 'verloren', label: 'Verloren' },
+                  { value: 'vervallen', label: 'Vervallen' },
+                  { value: 'on_hold', label: 'On hold' },
+                  { value: 'afgerond', label: 'Afgerond' },
+                  { value: 'geannuleerd', label: 'Geannuleerd' },
                 ]} />
                 <Input id="budget" name="budget" label="Budget" type="number" step="0.01" />
                 <Input id="uurtarief" name="uurtarief" label="Uurtarief" type="number" step="0.01" />
@@ -153,7 +158,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   if (!project || !timeline) {
     return (
       <div>
-        <PageHeader title="Verkoopkans niet gevonden" actions={<Button variant="ghost" onClick={() => router.push('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Verkoopkans niet gevonden" actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       </div>
     )
   }
@@ -179,8 +184,26 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
       <PageHeader
         title={projectNaam}
         actions={
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.push('/projecten')}>
+          <div className="flex gap-2 flex-wrap items-center">
+            {projectStatus === 'actief' && (
+              <>
+                <Button variant="secondary" size="sm" onClick={async () => { await setProjectStatus(project.id as string, 'gewonnen'); router.refresh() }} className="!bg-emerald-50 !text-emerald-700 hover:!bg-emerald-100">
+                  Gewonnen
+                </Button>
+                <Button variant="secondary" size="sm" onClick={async () => { await setProjectStatus(project.id as string, 'verloren'); router.refresh() }} className="!bg-red-50 !text-red-700 hover:!bg-red-100">
+                  Verloren
+                </Button>
+                <Button variant="secondary" size="sm" onClick={async () => { await setProjectStatus(project.id as string, 'vervallen'); router.refresh() }} className="!bg-gray-100 !text-gray-700 hover:!bg-gray-200">
+                  Vervallen
+                </Button>
+              </>
+            )}
+            {projectStatus !== 'actief' && (
+              <Button variant="secondary" size="sm" onClick={async () => { await setProjectStatus(project.id as string, 'actief'); router.refresh() }}>
+                Heropenen
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>
@@ -201,8 +224,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                   <Input id="naam" name="naam" label="Naam verkoopkans *" defaultValue={project.naam as string} required />
                   <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={relatieId || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
                   <Select id="status" name="status" label="Status" defaultValue={projectStatus} options={[
-                    { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
-                    { value: 'on_hold', label: 'On hold' }, { value: 'geannuleerd', label: 'Geannuleerd' },
+                    { value: 'actief', label: 'Actief' },
+                    { value: 'gewonnen', label: 'Gewonnen' },
+                    { value: 'verloren', label: 'Verloren' },
+                    { value: 'vervallen', label: 'Vervallen' },
+                    { value: 'on_hold', label: 'On hold' },
+                    { value: 'afgerond', label: 'Afgerond' },
+                    { value: 'geannuleerd', label: 'Geannuleerd' },
                   ]} />
                   <Input id="budget" name="budget" label="Budget" type="number" step="0.01" defaultValue={(project.budget as number) || ''} />
                   <Input id="uurtarief" name="uurtarief" label="Uurtarief" type="number" step="0.01" defaultValue={(project.uurtarief as number) || ''} />

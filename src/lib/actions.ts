@@ -1496,6 +1496,15 @@ export async function getProject(id: string) {
   return data
 }
 
+export async function setProjectStatus(projectId: string, status: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('projecten').update({ status }).eq('id', projectId)
+  if (error) return { error: error.message }
+  revalidatePath(`/projecten/${projectId}`)
+  revalidatePath('/projecten')
+  return { success: true }
+}
+
 export async function saveProject(formData: FormData) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()

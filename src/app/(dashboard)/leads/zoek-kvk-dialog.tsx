@@ -19,23 +19,20 @@ interface Kandidaat {
   telefoon?: string
 }
 
-const SBI_OPTIES = [
-  { value: '', label: '— Alle sectoren —' },
-  { value: '41', label: 'Algemene burgerlijke & utiliteitsbouw (41)' },
-  { value: '4120', label: 'Algemene bouwkundige aannemers (4120)' },
-  { value: '43', label: 'Gespecialiseerde bouw (43)' },
-  { value: '4332', label: 'Timmerwerk / kozijnen plaatsen (4332)' },
-  { value: '4391', label: 'Dakbedekking & bouw dakconstructies (4391)' },
-  { value: '4399', label: 'Overige gespecialiseerde bouw (4399)' },
-  { value: '42', label: 'Grond-, water- en wegenbouw (42)' },
-  { value: '2222', label: 'Kunststof bouwmaterialen (2222)' },
-  { value: '2314', label: 'Vlakglas bewerking (2314)' },
+// KVK-zoek API filtert alleen op naam/plaats. Voor sector = keyword in naam
+const SECTOR_PRESETS: { value: string; label: string }[] = [
+  { value: 'bouw', label: 'Bouw' },
+  { value: 'aannemer', label: 'Aannemers' },
+  { value: 'timmerwerk', label: 'Timmerwerk' },
+  { value: 'kozijn', label: 'Kozijnen' },
+  { value: 'dakbedekking', label: 'Dakbedekking' },
+  { value: 'renovatie', label: 'Renovatie' },
+  { value: 'bouwbedrijf', label: 'Bouwbedrijf' },
 ]
 
 export function ZoekKvkDialog({ open, onClose, onImported }: { open: boolean; onClose: () => void; onImported: (aantal: number) => void }) {
-  const [sbi, setSbi] = useState('4120')
   const [plaats, setPlaats] = useState('')
-  const [naam, setNaam] = useState('')
+  const [naam, setNaam] = useState('bouwbedrijf')
   const [radius, setRadius] = useState('0')
   const [max, setMax] = useState('100')
   const [zoeken, setZoeken] = useState(false)
@@ -49,7 +46,6 @@ export function ZoekKvkDialog({ open, onClose, onImported }: { open: boolean; on
     setZoeken(true); setError(''); setResultaten([]); setGeselecteerd(new Set()); setAantalGevonden(null)
     try {
       const params = new URLSearchParams()
-      if (sbi) params.set('sbi', sbi)
       if (plaats) params.set('plaats', plaats)
       if (naam) params.set('naam', naam)
       if (radius) params.set('radius', radius)
@@ -96,12 +92,26 @@ export function ZoekKvkDialog({ open, onClose, onImported }: { open: boolean; on
       <div className="space-y-4">
         {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
 
-        {/* Zoekvorm */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <div className="col-span-2">
-            <Select id="sbi" label="Sector (SBI-code)" value={sbi} onChange={e => setSbi((e.target as HTMLSelectElement).value)} options={SBI_OPTIES} />
+        {/* Sector presets */}
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Snelle sector-keuze (vult naam-veld in)</label>
+          <div className="flex flex-wrap gap-1.5">
+            {SECTOR_PRESETS.map(s => (
+              <button
+                key={s.value}
+                type="button"
+                onClick={() => setNaam(s.value)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${naam === s.value ? 'bg-[#00a66e] text-white border-[#00a66e]' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'}`}
+              >
+                {s.label}
+              </button>
+            ))}
           </div>
-          <Input id="naam" label="Naam bevat (optioneel)" value={naam} onChange={e => setNaam(e.target.value)} placeholder="bijv. bouw" />
+        </div>
+
+        {/* Zoekvorm */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Input id="naam" label="Naam bevat" value={naam} onChange={e => setNaam(e.target.value)} placeholder="bijv. bouwbedrijf" />
           <Input id="plaats" label="Plaats (optioneel)" value={plaats} onChange={e => setPlaats(e.target.value)} placeholder="bijv. Zaandam" />
           <Select id="radius" label="Straal vanaf Wormerveer" value={radius} onChange={e => setRadius((e.target as HTMLSelectElement).value)} options={[
             { value: '0', label: 'Geen (heel NL)' },

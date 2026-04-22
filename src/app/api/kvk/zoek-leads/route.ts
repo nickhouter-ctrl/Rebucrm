@@ -52,7 +52,6 @@ async function postcodeNaarLatLng(postcode: string): Promise<{ lat: number; lng:
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const sbi = searchParams.get('sbi') || ''
   const naamFilter = searchParams.get('naam') || ''
   const plaats = searchParams.get('plaats') || ''
   const radiusKm = parseInt(searchParams.get('radius') || '0', 10)
@@ -82,7 +81,6 @@ export async function GET(request: NextRequest) {
       resultatenPerPagina: '100',
       type: 'hoofdvestiging',
     })
-    if (sbi) params.set('sbi', sbi)
     if (plaats) params.set('plaats', plaats)
     if (naamFilter) params.set('naam', naamFilter)
 

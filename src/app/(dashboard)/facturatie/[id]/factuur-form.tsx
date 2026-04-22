@@ -130,7 +130,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
         title={isNew ? 'Nieuwe factuur' : `Factuur ${factuur?.factuurnummer}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.push('/facturatie')}><ArrowLeft className="h-4 w-4" />Terug</Button>
+            <Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>
             {!isNew && (
               <>
                 <a href={`/api/pdf/factuur/${factuur?.id}`} target="_blank" rel="noopener noreferrer">
