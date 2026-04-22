@@ -327,20 +327,25 @@ export function StapControleren({
           }
         }
 
-        // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|[\d.,]+\s*EUR?\b)$/i
-        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$|^Raam$)/i
-        const priceAmountPattern = /^[\d\s.,]+$/
-        const priceLabels = txtItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
+        // Multi-taal price-hiding (NL/PL/DE/EN/FR) + fail-safe bottom wipe
+        const priceLabelPattern = /netto|bruto|prijs|prix|preis|price|deurprijs|kosztorys|cena|wartos[cz]|razem|suma|total|totaal|ges\.?amt|eindtotaal|sub\s*totaal|subtotal|excl\s*btw|incl\s*btw|btw/i
+        const currencyWordPattern = /\b(EUR|€|PLN|zł|USD|\$|GBP|£)\b/i
+        const numericPricePattern = /^\s*(?:€|EUR|PLN|zł|\$)?\s*[\d][\d\s.,]*(?:[.,]\d{2})?\s*(?:€|EUR|PLN|zł|\$)?\s*$/i
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|Cena|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)?\b)$/i
+
+        const priceLabels = txtItems.filter((ti: { str: string }) => priceLabelPattern.test(ti.str) || currencyWordPattern.test(ti.str))
 
         for (const ti of txtItems) {
-          const shouldHide = priceTextPattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)
-          const isNearPriceLabel = priceAmountPattern.test(ti.str) && ti.str.length >= 3 && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 200 && Math.abs(pl.cy - ti.cy) < 40
+          const str = ti.str
+          const matchesLabel = priceLabelPattern.test(str) || priceTextPattern.test(str) || currencyWordPattern.test(str)
+          const looksNumeric = numericPricePattern.test(str) && /\d/.test(str) && str.replace(/\D/g, '').length >= 2
+          const isBottomZone = ti.cy > h * 0.65
+          const nearLabel = looksNumeric && priceLabels.some(
+            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 260 && Math.abs(pl.cy - ti.cy) < 50
           )
-          if (shouldHide || isNearPriceLabel) {
+          if (matchesLabel || nearLabel || (isBottomZone && looksNumeric) || /geen\s*garantie/i.test(str)) {
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
+            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 28)
           }
         }
 
@@ -354,6 +359,17 @@ export function StapControleren({
             const blockLeft = Math.min(raamItem?.cx ?? w, totaalItem?.cx ?? w) - 40
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, blockLeft), topY, w - blockLeft, botY - topY)
+          }
+        }
+
+        // FAIL-SAFE: onderste 10% van de pagina volledig wit + elke tekstregel in onderste 18%
+        const bottomCutoff = Math.floor(h * 0.90)
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
+        for (const ti of txtItems) {
+          if (ti.cy > h * 0.82) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(0, ti.cy - 18, w, 30)
           }
         }
 

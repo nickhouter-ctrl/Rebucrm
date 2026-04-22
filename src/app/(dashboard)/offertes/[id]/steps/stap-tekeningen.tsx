@@ -280,22 +280,37 @@ export function StapTekeningen({
           }
         }
 
-        // Hide supplier price text for ALL suppliers (Gealan, Schuco, EKo4u)
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|[\d.,]+\s*EUR?\b)$/i
-        const priceLinePattern = /(?:€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Prijs\s*TOT|Deurprijs|Prijs\s*van\s*het\s*element|^Totaal$|^Raam$)/i
-        // Also hide standalone price amounts near price labels (within 40px vertically)
-        const priceAmountPattern = /^[\d\s.,]+$/
-        const priceLabels = textItems.filter((ti: { str: string }) => priceLinePattern.test(ti.str))
+        // Hide supplier price text voor ALLE leveranciers (NL/PL/DE/EN/FR) — meertalig
+        // en bevat prijs-labels, currency-symbolen én generieke prijs-woorden.
+        const priceLabelPattern = /netto|bruto|prijs|prix|preis|price|deurprijs|kosztorys|cena|wartos[cz]|razem|suma|total|totaal|ges\.?amt|eindtotaal|sub\s*totaal|subtotal|excl\s*btw|incl\s*btw|netto\s*totaal|btw/i
+        const currencyWordPattern = /\b(EUR|€|PLN|zł|USD|\$|GBP|£)\b/i
+        // Numeriek: 123,45 / 1.234,56 / 1,234.56 / 1 234.56 — evt met €/EUR/PLN
+        const numericPricePattern = /^\s*(?:€|EUR|PLN|zł|\$)?\s*[\d][\d\s.,]*(?:[.,]\d{2})?\s*(?:€|EUR|PLN|zł|\$)?\s*$/i
+        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|Cena|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)?\b)$/i
+
+        const priceLabels = textItems.filter((ti: { str: string }) => priceLabelPattern.test(ti.str) || currencyWordPattern.test(ti.str))
+
+        function wipe(x: number, y: number, rw: number, rh: number) {
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(Math.max(0, x), Math.max(0, y), Math.min(w - Math.max(0, x), rw), rh)
+        }
 
         for (const ti of textItems) {
-          const shouldHide = priceTextPattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)
-          // Hide standalone numbers that are near a price label (same column, close vertically)
-          const isNearPriceLabel = priceAmountPattern.test(ti.str) && ti.str.length >= 3 && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 200 && Math.abs(pl.cy - ti.cy) < 40
+          const str = ti.str
+          const matchesLabel = priceLabelPattern.test(str) || priceTextPattern.test(str) || currencyWordPattern.test(str)
+          const looksNumeric = numericPricePattern.test(str) && /\d/.test(str) && str.replace(/\D/g, '').length >= 2
+          // In onderste 35% van pagina: elk numeriek item = verdacht = wit
+          const isBottomZone = ti.cy > h * 0.65
+          const nearLabel = looksNumeric && priceLabels.some(
+            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 260 && Math.abs(pl.cy - ti.cy) < 50
           )
-          if (shouldHide || isNearPriceLabel) {
-            ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 5), ti.cy - 14, w - ti.cx + 10, 20)
+          const hide = matchesLabel
+            || nearLabel
+            || (isBottomZone && looksNumeric)
+            || /geen\s*garantie/i.test(str)
+          if (hide) {
+            // Wis ruim: van item helemaal naar rechts, 26px hoog
+            wipe(ti.cx - 8, ti.cy - 18, w - ti.cx + 12, 28)
           }
         }
 
@@ -333,6 +348,21 @@ export function StapTekeningen({
           )
           if (beschrijvingItem) {
             cropBottom = Math.max(cropTop + 100, beschrijvingItem.cy - 20)
+          }
+        }
+
+        // FAIL-SAFE: bepaal de onderkant van het tekening-gebied (laatste grote afbeelding/tabelline)
+        // en overschrijf alles DAARONDER volledig wit. Voorkomt dat elke niet-afgevangen
+        // leveranciersprijs nog ergens zichtbaar is. Criterium: na het laatste item met
+        // substantieel tekeninghoofd, wis alles t/m cropBottom.
+        const bottomCutoff = Math.min(cropBottom, Math.floor(h * 0.90))
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
+        // Bonus: extra brede wipe van alle resterende tekst-items in onderste 15%
+        for (const ti of textItems) {
+          if (ti.cy > h * 0.82) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(0, ti.cy - 18, w, 30)
           }
         }
         const cropH = cropBottom - cropTop
