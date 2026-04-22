@@ -1367,14 +1367,19 @@ export async function syncSnelstartBetalingen() {
 
     const huidigBetaald = Number(f.betaald_bedrag || 0)
     const huidigOpen = f.snelstart_openstaand == null ? null : Number(f.snelstart_openstaand)
+    // SnelStart vervaldatum overnemen zodat 'achterstallig'-berekening matcht
+    const ssVervaldatum = ss.vervaldatum ? ss.vervaldatum.slice(0, 10) : null
     const statusChanged = nieuweStatus !== f.status
     const betaaldChanged = Math.abs(huidigBetaald - betaaldSS) > 0.01
     const openChanged = huidigOpen == null || Math.abs(huidigOpen - openstaandSS) > 0.01
-    if (!statusChanged && !betaaldChanged && !openChanged) continue
+    const vervaldatumChanged = ssVervaldatum && ssVervaldatum !== f.vervaldatum
+    if (!statusChanged && !betaaldChanged && !openChanged && !vervaldatumChanged) continue
 
+    const upd: Record<string, unknown> = { betaald_bedrag: betaaldSS, status: nieuweStatus, snelstart_openstaand: openstaandSS }
+    if (vervaldatumChanged) upd.vervaldatum = ssVervaldatum
     const { error } = await supabaseAdmin
       .from('facturen')
-      .update({ betaald_bedrag: betaaldSS, status: nieuweStatus, snelstart_openstaand: openstaandSS })
+      .update(upd)
       .eq('id', f.id)
     if (error) {
       console.error('Sync update fout', f.factuurnummer, error.message)

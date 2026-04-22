@@ -49,6 +49,10 @@ for (const f of crm) {
     upd.betaald_bedrag = betaaldSS
     upd.snelstart_openstaand = openSS
   }
+  if (s && s.vervalDatum) {
+    const ssVerv = s.vervalDatum.slice(0, 10)
+    if (ssVerv !== f.vervaldatum) upd.vervaldatum = ssVerv
+  }
   if (nieuweStatus !== f.status) upd.status = nieuweStatus
   if (Object.keys(upd).length > 0) {
     await sb.from('facturen').update(upd).eq('id', f.id)
