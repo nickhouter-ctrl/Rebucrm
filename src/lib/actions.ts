@@ -1384,14 +1384,24 @@ export async function syncSnelstartBetalingen() {
   }
 
   // Push CRM facturen die in SnelStart ontbreken (orphans) — zodat CRM én SS hetzelfde tonen.
-  // Alleen 'verzonden' / 'deels_betaald' / 'betaald' / 'vervallen' facturen zonder snelstart_boeking_id.
+  // ALLEEN nieuwe facturen (vanaf F-2026-00166) worden gepusht. Oudere CRM-facturen
+  // zitten al in SnelStart onder andere nummer-format (2024-xx, 2023-xx) en moeten niet
+  // opnieuw gepusht worden.
   let gepushtNieuw = 0
   const pushErrors: string[] = []
-  const pushbaar = crmFacturen.filter(f =>
-    niet_gevonden.includes(f.factuurnummer) &&
-    !f.snelstart_boeking_id &&
-    ['verzonden', 'deels_betaald', 'betaald', 'vervallen'].includes(f.status)
-  )
+  const pushbaar = crmFacturen.filter(f => {
+    if (!niet_gevonden.includes(f.factuurnummer)) return false
+    if (f.snelstart_boeking_id) return false
+    if (!['verzonden', 'deels_betaald', 'betaald', 'vervallen'].includes(f.status)) return false
+    // Alleen F-YYYY-NNNNN met jaar >= 2026 en nummer >= 166
+    const m = f.factuurnummer.match(/^F-(\d{4})-0*(\d+)$/)
+    if (!m) return false
+    const jaar = parseInt(m[1])
+    const nr = parseInt(m[2])
+    if (jaar < 2026) return false
+    if (jaar === 2026 && nr < 166) return false
+    return true
+  })
   for (const f of pushbaar) {
     try {
       // Reset gefaalde sync-stempel zodat pushFactuurToSnelStart opnieuw probeert
