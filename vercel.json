@@ -6,6 +6,10 @@
     {
       "path": "/api/email/sync",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/snelstart/sync",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

@@ -278,6 +278,47 @@ export async function findVerkoopboekingByFactuurnummer(factuurnummer: string): 
   return null
 }
 
+// ---------- Openstaand / betaling sync ----------
+
+export interface SnelStartFactuurStatus {
+  factuurnummer: string
+  factuurBedrag: number
+  openstaand: number
+  boekingsDatum?: string
+  vervaldatum?: string
+  gecrediteerd?: boolean
+}
+
+// Haalt ALLE verkoopfacturen op met hun openstaand-bedrag.
+// SnelStart paginatie via $top/$skip; max 100 per call.
+export async function listAllVerkoopfacturen(): Promise<SnelStartFactuurStatus[]> {
+  const all: SnelStartFactuurStatus[] = []
+  for (let skip = 0; skip < 10000; skip += 100) {
+    const list = await snelstartFetch<Array<{
+      factuurnummer: string
+      factuurBedrag?: number
+      openstaand?: number
+      boekingsDatum?: string
+      vervaldatum?: string
+      gecrediteerd?: boolean
+    }>>(`/verkoopfacturen?$top=100&$skip=${skip}`)
+    if (!Array.isArray(list) || list.length === 0) break
+    for (const v of list) {
+      if (!v.factuurnummer) continue
+      all.push({
+        factuurnummer: v.factuurnummer,
+        factuurBedrag: v.factuurBedrag ?? 0,
+        openstaand: v.openstaand ?? 0,
+        boekingsDatum: v.boekingsDatum,
+        vervaldatum: v.vervaldatum,
+        gecrediteerd: v.gecrediteerd,
+      })
+    }
+    if (list.length < 100) break
+  }
+  return all
+}
+
 // ---------- High-level: sync relatie + post factuur ----------
 
 export function isSnelStartEnabled(): boolean {

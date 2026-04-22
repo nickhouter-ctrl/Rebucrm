@@ -1292,6 +1292,112 @@ export async function pushFactuurToSnelStart(factuurId: string) {
   return { success: true, boekingId: boeking.id }
 }
 
+// Haalt uit SnelStart de openstaande bedragen op en update betaald_bedrag + status
+// in CRM. Facturen die in SnelStart op 0 openstaan worden hier als 'betaald' gemarkeerd,
+// gedeeltelijk betaalde facturen als 'deels_betaald', overige behouden status tenzij
+// vervaldatum verstreken is (dan 'vervallen').
+export async function syncSnelstartBetalingen() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { isSnelStartEnabled, listAllVerkoopfacturen } = await import('@/lib/snelstart')
+  if (!isSnelStartEnabled()) return { error: 'SnelStart niet geconfigureerd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  // Alle facturen uit CRM die een factuurnummer hebben (ongeacht sync status)
+  const crmFacturen = await fetchAllRows<{
+    id: string; factuurnummer: string; totaal: number; betaald_bedrag: number | null;
+    status: string; vervaldatum: string | null; snelstart_boeking_id: string | null
+  }>((from, to) =>
+    supabaseAdmin
+      .from('facturen')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id')
+      .eq('administratie_id', adminId)
+      .not('factuurnummer', 'is', null)
+      .range(from, to)
+  )
+
+  // SnelStart lijst met openstaand bedragen per factuurnummer
+  let ssFacturen: { factuurnummer: string; factuurBedrag: number; openstaand: number; gecrediteerd?: boolean }[] = []
+  try {
+    ssFacturen = await listAllVerkoopfacturen()
+  } catch (err) {
+    return { error: 'SnelStart ophalen mislukt: ' + (err instanceof Error ? err.message : String(err)) }
+  }
+
+  const ssMap = new Map(ssFacturen.map(f => [f.factuurnummer, f]))
+
+  const vandaag = new Date().toISOString().slice(0, 10)
+  let updated = 0
+  let betaaldNieuw = 0
+  let deelsBetaaldNieuw = 0
+  let vervallenNieuw = 0
+  const niet_gevonden: string[] = []
+
+  for (const f of crmFacturen) {
+    if (f.status === 'concept' || f.status === 'gecrediteerd') continue
+    const ss = ssMap.get(f.factuurnummer)
+    if (!ss) {
+      niet_gevonden.push(f.factuurnummer)
+      continue
+    }
+
+    const totaal = Number(f.totaal || 0)
+    const openstaandSS = Math.max(0, Number(ss.openstaand || 0))
+    const betaaldSS = Math.max(0, Math.round((totaal - openstaandSS) * 100) / 100)
+
+    // Status afleiden uit SnelStart openstaand
+    let nieuweStatus = f.status
+    if (ss.gecrediteerd) {
+      nieuweStatus = 'gecrediteerd'
+    } else if (openstaandSS <= 0.01) {
+      nieuweStatus = 'betaald'
+    } else if (betaaldSS > 0.01) {
+      nieuweStatus = 'deels_betaald'
+    } else if (f.vervaldatum && f.vervaldatum < vandaag) {
+      nieuweStatus = 'vervallen'
+    } else if (f.status === 'vervallen' || f.status === 'deels_betaald' || f.status === 'betaald') {
+      // Status resetten naar verzonden als betaald_bedrag op 0 is maar eerder anders was
+      nieuweStatus = 'verzonden'
+    }
+
+    const huidigBetaald = Number(f.betaald_bedrag || 0)
+    const statusChanged = nieuweStatus !== f.status
+    const betaaldChanged = Math.abs(huidigBetaald - betaaldSS) > 0.01
+    if (!statusChanged && !betaaldChanged) continue
+
+    const { error } = await supabaseAdmin
+      .from('facturen')
+      .update({ betaald_bedrag: betaaldSS, status: nieuweStatus })
+      .eq('id', f.id)
+    if (error) {
+      console.error('Sync update fout', f.factuurnummer, error.message)
+      continue
+    }
+    updated++
+    if (statusChanged) {
+      if (nieuweStatus === 'betaald') betaaldNieuw++
+      else if (nieuweStatus === 'deels_betaald') deelsBetaaldNieuw++
+      else if (nieuweStatus === 'vervallen') vervallenNieuw++
+    }
+  }
+
+  revalidatePath('/facturatie')
+  revalidatePath('/')
+
+  return {
+    success: true,
+    gecontroleerd: crmFacturen.length,
+    gevondenInSnelstart: crmFacturen.length - niet_gevonden.length,
+    bijgewerkt: updated,
+    betaaldGeworden: betaaldNieuw,
+    deelsBetaaldGeworden: deelsBetaaldNieuw,
+    vervallenGeworden: vervallenNieuw,
+    nietGevonden: niet_gevonden.slice(0, 20),
+  }
+}
+
 export async function generateBetaallink(factuurId: string) {
   const supabase = await createClient()
 

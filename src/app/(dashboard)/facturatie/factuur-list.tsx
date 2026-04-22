@@ -10,7 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban } from 'lucide-react'
+import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw } from 'lucide-react'
+import { syncSnelstartBetalingen } from '@/lib/actions'
+import { showToast } from '@/components/ui/toast'
 
 interface Factuur {
   id: string
@@ -124,9 +126,28 @@ type TabType = 'alle' | 'openstaand' | 'per-klus'
 export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]; ordersMetStatus: OrderMetStatus[] }) {
   const router = useRouter()
   const [tab, setTab] = useState<TabType>('alle')
+  const [syncing, setSyncing] = useState(false)
 
   const openstaandFacturen = facturen.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
+
+  async function handleSyncSnelstart() {
+    if (syncing) return
+    setSyncing(true)
+    try {
+      const res = await syncSnelstartBetalingen()
+      if (res && 'error' in res && res.error) {
+        showToast(res.error, 'error')
+      } else if (res && 'success' in res && res.success) {
+        showToast(`SnelStart sync klaar: ${res.bijgewerkt} facturen bijgewerkt (${res.betaaldGeworden} betaald)`, 'success')
+        router.refresh()
+      }
+    } catch (err) {
+      showToast('Sync mislukt: ' + (err instanceof Error ? err.message : String(err)), 'error')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   const tabs: { key: TabType; label: string; count?: number }[] = [
     { key: 'alle', label: 'Alle facturen' },
@@ -140,10 +161,16 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         title="Facturatie"
         description="Beheer uw facturen"
         actions={
-          <Button onClick={() => router.push('/facturatie/nieuw')}>
-            <Plus className="h-4 w-4" />
-            Nieuwe factuur
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={handleSyncSnelstart} disabled={syncing}>
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Bezig...' : 'Sync SnelStart'}
+            </Button>
+            <Button onClick={() => router.push('/facturatie/nieuw')}>
+              <Plus className="h-4 w-4" />
+              Nieuwe factuur
+            </Button>
+          </div>
         }
       />
 
