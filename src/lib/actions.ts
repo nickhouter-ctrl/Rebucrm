@@ -2065,13 +2065,13 @@ export async function getDashboardData() {
   // (admins zien alle open taken zodat ze overzicht houden)
   const profielNaamMap = new Map(profielenData.map(p => [p.id, p.naam]))
   const mijnTaken = takenData
-    .filter(t => t.status !== 'afgerond' && (isAdmin || t.toegewezen_aan === user.id))
+    .filter(t => t.status !== 'afgerond' && t.toegewezen_aan === user.id)
     .map(t => ({
       id: t.id,
       titel: t.titel,
       deadline: t.deadline,
       prioriteit: t.prioriteit,
-      toegewezen_naam: isAdmin ? (profielNaamMap.get(t.toegewezen_aan) || null) : null,
+      toegewezen_naam: null,
       bedrag: (t.offerte as unknown as { totaal: number } | null)?.totaal || null,
       relatie_naam: (t.relatie as unknown as { bedrijfsnaam: string } | null)?.bedrijfsnaam || null,
     }))
