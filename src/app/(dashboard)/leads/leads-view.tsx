@@ -13,6 +13,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Plus, UserSearch, Loader2, Phone, Upload } from 'lucide-react'
 import { createLead } from '@/lib/actions'
 import { ImportLeadsDialog } from './import-leads-dialog'
+import { ZoekKvkDialog } from './zoek-kvk-dialog'
 import { KvkSearch } from '@/components/kvk-search'
 import { formatDateShort } from '@/lib/utils'
 
@@ -73,6 +74,8 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [leadForm, setLeadForm] = useState({ bedrijfsnaam: '', contactpersoon: '', telefoon: '', email: '', plaats: '', adres: '', postcode: '', kvk_nummer: '', notities: '' })
   const [importOpen, setImportOpen] = useState(false)
+  const [kvkOpen, setKvkOpen] = useState(false)
+  const [kvkImportResult, setKvkImportResult] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -102,6 +105,10 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
         description="Beheer uw verkooppijplijn"
         actions={
           <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setKvkOpen(true)}>
+              <UserSearch className="h-4 w-4" />
+              Zoek in KVK
+            </Button>
             <Button variant="secondary" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4" />
               Importeren
@@ -231,6 +238,17 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
       </Dialog>
 
       <ImportLeadsDialog open={importOpen} onClose={() => { setImportOpen(false); router.refresh() }} />
+      <ZoekKvkDialog open={kvkOpen} onClose={() => setKvkOpen(false)} onImported={(aantal) => {
+        setKvkImportResult(`${aantal} lead${aantal === 1 ? '' : 's'} toegevoegd vanuit KVK`)
+        setKvkOpen(false)
+        router.refresh()
+        setTimeout(() => setKvkImportResult(null), 5000)
+      }} />
+      {kvkImportResult && (
+        <div className="fixed bottom-6 right-6 bg-[#00a66e] text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50">
+          ✓ {kvkImportResult}
+        </div>
+      )}
     </div>
   )
 }

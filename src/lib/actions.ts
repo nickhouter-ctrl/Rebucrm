@@ -5242,6 +5242,56 @@ export async function getLeadTaken(leadId: string) {
   return data || []
 }
 
+export async function bulkCreateLeadsFromKvk(kandidaten: Array<{
+  kvkNummer: string
+  naam: string
+  adres: string
+  postcode: string
+  plaats: string
+  email?: string
+  telefoon?: string
+}>) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  // Filter dubbele kvk-nummers die toch al bestaan (safety)
+  const kvkNrs = kandidaten.map(k => k.kvkNummer).filter(Boolean)
+  const bestaandKvk = new Set<string>()
+  if (kvkNrs.length > 0) {
+    const { data: r } = await supabase.from('relaties').select('kvk_nummer').eq('administratie_id', adminId).in('kvk_nummer', kvkNrs)
+    for (const x of r || []) if (x.kvk_nummer) bestaandKvk.add(String(x.kvk_nummer))
+    const { data: l } = await supabase.from('leads').select('bedrijfsnaam').eq('administratie_id', adminId)
+    for (const x of l || []) if (x.bedrijfsnaam) bestaandKvk.add(x.bedrijfsnaam.toLowerCase())
+  }
+
+  const records = kandidaten
+    .filter(k => !bestaandKvk.has(k.kvkNummer) && !bestaandKvk.has((k.naam || '').toLowerCase()))
+    .map(k => ({
+      administratie_id: adminId,
+      bedrijfsnaam: k.naam,
+      adres: k.adres || null,
+      postcode: k.postcode || null,
+      plaats: k.plaats || null,
+      email: k.email || null,
+      telefoon: k.telefoon || null,
+      bron: 'kvk',
+    }))
+
+  if (records.length === 0) return { success: true, ingevoegd: 0 }
+
+  let ingevoegd = 0
+  for (let i = 0; i < records.length; i += 100) {
+    const batch = records.slice(i, i + 100)
+    const { error } = await supabase.from('leads').insert(batch)
+    if (error) return { error: error.message, ingevoegd }
+    ingevoegd += batch.length
+  }
+  revalidatePath('/leads')
+  revalidatePath('/relatiebeheer/leads')
+  return { success: true, ingevoegd }
+}
+
 export async function createLead(formData: FormData) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
