@@ -87,7 +87,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     if (!taak || !confirm('Verwijderen?')) return
     const result = await deleteTaak(taak.id as string)
     if (result.error) setError(result.error)
-    else router.push('/taken')
+    else navigateAfterSave()
   }
 
   const [afgerondState, setAfgerondState] = useState((taak?.status as string) === 'afgerond')

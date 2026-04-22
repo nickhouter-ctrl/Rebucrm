@@ -375,7 +375,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   dertigDagenGeleden.setDate(dertigDagenGeleden.getDate() - 30)
   const verkoopkansenZonderOfferte = (data.openVerkoopkansen || []).filter(v => !v.heeft_offerte && v.bron !== 'import' && new Date(v.created_at) > dertigDagenGeleden)
   if (verkoopkansenZonderOfferte.length > 0) {
-    notifications.push({ label: 'verkoopkansen zonder offerte', href: '#verkoopkansen', count: verkoopkansenZonderOfferte.length })
+    notifications.push({ label: 'verkoopkansen zonder offerte', href: '/projecten?filter=zonder_offerte', count: verkoopkansenZonderOfferte.length })
   }
 
   const conversieGraad = data.totaalOffertes > 0

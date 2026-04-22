@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/ui/data-table'
@@ -37,11 +38,18 @@ const statusFilters = [
 
 export function ProjectList({ projecten }: { projecten: Project[] }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const filter = searchParams.get('filter')
   const [statusFilter, setStatusFilter] = useState('actief')
 
-  const gefilterd = statusFilter === 'alle'
+  let gefilterd = statusFilter === 'alle'
     ? projecten
     : projecten.filter(p => p.status === statusFilter)
+
+  // Extra filter via URL: ?filter=zonder_offerte
+  if (filter === 'zonder_offerte') {
+    gefilterd = projecten.filter(p => p.status === 'actief' && p.aantal_offertes === 0)
+  }
 
   async function handleDelete(e: React.MouseEvent, project: Project) {
     e.stopPropagation()
