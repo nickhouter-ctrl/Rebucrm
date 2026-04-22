@@ -5331,18 +5331,36 @@ export async function bulkCreateLeadsFromKvk(kandidaten: Array<{
     for (const x of l || []) if (x.bedrijfsnaam) bestaandKvk.add(x.bedrijfsnaam.toLowerCase())
   }
 
-  const records = kandidaten
-    .filter(k => !bestaandKvk.has(k.kvkNummer) && !bestaandKvk.has((k.naam || '').toLowerCase()))
-    .map(k => ({
+  // Verrijk met email/telefoon uit KVK basisprofiel voor elke kandidaat
+  const gefilterd = kandidaten.filter(k => !bestaandKvk.has(k.kvkNummer) && !bestaandKvk.has((k.naam || '').toLowerCase()))
+  const apiKey = process.env.KVK_API_KEY
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+
+  const records: Record<string, unknown>[] = []
+  for (const k of gefilterd) {
+    let email = k.email || null
+    let telefoon = k.telefoon || null
+    if (apiKey && (!email || !telefoon)) {
+      try {
+        const r = await fetch(`${appUrl}/api/kvk/detail?kvkNummer=${encodeURIComponent(k.kvkNummer)}`)
+        if (r.ok) {
+          const detail = await r.json() as { email?: string; telefoon?: string }
+          if (!email && detail.email) email = detail.email
+          if (!telefoon && detail.telefoon) telefoon = detail.telefoon
+        }
+      } catch {}
+    }
+    records.push({
       administratie_id: adminId,
       bedrijfsnaam: k.naam,
       adres: k.adres || null,
       postcode: k.postcode || null,
       plaats: k.plaats || null,
-      email: k.email || null,
-      telefoon: k.telefoon || null,
+      email,
+      telefoon,
       bron: 'kvk',
-    }))
+    })
+  }
 
   if (records.length === 0) return { success: true, ingevoegd: 0 }
 

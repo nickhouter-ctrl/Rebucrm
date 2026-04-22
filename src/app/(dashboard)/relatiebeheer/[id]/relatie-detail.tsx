@@ -140,7 +140,19 @@ interface Props {
 export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  const [tab, setTab] = useState<'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'>('overzicht')
+  type TabKey = 'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
+  // Initiele tab uit URL ?tab=... zodat back-navigatie de juiste tab laat zien
+  const initialTab = (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') as TabKey) || 'overzicht'
+  const [tab, setTabState] = useState<TabKey>(initialTab)
+  function setTab(next: TabKey) {
+    setTabState(next)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      if (next === 'overzicht') url.searchParams.delete('tab')
+      else url.searchParams.set('tab', next)
+      window.history.replaceState({}, '', url.toString())
+    }
+  }
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')

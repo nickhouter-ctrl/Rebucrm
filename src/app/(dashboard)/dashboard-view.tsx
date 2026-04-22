@@ -6,11 +6,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail } from 'lucide-react'
+import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 
 interface TePlannenOrder {
@@ -316,6 +316,18 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     e.stopPropagation()
     setTakenLijst(prev => prev.filter(t => t.id !== id))
     await completeTaak(id)
+  }
+
+  async function handleDeleteTaak(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!confirm('Taak verwijderen?')) return
+    setTakenLijst(prev => prev.filter(t => t.id !== id))
+    await deleteTaak(id)
+  }
+
+  function handleEditTaak(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    router.push(`/taken/${id}`)
   }
 
   async function handleConvertToFactuur(offerteId: string, splitType: 'volledig' | 'split', percentage = 70) {
@@ -966,6 +978,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Bedrag</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Deadline</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Prioriteit</th>
+                  <th className="w-16 px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
@@ -988,6 +1001,12 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                         ) : <span className="text-sm text-gray-300">-</span>}
                       </td>
                       <td className="px-5 py-3"><Badge status={t.prioriteit} /></td>
+                      <td className="px-3 py-3 text-right">
+                        <div className="flex items-center gap-1 justify-end">
+                          <button onClick={(e) => handleEditTaak(t.id, e)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken"><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={(e) => handleDeleteTaak(t.id, e)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen"><Trash2 className="h-3.5 w-3.5" /></button>
+                        </div>
+                      </td>
                     </tr>
                   )
                 })}
@@ -1006,11 +1025,13 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                           {toonToegewezen && t.toegewezen_naam && <p className="text-xs text-gray-400">{t.toegewezen_naam}</p>}
                           {t.relatie_naam && <p className="text-xs text-gray-400">{t.relatie_naam}</p>}
                         </div>
-                        <div className="shrink-0 text-right">
+                        <div className="shrink-0 text-right flex items-center gap-1">
                           <Badge status={t.prioriteit} />
-                          {t.bedrag && <p className="text-xs font-medium text-gray-900 mt-1">{formatCurrency(t.bedrag)}</p>}
+                          <button onClick={(e) => handleEditTaak(t.id, e)} className="p-1 text-gray-400 hover:text-[#00a66e]"><Pencil className="h-3.5 w-3.5" /></button>
+                          <button onClick={(e) => handleDeleteTaak(t.id, e)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                       </div>
+                      {t.bedrag && <p className="text-xs font-medium text-gray-900">{formatCurrency(t.bedrag)}</p>}
                       {t.deadline && (
                         <p className={`text-xs mt-1 flex items-center gap-1 ${deadlineDagen !== null && deadlineDagen < 0 ? 'text-red-600' : deadlineDagen !== null && deadlineDagen <= 2 ? 'text-amber-600' : 'text-gray-400'}`}>
                           <Clock className="h-3 w-3" />{formatDateShort(t.deadline)}

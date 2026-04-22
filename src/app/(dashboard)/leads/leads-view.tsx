@@ -10,10 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Dialog } from '@/components/ui/dialog'
-import { Plus, UserSearch, Loader2, Phone, Upload } from 'lucide-react'
+import { Plus, UserSearch, Loader2, Phone, Upload, Mail } from 'lucide-react'
 import { createLead } from '@/lib/actions'
 import { ImportLeadsDialog } from './import-leads-dialog'
 import { ZoekKvkDialog } from './zoek-kvk-dialog'
+import { BulkMailDialog } from './bulk-mail-dialog'
 import { KvkSearch } from '@/components/kvk-search'
 import { formatDateShort } from '@/lib/utils'
 
@@ -76,6 +77,8 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
   const [importOpen, setImportOpen] = useState(false)
   const [kvkOpen, setKvkOpen] = useState(false)
   const [kvkImportResult, setKvkImportResult] = useState<string | null>(null)
+  const [bulkMailOpen, setBulkMailOpen] = useState(false)
+  const [mailResult, setMailResult] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -104,7 +107,11 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
         title="Leads"
         description="Beheer uw verkooppijplijn"
         actions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="secondary" onClick={() => setBulkMailOpen(true)} disabled={filtered.length === 0}>
+              <Mail className="h-4 w-4" />
+              Mail naar {filtered.length}
+            </Button>
             <Button variant="secondary" onClick={() => setKvkOpen(true)}>
               <UserSearch className="h-4 w-4" />
               Zoek in KVK
@@ -247,6 +254,23 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
       {kvkImportResult && (
         <div className="fixed bottom-6 right-6 bg-[#00a66e] text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50">
           ✓ {kvkImportResult}
+        </div>
+      )}
+
+      <BulkMailDialog
+        open={bulkMailOpen}
+        onClose={() => setBulkMailOpen(false)}
+        leads={filtered}
+        onSent={(aantal) => {
+          setMailResult(`${aantal} mail${aantal === 1 ? '' : 's'} verstuurd`)
+          setBulkMailOpen(false)
+          router.refresh()
+          setTimeout(() => setMailResult(null), 5000)
+        }}
+      />
+      {mailResult && (
+        <div className="fixed bottom-6 right-6 bg-[#00a66e] text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50">
+          ✓ {mailResult}
         </div>
       )}
     </div>

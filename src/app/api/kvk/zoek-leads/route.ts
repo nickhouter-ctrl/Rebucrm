@@ -97,6 +97,9 @@ export async function GET(request: NextRequest) {
     pagina++
   }
 
+  // Blacklist woorden (sluit duidelijk niet-bouw bedrijven uit)
+  const BLACKLIST_WOORDEN = ['computer', 'computerservice', 'automatisering', 'ict', 'software', 'holding', 'beheer', 'makelaar', 'advies', 'consultancy', 'kapper', 'schoonmaak', 'reclame', 'kraan', 'transport', 'taxi', 'horeca', 'restaurant', 'kliniek', 'fysio', 'tandarts', 'uitzend', 'vastgoed', 'verhuur', 'fotograaf', 'juwelier', 'groothandel', 'webdesign']
+
   // Dedup + filter bestaande CRM relaties
   const gezien = new Set<string>()
   const kandidaten: Array<{
@@ -112,6 +115,8 @@ export async function GET(request: NextRequest) {
     gezien.add(r.kvkNummer)
     if (bestaandeKvk.has(r.kvkNummer)) continue
     if (bestaandeNamen.has((r.naam || '').toLowerCase().trim())) continue
+    const naamLower = (r.naam || '').toLowerCase()
+    if (BLACKLIST_WOORDEN.some(w => naamLower.includes(w))) continue
     const a = r.adres?.binnenlandsAdres
     const huisnr = [a?.huisnummer, a?.huisletter, a?.huisnummerToevoeging].filter(Boolean).join('')
     kandidaten.push({
