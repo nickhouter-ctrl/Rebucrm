@@ -263,11 +263,13 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
 
       {/* ====== KOZIJN TEKENING PAGINA'S ====== */}
       {(offerte.kozijnElementen || []).map((element, idx) => {
-        const pages = element.tekeningUrls && element.tekeningUrls.length > 0
+        const realPages = element.tekeningUrls && element.tekeningUrls.length > 0
           ? element.tekeningUrls
           : element.tekeningUrl
             ? [{ url: element.tekeningUrl, pageIndex: 0, totalPages: 1 }]
             : []
+        // Als er geen tekening is, render toch een element-specs pagina zonder afbeelding
+        const pages = realPages.length > 0 ? realPages : [{ url: '', pageIndex: 0, totalPages: 1 }]
 
         return (
           <React.Fragment key={`kozijn-${idx}`}>
