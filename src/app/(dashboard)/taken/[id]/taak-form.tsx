@@ -75,12 +75,15 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   }
 
   async function handleSubmit(formData: FormData) {
+    if (loading) return // double-submit guard
     setLoading(true); setError('')
     if (taak) formData.set('id', taak.id as string)
     formData.set('relatie_id', selectedRelatieId)
     const result = await saveTaak(formData)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else navigateAfterSave((taak?.id as string) || (result.id as string | undefined))
+    if (result.error) { setError(result.error); setLoading(false); return }
+    const { showToast } = await import('@/components/ui/toast')
+    showToast('Taak opgeslagen')
+    navigateAfterSave((taak?.id as string) || (result.id as string | undefined))
   }
 
   async function handleDelete() {

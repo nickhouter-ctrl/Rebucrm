@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
 import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus } from '@/lib/actions'
+import { showToast } from '@/components/ui/toast'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -100,11 +101,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   const project = timeline?.project
 
   async function handleSubmit(formData: FormData) {
+    if (loading) return // double-submit guard
     setLoading(true); setError('')
     if (project) formData.set('id', project.id as string)
     const result = await saveProject(formData)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else if (isNew) router.push('/projecten')
+    if (result.error) { setError(result.error); setLoading(false); return }
+    showToast('Verkoopkans opgeslagen')
+    if (isNew) router.push('/projecten')
     else { setEditing(false); setLoading(false); router.refresh() }
   }
 

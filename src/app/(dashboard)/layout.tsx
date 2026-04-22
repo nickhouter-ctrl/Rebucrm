@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
+import { ToastContainer } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/server'
 
 export const dynamic = 'force-dynamic'
@@ -28,6 +29,7 @@ export default async function DashboardLayout({
         <Header />
         <main className="p-6">{children}</main>
       </div>
+      <ToastContainer />
     </div>
   )
 }
