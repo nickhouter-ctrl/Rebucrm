@@ -1818,18 +1818,20 @@ export async function getTaken() {
     .single()
   const rol = profiel?.rol || 'medewerker'
 
-  let query = supabase
-    .from('taken')
-    .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)')
-    .order('created_at', { ascending: true })
-
-  // Medewerkers zien alleen eigen taken
-  if (rol === 'medewerker') {
-    query = query.eq('toegewezen_aan', user.id)
-  }
-
-  const { data } = await query
-  return { taken: data || [], rol, currentUserId: user.id }
+  // Pagineer via fetchAllRows zodat we niet door Supabase's 1000-rijen limiet worden afgekapt.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const taken = await fetchAllRows<any>((from, to) => {
+    let query = supabase
+      .from('taken')
+      .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)')
+      .order('created_at', { ascending: true })
+      .range(from, to)
+    if (rol === 'medewerker') {
+      query = query.eq('toegewezen_aan', user.id)
+    }
+    return query
+  })
+  return { taken, rol, currentUserId: user.id }
 }
 
 export async function getAgendaLeveringen() {
