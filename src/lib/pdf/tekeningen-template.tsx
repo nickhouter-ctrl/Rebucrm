@@ -73,24 +73,7 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
 
   return (
     <Document>
-      {/* ====== COVER ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={coverBgPath} style={s.fullPageBg} />
-          <View style={s.coverBottomBar}>
-            <View>
-              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5 }}>
-                <Text>TEKENINGEN</Text>
-              </Text>
-              <Text style={{ fontSize: 8, color: COLORS.white, marginTop: 2 }}>
-                {offerte.offertenummer}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </Page>
-
-      {/* ====== ELEMENT PAGINA'S (ZONDER PRIJZEN) ====== */}
+      {/* ====== ELEMENT PAGINA'S (ZONDER PRIJZEN, geen Rebu branding — klant zet er zelf offerte omheen) ====== */}
       {offerte.elementen.map((element, idx) => {
         const pages = element.tekeningUrls && element.tekeningUrls.length > 0
           ? element.tekeningUrls
@@ -127,51 +110,45 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
         )
       })}
 
-      {/* ====== SAMENVATTING + VOORWAARDEN ====== */}
-      <Page size="A4" style={[s.page, s.contentPage]}>
-        <View style={s.contentSidebar} />
-        <Image src={rkIconPath} style={s.watermarkImage} />
-        <View style={s.logoArea}>
-          <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
-        </View>
-
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 0.5, marginBottom: 10 }}>
+      {/* ====== SAMENVATTING (geen Rebu branding — klant voegt eigen offerte toe) ====== */}
+      <Page size="A4" style={[s.page, { padding: 24 }]}>
+        <View style={{ marginBottom: 14 }}>
+          <Text style={{ fontSize: 16, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 0.5, marginBottom: 14 }}>
             SAMENVATTING
           </Text>
 
           {/* Element overzicht tabel */}
-          <View style={{ borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 4, marginBottom: 10 }}>
+          <View style={{ borderWidth: 0.7, borderColor: '#D1D5DB', borderRadius: 4, marginBottom: 14 }}>
             {/* Header */}
-            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderBottomWidth: 0.5, borderBottomColor: '#D1D5DB', paddingVertical: 5, paddingHorizontal: 8 }}>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 3 }}>Element</Text>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 2 }}>Systeem</Text>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 60, textAlign: 'center' }}>Afmeting</Text>
-              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 30, textAlign: 'center' }}>Hvh</Text>
+            <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderBottomWidth: 0.7, borderBottomColor: '#D1D5DB', paddingVertical: 8, paddingHorizontal: 10 }}>
+              <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 3 }}>Element</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text, flex: 2 }}>Systeem</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 85, textAlign: 'center' }}>Afmeting</Text>
+              <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text, width: 40, textAlign: 'center' }}>Hvh</Text>
             </View>
             {/* Rows */}
             {offerte.elementen.map((el, i) => (
-              <View key={`sum-${i}`} style={{ flexDirection: 'row', borderBottomWidth: i < offerte.elementen.length - 1 ? 0.5 : 0, borderBottomColor: '#E5E7EB', paddingVertical: 4, paddingHorizontal: 8 }}>
-                <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 3 }}>{el.naam}{el.type ? ` (${el.type})` : ''}</Text>
-                <Text style={{ fontSize: 7.5, color: COLORS.text, flex: 2 }}>{el.systeem}</Text>
-                <Text style={{ fontSize: 7.5, color: COLORS.text, width: 60, textAlign: 'center' }}>{el.afmetingen}</Text>
-                <Text style={{ fontSize: 7.5, color: COLORS.text, width: 30, textAlign: 'center' }}>{el.hoeveelheid}</Text>
+              <View key={`sum-${i}`} style={{ flexDirection: 'row', borderBottomWidth: i < offerte.elementen.length - 1 ? 0.5 : 0, borderBottomColor: '#E5E7EB', paddingVertical: 7, paddingHorizontal: 10 }}>
+                <Text style={{ fontSize: 10, color: COLORS.text, flex: 3 }}>{el.naam}{el.type ? ` (${el.type})` : ''}</Text>
+                <Text style={{ fontSize: 10, color: COLORS.text, flex: 2 }}>{el.systeem}</Text>
+                <Text style={{ fontSize: 10, color: COLORS.text, width: 85, textAlign: 'center' }}>{el.afmetingen}</Text>
+                <Text style={{ fontSize: 10, color: COLORS.text, width: 40, textAlign: 'center' }}>{el.hoeveelheid}</Text>
               </View>
             ))}
           </View>
 
           {/* Totalen */}
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 30, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 30, marginTop: 6 }}>
             {totaalGewicht > 0 && (
               <View style={{ flexDirection: 'row' }}>
-                <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>Totaal gewicht: </Text>
-                <Text style={{ fontSize: 8, color: COLORS.text }}>{totaalGewicht.toFixed(1).replace('.', ',')} Kg</Text>
+                <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>Totaal gewicht: </Text>
+                <Text style={{ fontSize: 10, color: COLORS.text }}>{totaalGewicht.toFixed(1).replace('.', ',')} Kg</Text>
               </View>
             )}
             {totaalOmtrek > 0 && (
               <View style={{ flexDirection: 'row' }}>
-                <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>Totale omtrek: </Text>
-                <Text style={{ fontSize: 8, color: COLORS.text }}>{(totaalOmtrek / 1000).toFixed(2).replace('.', ',')} m</Text>
+                <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.text }}>Totale omtrek: </Text>
+                <Text style={{ fontSize: 10, color: COLORS.text }}>{(totaalOmtrek / 1000).toFixed(2).replace('.', ',')} m</Text>
               </View>
             )}
           </View>
@@ -179,77 +156,47 @@ export function TekeningenDocument({ offerte }: { offerte: TekeningenData }) {
 
         {/* Voorwaarden tekst */}
         <View style={{ borderTopWidth: 0.5, borderTopColor: '#D1D5DB', paddingTop: 10, marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5 }}>
             Volgens de bepalingen van de Europese Norm vereisen sommige constructies van ramen en deuren het gebruik van veiligheidsglas. Als het ontwerp niet voldoet aan deze eisen, betekent dit dat de klant bewust afziet van het gebruik van veiligheidsglas. In het geval van ongevallen en schade veroorzaakt door het niet naleven van bepalingen van de normen, ligt de verantwoordelijkheid geheel bij de klant.
           </Text>
         </View>
 
         <View style={{ borderTopWidth: 0.5, borderTopColor: '#D1D5DB', paddingTop: 8, marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5, fontFamily: 'Helvetica-Bold' }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5, fontFamily: 'Helvetica-Bold' }}>
             Controleer de bestelling A.U.B. zorgvuldig.
           </Text>
         </View>
 
         <View style={{ marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5 }}>
             Met deze handtekening bevestigt u het akkoord voor de productie.
           </Text>
         </View>
 
         <View style={{ marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5 }}>
             De aangeboden offerte omvat de definitieve afmetingen, kleuren, draai richtingen en accessoires van de producten. Controleer de hoeveelheid artikelen, afmetingen, kleuren, richtingen, beglazingen en de geselecteerde accessoires daarom zorgvuldig.
           </Text>
         </View>
 
         <View style={{ marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5 }}>
             Door uw aanbetaling stemt u in met de definitieve vorm van de aanbieding en met de verkoopvoorwaarden.
           </Text>
         </View>
 
         <View style={{ borderTopWidth: 0.5, borderTopColor: '#D1D5DB', paddingTop: 8, marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5, fontFamily: 'Helvetica-Bold' }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5, fontFamily: 'Helvetica-Bold' }}>
             Wij voldoen aan de norm ISO 9001:2015 i ISO 14001:2015
           </Text>
         </View>
 
         <View style={{ borderTopWidth: 0.5, borderTopColor: '#D1D5DB', paddingTop: 8, marginBottom: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.text, lineHeight: 1.5 }}>
+          <Text style={{ fontSize: 9, color: COLORS.text, lineHeight: 1.5 }}>
             Hoewel wij de grootst mogelijke zorgvuldigheid in acht nemen, hebben wij geen volledige controle over vertragingen m.b.t. de levering. Het gevolg kan zijn van bovenaf opgelegde wettelijke voorschriften die van invloed zijn op de doorstroming van het vervoer, de beschikbaarheid van personeel of andere belemmeringen. Indien wij van dergelijke beperkingen op de hoogte zijn, zullen wij daar z.s.m over informeren. De mogelijke gevolgen voor de tijdigheid van uw bestelling, kunnen hierdoor veranderen. In acht genomen is dat dit over omstandigheden gaat waar wij geen controle over hebben.
           </Text>
         </View>
 
-        <View style={{ borderTopWidth: 0.5, borderTopColor: '#D1D5DB', paddingTop: 8 }}>
-          <Text style={{ fontSize: 7.5, color: COLORS.green, lineHeight: 1.5, fontStyle: 'italic' }}>
-            Op deze offerte en de uiteindelijke overeenkomst zijn de Algemene Voorwaarden van Rebu Kozijnen van toepassing. Deze zijn met de offerte aan u toegezonden alsmede te vinden op www.rebukozijnen.nl/algemene-voorwaarden.
-          </Text>
-        </View>
-
-        <View style={s.footer}>
-          <View style={s.footerCol}>
-            <Text style={s.footerLabel}>{COMPANY.naam}</Text>
-            <Text style={s.footerText}>{COMPANY.adres}</Text>
-            <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
-          </View>
-          <View style={s.footerCol}>
-            <Text style={s.footerText}>{COMPANY.telefoon}</Text>
-            <Text style={s.footerText}>{COMPANY.email}</Text>
-            <Text style={s.footerText}>{COMPANY.website}</Text>
-          </View>
-          <View style={s.footerCol}>
-            <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
-            <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
-            <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
-          </View>
-        </View>
-      </Page>
-
-      {/* ====== ACHTERPAGINA MET FOTO ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={backPagePath} style={s.fullPageBg} />
-        </View>
       </Page>
     </Document>
   )

@@ -292,8 +292,8 @@ export const sharedStyles = StyleSheet.create({
   },
   // Full-page element image (used when specs are on separate page)
   elementImageFullPage: {
-    maxWidth: '100%',
-    height: 520,
+    width: '100%',
+    height: 760,
     objectFit: 'contain' as const,
     marginBottom: 10,
   },
