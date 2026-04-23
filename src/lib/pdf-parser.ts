@@ -171,27 +171,58 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else if (isEkoOkna) {
-    const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
-    while ((match = elementPattern.exec(text)) !== null) {
+    // Vind eerst ALLE element-headers (ongeacht of velden compleet zijn).
+    // Extraheer Hoev/Kleur/Systeem per element sectie zodat geen element
+    // meer geskipt wordt als de velden in andere volgorde staan.
+    const headerPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)/g
+    const headerMatches: { naam: string; idx: number }[] = []
+    let hm
+    while ((hm = headerPattern.exec(text)) !== null) {
+      // Sla duplicates over (bv. als element naam elders in tekst voorkomt als referentie)
+      if (!headerMatches.some(x => x.naam === hm![1] && Math.abs(x.idx - hm!.index) < 50)) {
+        headerMatches.push({ naam: hm[1].trim(), idx: hm.index })
+      }
+    }
+    for (let i = 0; i < headerMatches.length; i++) {
+      const h = headerMatches[i]
+      const sectionEnd = i + 1 < headerMatches.length ? headerMatches[i + 1].idx : text.length
+      const section = text.substring(h.idx, sectionEnd)
+      const hoevMatch = section.match(/Hoev\.\s*:\s*(\d+)/)
+      const kleurMatch = section.match(/Kleur\s*:\s*([\s\S]*?)(?:Systeem\s*:|Afmeting|\n\n)/)
+      const systeemMatch = section.match(/Systeem\s*:\s*([^\n]+)/)
       headers.push({
-        naam: match[1].trim(),
-        hoeveelheid: parseInt(match[2]),
-        systeem: match[4].trim(),
-        kleur: match[3].trim(),
-        idx: match.index,
-        endIdx: match.index + match[0].length,
+        naam: h.naam,
+        hoeveelheid: hoevMatch ? parseInt(hoevMatch[1]) : 1,
+        systeem: systeemMatch ? systeemMatch[1].trim() : '',
+        kleur: kleurMatch ? kleurMatch[1].trim() : '',
+        idx: h.idx,
+        endIdx: h.idx + h.naam.length,
       })
     }
   } else {
-    const elementPattern = /((?:Deur|Element)\s+\d{3})[\s\n]+Hoeveelheid\s*:[\s\n]*(\d+)[\s\n]+Systeem\s*:\s*([\s\S]+?)Kleur\s*:\s*([^\n]+)/g
-    while ((match = elementPattern.exec(text)) !== null) {
+    // Flexibele fallback: vind alle element-headers en extract velden per sectie
+    const headerPattern = /((?:Deur|Element)\s+\d{3})/g
+    const headerMatches: { naam: string; idx: number }[] = []
+    let hm
+    while ((hm = headerPattern.exec(text)) !== null) {
+      if (!headerMatches.some(x => x.naam === hm![1] && Math.abs(x.idx - hm!.index) < 50)) {
+        headerMatches.push({ naam: hm[1].trim(), idx: hm.index })
+      }
+    }
+    for (let i = 0; i < headerMatches.length; i++) {
+      const h = headerMatches[i]
+      const sectionEnd = i + 1 < headerMatches.length ? headerMatches[i + 1].idx : text.length
+      const section = text.substring(h.idx, sectionEnd)
+      const hoevMatch = section.match(/Hoeveelheid\s*:[\s\n]*(\d+)/)
+      const systeemMatch = section.match(/Systeem\s*:\s*([^\n]+)/)
+      const kleurMatch = section.match(/Kleur\s*:\s*([^\n]+)/)
       headers.push({
-        naam: match[1],
-        hoeveelheid: parseInt(match[2]),
-        systeem: match[3].trim(),
-        kleur: match[4].trim(),
-        idx: match.index,
-        endIdx: match.index + match[0].length,
+        naam: h.naam,
+        hoeveelheid: hoevMatch ? parseInt(hoevMatch[1]) : 1,
+        systeem: systeemMatch ? systeemMatch[1].trim() : '',
+        kleur: kleurMatch ? kleurMatch[1].trim() : '',
+        idx: h.idx,
+        endIdx: h.idx + h.naam.length,
       })
     }
   }
