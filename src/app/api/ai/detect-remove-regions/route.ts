@@ -90,7 +90,11 @@ MOET INTACT BLIJVEN (dus NIET in je regions):
 
 Maak de boxes krap-genoeg zodat je ALLEEN prijzen/garantie dekt, met wat marge (~5-10px) om zekerheid. Als je twijfelt of iets een prijs is: inclusief opnemen want zichtbare prijzen zijn ONAANVAARDBAAR. Als iets een dimensie of specs is: NIET opnemen.
 
-**Summary-tabellen onderaan (laatste 25% van de pagina)**: als er een tabel/boxje is met "Totaal elementen", "Totaal offerte/order", "Betaling:", "Eind totaal", "Netto Totaal", "TZ NN%" of "+N stojak", maak de bounding box dan VOL-BREED (van x=0 tot aan pagina-breedte) zodat de volledige kolom verdwijnt — een half-weggewiste tabel is een veel voorkomende fout.
+**KRITIEK — GEEN STREPEN DOOR AANZICHTEN**: box NOOIT een horizontale baan over de volledige pagina-breedte, óók niet onderaan de pagina. Aanzichten (Binnenzicht + Buitenaanzicht boven elkaar) staan vaak aan de linkerkant, terwijl een prijs rechtsbinnen hangt. Een box die over de volledige breedte loopt snijdt de onder-aanzicht tekening kapot. Gebruik daarom een smalle/lokale box (geschat 250-400px breed) rondom alleen de prijs-tabel of het prijs-bedrag zelf. Als je een tabel over hele breedte ziet maar weet dat een tekening er doorheen loopt: beperk de box tot de rechterhelft.
+
+**Complete aanzichten verplicht**: boven-aanzicht EN onder-aanzicht moeten volledig zichtbaar blijven. "Boven: Binnenzicht / Onder: Buitenaanzicht" labels zijn DEEL van het aanzicht en mogen niet worden weggewit.
+
+**Summary-tabellen onderaan**: als er een tabel is met "Totaal elementen", "Totaal offerte/order", "Betaling:", "Eind totaal", "Netto Totaal", "TZ NN%" of "+N stojak", wis die tabel MAAR houd je boxes bij de feitelijke tabel-breedte — nooit full-width als daar een tekening loopt.
 
 Geef MEERDERE boxes als prijzen verspreid staan. Bv. Aluplast heeft vaak links een prijs-kolom EN onderaan een totaaltabel — beide erbij.`
 

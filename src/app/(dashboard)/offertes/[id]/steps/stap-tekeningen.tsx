@@ -335,34 +335,35 @@ export function StapTekeningen({
           }
         }
 
-        // Expliciete prijs-labels + "Geen garantie" teksten wissen.
+        // Expliciete prijs-labels + "Geen garantie" teksten wissen. Gebruik
+        // geschatte tekstbreedte (ipv tot rechterrand) zodat dimensies en
+        // andere aanzicht-labels aan dezelfde y-positie intact blijven.
         const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*[Tt]otaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|TZ\s*\d|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
         const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
         for (const ti of textItems) {
+          const strLen = ti.str.length
+          const approxWidth = Math.max(60, strLen * 7) + 16
           if (explicitPricePattern.test(ti.str)) {
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 26)
+            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, approxWidth, 26)
           } else if (garantiePattern.test(ti.str)) {
-            // "Geen garantie" kan OVER de tekening staan — wissen met EXACT breed-genoeg
-            // rechthoek (niet tot rechterrand) zodat omringende dimensies intact blijven.
-            const strLen = ti.str.length
-            const approxWidth = Math.max(60, strLen * 6)
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 4), ti.cy - 14, approxWidth + 8, 20)
+            ctx.fillRect(Math.max(0, ti.cx - 4), ti.cy - 14, approxWidth, 20)
           }
         }
 
-        // Wis het hele Raam/Totaal tabelblok (inclusief lijnen)
+        // Wis het Raam/Totaal tabelblok — beperk tot rechter-helft met
+        // geschatte breedte (~180px) zodat aanzicht-tekeningen links intact blijven.
         const raamItem = textItems.find((ti: { str: string; cy: number }) => /^Raam$/i.test(ti.str) && ti.cy > h * 0.5)
         const totaalItem = textItems.find((ti: { str: string; cy: number }) => /^Totaal$/i.test(ti.str) && ti.cy > h * 0.5)
         if (raamItem || totaalItem) {
           const topY = raamItem ? raamItem.cy - 25 : (totaalItem ? totaalItem.cy - 25 : 0)
           const botY = totaalItem ? totaalItem.cy + 15 : (raamItem ? raamItem.cy + 40 : 0)
           if (topY > 0 && botY > topY) {
-            // Wis het hele blok van links naar rechts
             const blockLeft = Math.min(raamItem?.cx ?? w, totaalItem?.cx ?? w) - 40
+            const blockWidth = Math.min(200, w - blockLeft)
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, blockLeft), topY, w - blockLeft, botY - topY)
+            ctx.fillRect(Math.max(0, blockLeft), topY, blockWidth, botY - topY)
           }
         }
 
@@ -389,20 +390,17 @@ export function StapTekeningen({
           }
         }
 
-        // Wis prijs-tabel-headers. In onderste 25% van de pagina zijn dit
-        // summary-tabellen die ALTIJD full-width zijn (Totaal elementen,
-        // Betaling, TZ) — daar wissen we van links tot rechts. In middenzone
-        // (55%-75%) staan prijzen meestal rechts naast een tekening en wissen
-        // we alleen de rechterhelft zodat de tekening intact blijft.
+        // Wis prijs-tabel-headers met een geschatte tabelbreedte — NOOIT full-
+        // width, zodat aanzicht-tekeningen op dezelfde y-hoogte intact blijven.
         const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
         for (const ti of textItems) {
           if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
-            // Onderste 25%: full-width summary tables
-            // Middenzone: alleen rechts van de tekst-positie
-            const wipeLeft = ti.cy > h * 0.75 ? 0 : Math.max(Math.floor(w * 0.50), ti.cx - 40)
+            const wipeLeft = Math.max(0, ti.cx - 40)
+            // Schat tabelbreedte: ~300px vanaf de tekst, clamped op paginabreedte
+            const wipeWidth = Math.min(360, w - wipeLeft)
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
+            ctx.fillRect(wipeLeft, wipeTop, wipeWidth, h - wipeTop)
           }
         }
 
