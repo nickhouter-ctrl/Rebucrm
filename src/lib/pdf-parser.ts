@@ -171,17 +171,23 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else if (isEkoOkna) {
-    // Vind eerst ALLE element-headers (ongeacht of velden compleet zijn).
-    // Extraheer Hoev/Kleur/Systeem per element sectie zodat geen element
-    // meer geskipt wordt als de velden in andere volgorde staan.
-    const headerPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)/g
+    // Vind element-headers: "Element NNN" / "Deur NNN" / "Gekoppeld Element NNN"
+    // aan begin van regel, gevolgd door echte element-velden (Hoev.:, Systeem:,
+    // Buitenkader, Aluprof) binnen ~1500 chars — voorkomt false positives van
+    // losstaande "element NNN" verwijzingen in spec-teksten.
+    const headerPattern = /(?:^|\n)[\t ]*((?:Gekoppeld\s+)?(?:Element|ELEMENT|Deur|DEUR)\s+(\d{3})(?:\/\d+)?)(?=\s)/g
     const headerMatches: { naam: string; idx: number }[] = []
     let hm
     while ((hm = headerPattern.exec(text)) !== null) {
-      // Sla duplicates over (bv. als element naam elders in tekst voorkomt als referentie)
-      if (!headerMatches.some(x => x.naam === hm![1] && Math.abs(x.idx - hm!.index) < 50)) {
-        headerMatches.push({ naam: hm[1].trim(), idx: hm.index })
-      }
+      const offset = hm[0].indexOf(hm[1])
+      const absIdx = hm.index + offset
+      // Validate: real element sections have Hoev./Systeem:/Buitenkader nearby
+      const lookahead = text.substring(absIdx, absIdx + 1500)
+      const hasFields = /Hoev\.\s*:|Systeem\s*:|Buitenkader|Aluprof/.test(lookahead)
+      if (!hasFields) continue
+      // Dedupe close matches
+      if (headerMatches.some(x => Math.abs(x.idx - absIdx) < 50)) continue
+      headerMatches.push({ naam: hm[1].trim(), idx: absIdx })
     }
     for (let i = 0; i < headerMatches.length; i++) {
       const h = headerMatches[i]
@@ -200,14 +206,19 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else {
-    // Flexibele fallback: vind alle element-headers en extract velden per sectie
-    const headerPattern = /((?:Deur|Element)\s+\d{3})/g
+    // Flexibele fallback: vind element-headers aan begin van regel, met
+    // validatie dat er echt element-velden in de sectie staan.
+    const headerPattern = /(?:^|\n)[\t ]*((?:Deur|Element|DEUR|ELEMENT)\s+\d{3})(?=\s)/g
     const headerMatches: { naam: string; idx: number }[] = []
     let hm
     while ((hm = headerPattern.exec(text)) !== null) {
-      if (!headerMatches.some(x => x.naam === hm![1] && Math.abs(x.idx - hm!.index) < 50)) {
-        headerMatches.push({ naam: hm[1].trim(), idx: hm.index })
-      }
+      const offset = hm[0].indexOf(hm[1])
+      const absIdx = hm.index + offset
+      const lookahead = text.substring(absIdx, absIdx + 1500)
+      const hasFields = /Hoeveelheid\s*:|Systeem\s*:|Buitenkader|Aluprof/.test(lookahead)
+      if (!hasFields) continue
+      if (headerMatches.some(x => Math.abs(x.idx - absIdx) < 50)) continue
+      headerMatches.push({ naam: hm[1].trim(), idx: absIdx })
     }
     for (let i = 0; i < headerMatches.length; i++) {
       const h = headerMatches[i]
