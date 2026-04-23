@@ -4160,6 +4160,32 @@ export async function getRelatieDetail(id: string) {
   const facturen = facturenRes.data || []
   const projecten = projectenRes.data || []
 
+  // Laad notities per project (verkoopkans) in batch
+  const projectIds = projecten.map(p => p.id)
+  const projectNotitiesMap = new Map<string, Array<{ id: string; tekst: string; created_at: string; gebruiker_naam: string | null }>>()
+  if (projectIds.length > 0) {
+    const { data: pn } = await supabase
+      .from('notities')
+      .select('id, project_id, tekst, created_at, gebruiker:profielen(naam)')
+      .in('project_id', projectIds)
+      .order('created_at', { ascending: false })
+    for (const n of pn || []) {
+      const pid = (n as { project_id: string }).project_id
+      const list = projectNotitiesMap.get(pid) || []
+      list.push({
+        id: (n as { id: string }).id,
+        tekst: (n as { tekst: string }).tekst,
+        created_at: (n as { created_at: string }).created_at,
+        gebruiker_naam: (n as { gebruiker: { naam: string } | null }).gebruiker?.naam ?? null,
+      })
+      projectNotitiesMap.set(pid, list)
+    }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of projecten as any[]) {
+    p.notities = projectNotitiesMap.get(p.id) || []
+  }
+
   const totaleOmzet = facturen
     .filter(f => f.status === 'betaald')
     .reduce((sum, f) => sum + (f.totaal || 0), 0)
@@ -5228,6 +5254,55 @@ export async function deleteNotitie(id: string) {
   const supabase = await createClient()
   const { error } = await supabase.from('notities').delete().eq('id', id)
   if (error) return { error: error.message }
+  return { success: true }
+}
+
+// === PROJECT-NOTITIES (verkoopkans-notities) ===
+export async function getProjectNotities(projectId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('notities')
+    .select('id, tekst, created_at, gebruiker:profielen(naam)')
+    .eq('project_id', projectId)
+    .order('created_at', { ascending: false })
+  return data || []
+}
+
+export async function saveProjectNotitie(data: { id?: string; project_id: string; tekst: string }) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  if (data.id) {
+    const { error } = await supabase
+      .from('notities')
+      .update({ tekst: data.tekst })
+      .eq('id', data.id)
+    if (error) return { error: error.message }
+  } else {
+    // Zoek de relatie_id van het project (notities.relatie_id is NOT NULL)
+    const { data: proj } = await supabase
+      .from('projecten')
+      .select('relatie_id')
+      .eq('id', data.project_id)
+      .single()
+    if (!proj?.relatie_id) return { error: 'Project niet gevonden' }
+
+    const { error } = await supabase
+      .from('notities')
+      .insert({
+        administratie_id: adminId,
+        relatie_id: proj.relatie_id,
+        project_id: data.project_id,
+        gebruiker_id: user.id,
+        tekst: data.tekst,
+      })
+    if (error) return { error: error.message }
+  }
+
+  revalidatePath(`/relatiebeheer`)
+  revalidatePath(`/projecten/${data.project_id}`)
   return { success: true }
 }
 

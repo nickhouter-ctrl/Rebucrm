@@ -58,16 +58,14 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     : offertes
 
   function navigateAfterSave(savedId?: string) {
-    // Als de gebruiker via een klant-pagina op deze taak kwam → terug naar klant
-    if (typeof window !== 'undefined') {
-      const ref = document.referrer
-      const match = ref.match(/\/relatiebeheer\/([^\/?#]+)/)
-      if (match && match[1] !== 'nieuw') {
-        router.push(`/relatiebeheer/${match[1]}`)
-        return
-      }
+    // Altijd terug naar de vorige pagina waar de gebruiker vandaan kwam.
+    // router.back() gebruikt de browser-history — werkt voor alle routes
+    // (klant-detail, project-detail, taken-lijst). Fallback alleen als er
+    // geen history is (direct geopend via URL/bookmark).
+    if (typeof window !== 'undefined' && window.history.length > 1) {
+      router.back()
+      return
     }
-    // Anders: als taak een relatie heeft, terug naar die klant
     if (selectedRelatieId) {
       router.push(`/relatiebeheer/${selectedRelatieId}`)
       return

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -68,6 +68,13 @@ interface Notitie {
   taak?: { id: string; titel: string; taaknummer: string | null } | null
 }
 
+interface ProjectNotitie {
+  id: string
+  tekst: string
+  created_at: string
+  gebruiker_naam: string | null
+}
+
 interface ProjectWithOffertes {
   id: string
   naam: string
@@ -81,6 +88,7 @@ interface ProjectWithOffertes {
     totaal: number
     facturen?: { id: string; factuur_type: string; status: string }[]
   }[]
+  notities?: ProjectNotitie[]
 }
 
 interface KlantAccount {
@@ -222,6 +230,10 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [klantWachtwoord, setKlantWachtwoord] = useState('')
   const [klantLoading, setKlantLoading] = useState(false)
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
+  const [projectNotitieText, setProjectNotitieText] = useState<Record<string, string>>({})
+  const [projectNotitieOpen, setProjectNotitieOpen] = useState<Set<string>>(new Set())
+  const [editProjectNotitieId, setEditProjectNotitieId] = useState<string | null>(null)
+  const [editProjectNotitieText, setEditProjectNotitieText] = useState('')
   const [showNotitieForm, setShowNotitieForm] = useState(false) // legacy, unused
   const [gereedOpen, setGereedOpen] = useState(false)
   const [notitieText, setNotitieText] = useState('')
@@ -288,6 +300,44 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     const result = await deleteTaak(id)
     if (result.error) setError(result.error)
     else router.refresh()
+  }
+
+  async function handleAddProjectNotitie(projectId: string) {
+    const tekst = (projectNotitieText[projectId] || '').trim()
+    if (!tekst) return
+    const result = await saveProjectNotitie({ project_id: projectId, tekst })
+    if (result.error) setError(result.error)
+    else {
+      setProjectNotitieText(prev => ({ ...prev, [projectId]: '' }))
+      router.refresh()
+    }
+  }
+
+  async function handleEditProjectNotitie(projectId: string, notitieId: string) {
+    const tekst = editProjectNotitieText.trim()
+    if (!tekst) return
+    const result = await saveProjectNotitie({ id: notitieId, project_id: projectId, tekst })
+    if (result.error) setError(result.error)
+    else {
+      setEditProjectNotitieId(null)
+      setEditProjectNotitieText('')
+      router.refresh()
+    }
+  }
+
+  async function handleDeleteProjectNotitie(id: string) {
+    if (!confirm('Notitie verwijderen?')) return
+    const result = await deleteNotitie(id)
+    if (result.error) setError(result.error)
+    else router.refresh()
+  }
+
+  function toggleProjectNotities(projectId: string) {
+    setProjectNotitieOpen(prev => {
+      const next = new Set(prev)
+      if (next.has(projectId)) next.delete(projectId); else next.add(projectId)
+      return next
+    })
   }
 
   async function handleCreateKlant() {
@@ -799,6 +849,91 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                       </table>
                     </CardContent>
                   )}
+                  {(() => {
+                    const projectNotities = p.notities || []
+                    const isOpen = projectNotitieOpen.has(p.id)
+                    return (
+                      <div className="border-t border-gray-100 px-6 py-3 bg-gray-50/30" onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => toggleProjectNotities(p.id)}
+                          className="flex items-center gap-2 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                        >
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          Notities {projectNotities.length > 0 && `(${projectNotities.length})`}
+                          {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                        </button>
+                        {isOpen && (
+                          <div className="mt-3 space-y-2">
+                            {projectNotities.map(n => {
+                              const isEditing = editProjectNotitieId === n.id
+                              return (
+                                <div key={n.id} className="group rounded-lg px-3 py-2 bg-amber-50 border border-amber-100">
+                                  <div className="flex items-start justify-between gap-2 mb-1">
+                                    <div className="text-xs text-gray-500">
+                                      <span className="font-medium text-amber-900">{n.gebruiker_naam || 'Onbekend'}</span>
+                                      <span className="ml-2 text-gray-400">{formatDateShort(n.created_at)}</span>
+                                    </div>
+                                    {!isEditing && (
+                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                        <button
+                                          onClick={() => { setEditProjectNotitieId(n.id); setEditProjectNotitieText(n.tekst) }}
+                                          className="p-1 text-gray-400 hover:text-[#00a66e]"
+                                          title="Bewerken"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDeleteProjectNotitie(n.id)}
+                                          className="p-1 text-gray-400 hover:text-red-500"
+                                          title="Verwijderen"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {isEditing ? (
+                                    <div className="space-y-2">
+                                      <textarea
+                                        value={editProjectNotitieText}
+                                        onChange={e => setEditProjectNotitieText(e.target.value)}
+                                        rows={3}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                                      />
+                                      <div className="flex gap-2 justify-end">
+                                        <Button variant="ghost" size="sm" onClick={() => { setEditProjectNotitieId(null); setEditProjectNotitieText('') }}>Annuleren</Button>
+                                        <Button size="sm" onClick={() => handleEditProjectNotitie(p.id, n.id)}>Opslaan</Button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm whitespace-pre-wrap text-amber-900">{n.tekst}</p>
+                                  )}
+                                </div>
+                              )
+                            })}
+                            <div className="flex items-start gap-2 pt-1">
+                              <textarea
+                                value={projectNotitieText[p.id] || ''}
+                                onChange={e => setProjectNotitieText(prev => ({ ...prev, [p.id]: e.target.value }))}
+                                placeholder="Nieuwe notitie..."
+                                rows={2}
+                                className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                              />
+                              <Button
+                                size="sm"
+                                onClick={() => handleAddProjectNotitie(p.id)}
+                                disabled={!(projectNotitieText[p.id] || '').trim()}
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                                Toevoegen
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </Card>
               )
             })
