@@ -922,16 +922,35 @@ export async function deleteOrder(id: string) {
   return { success: true }
 }
 
-// De 22 aanbetalings-factuurnummers die Tribe momenteel als 'eindafrekening
-// nodig' markeert, in exact dezelfde volgorde als Tribe toont (nieuwste eerst).
-const TRIBE_EINDAFREKENING_NUMMERS = [
-  'F-2026-00172', 'F-2026-00171', 'F-2026-00169', 'F-2026-00165',
-  'F-2026-00156', 'F-2026-00152', 'F-2026-00150', 'F-2026-00148',
-  'F-2026-00145', 'F-2026-00143', 'F-2026-00147', 'F-2026-00133',
-  'F-2026-00134', 'F-2026-00130', 'F-2026-00127', 'F-2026-00126',
-  'F-2026-00110', 'F-2026-00103', 'F-2026-00106', 'F-2026-00096',
-  'F-2026-00094', 'F-2026-00089',
+// De 22 aanbetalings-factuurnummers die Tribe als 'eindafrekening nodig'
+// toont + het bijbehorende offerte-totaal excl BTW zoals in Tribe weergegeven.
+// Volgorde komt exact overeen met Tribe's view (nieuwste eerst).
+const TRIBE_EINDAFREKENING: { nummer: string; offerteTotaal: number }[] = [
+  { nummer: 'F-2026-00133', offerteTotaal: 10833.33 },  // Kees Beentjes — Linden Zonneveld
+  { nummer: 'F-2026-00143', offerteTotaal: 13149.53 },  // offerte broertje — Boendermaker
+  { nummer: 'F-2026-00172', offerteTotaal: 25344.28 },  // glennstraat 7 — Klaas Winter
+  { nummer: 'F-2025-00398', offerteTotaal: 5732.47 },   // Kunststof schuifpui — Bouw Legion
+  { nummer: 'F-2025-00401', offerteTotaal: 12860.72 },  // Callantsogervaart — Bouwbedrijf de Wijn
+  { nummer: 'F-2026-00033', offerteTotaal: 40489.00 },  // Verzoek om offerte — Leon Hartenberg
+  { nummer: 'F-2026-00049', offerteTotaal: 5595.69 },   // voordeur en keuken raam — Michael Segveld
+  { nummer: 'F-2026-00095', offerteTotaal: 5607.85 },   // bram de goede en Petra — Geerlofs
+  { nummer: 'F-2026-00106', offerteTotaal: 15852.21 },  // Adri en Ron — Jochemsen
+  { nummer: 'F-2026-00126', offerteTotaal: 12289.03 },  // Yusuf en Valerie — RIHO
+  { nummer: 'F-2026-00127', offerteTotaal: 13053.53 },  // lijnden — Bijl
+  { nummer: 'F-2026-00134', offerteTotaal: 10814.12 },  // nieuwemeerdijk 287 — DS Bouw
+  { nummer: 'F-2026-00147', offerteTotaal: 6016.26 },   // alu schuifpui — Aanbouw West-Friesland
+  { nummer: 'F-2026-00171', offerteTotaal: 5066.63 },   // Beenen timmerwerken
+  { nummer: 'F-2026-00152', offerteTotaal: 11429.91 },  // Deurnestraat — A. Bax
+  { nummer: 'F-2026-00094', offerteTotaal: 7156.80 },   // sam leijen — Geerlofs
+  { nummer: 'F-2026-00148', offerteTotaal: 5800.00 },   // openslaande deuren — Nike Verhoeven
+  { nummer: 'F-2026-00145', offerteTotaal: 13156.15 },  // 2x aanbouw — Andy Stoutenburg
+  { nummer: 'F-2026-00150', offerteTotaal: 4049.54 },   // john de lange
+  { nummer: 'F-2026-00156', offerteTotaal: 7553.39 },   // schuifpui — Klaver
+  { nummer: 'F-2026-00165', offerteTotaal: 4150.12 },   // Sint Jansteen — Benjamin van Vliet
+  { nummer: 'F-2026-00169', offerteTotaal: 6029.56 },   // 4 delige schuifpui — Amadeus
 ]
+const TRIBE_EINDAFREKENING_NUMMERS = TRIBE_EINDAFREKENING.map(x => x.nummer)
+const TRIBE_OFFERTE_TOTALEN = new Map(TRIBE_EINDAFREKENING.map(x => [x.nummer, x.offerteTotaal]))
 
 // Maak een concept-restbetalingsfactuur voor een bestaande aanbetaling.
 // Bedrag = offerte.subtotaal − aanbetaling.subtotaal (BTW evenredig herberekend).
@@ -1054,10 +1073,23 @@ export async function getEindafrekeningen() {
     .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
     .eq('administratie_id', adminId)
     .in('factuurnummer', nummers)
-  // Sorteer in exact dezelfde volgorde als de Tribe-whitelist
-  const ordered = nummers
-    .map(nr => (aanbetaligs || []).find(f => f.factuurnummer === nr))
-    .filter(Boolean)
+  // Sorteer in exact dezelfde volgorde als Tribe + override offerte-totaal
+  // met de waarden uit Tribe zodat de getallen 1-op-1 overeenkomen.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ordered = nummers.map(nr => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const f = (aanbetaligs || []).find((x: any) => x.factuurnummer === nr)
+    if (!f) return null
+    const tribeTotaal = TRIBE_OFFERTE_TOTALEN.get(nr) ?? null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fAny = f as any
+    return {
+      ...fAny,
+      offerte: fAny.offerte
+        ? { ...fAny.offerte, subtotaal: tribeTotaal ?? fAny.offerte.subtotaal }
+        : { id: null, offertenummer: null, subtotaal: tribeTotaal, onderwerp: fAny.onderwerp, project_id: null },
+    }
+  }).filter(Boolean)
   return ordered
 }
 
