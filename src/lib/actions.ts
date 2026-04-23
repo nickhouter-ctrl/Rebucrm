@@ -1030,7 +1030,10 @@ export async function getEindafrekeningen() {
       if (!r.datum) return false
       if (a.order_id && r.order_id && a.order_id === r.order_id) return true
       const days = (new Date(r.datum).getTime() - new Date(a.datum!).getTime()) / 86400000
-      return days > 0 && days <= 270
+      // Accepteer rest-facturen die op of na de aanbetaling liggen binnen
+      // 9 maanden. Ook ±30 dagen ervoor (bij kleine datumverschillen) geldt
+      // als match voor dezelfde klus.
+      return days >= -30 && days <= 270
     })
     return !match
   })
