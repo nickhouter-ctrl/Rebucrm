@@ -4,7 +4,8 @@ let mollieClient: ReturnType<typeof createMollieClient> | null = null
 
 export function getMollieClient() {
   if (!mollieClient) {
-    const apiKey = process.env.MOLLIE_API_KEY
+    // Trim evt. trailing newline/spaces — anders "is not a legal HTTP header value"
+    const apiKey = (process.env.MOLLIE_API_KEY || '').trim().replace(/[\r\n]/g, '')
     if (!apiKey) {
       throw new Error('MOLLIE_API_KEY is niet geconfigureerd')
     }
