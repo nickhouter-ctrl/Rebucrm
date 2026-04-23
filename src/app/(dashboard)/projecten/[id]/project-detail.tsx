@@ -3,7 +3,8 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus } from '@/lib/actions'
+import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans } from '@/lib/actions'
+import { Receipt } from 'lucide-react'
 import { showToast } from '@/components/ui/toast'
 import type { ProjectTimeline } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
@@ -334,25 +335,49 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
 
           {/* Acties */}
           {!editing && (
-            <Button
-              className="w-full"
-              disabled={loading}
-              onClick={async () => {
-                if (timeline.laatsteOfferteId) {
-                  // Nieuwe versie van bestaande offerte
+            <div className="space-y-2">
+              <Button
+                className="w-full"
+                disabled={loading}
+                onClick={async () => {
+                  if (timeline.laatsteOfferteId) {
+                    setLoading(true)
+                    const result = await duplicateOfferte(timeline.laatsteOfferteId)
+                    if (result.error) { setError(result.error); setLoading(false) }
+                    else router.push(`/offertes/${result.id}?wizard=true`)
+                  } else {
+                    router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)
+                  }
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                {timeline.laatsteOfferteId ? 'Nieuwe versie offerte' : 'Nieuwe offerte'}
+              </Button>
+
+              {/* Factureer-knop: voor verkoopkansen met geaccepteerde offerte of met bedrag */}
+              <Button
+                className="w-full"
+                variant="secondary"
+                disabled={loading}
+                onClick={async () => {
+                  const input = prompt('Factuurbedrag incl. BTW (laat leeg om offerte-totaal te gebruiken):')
+                  if (input === null) return
+                  const bedrag = input.trim() ? parseFloat(input.replace(',', '.')) : undefined
+                  if (input.trim() && (!bedrag || bedrag <= 0)) {
+                    alert('Ongeldig bedrag')
+                    return
+                  }
                   setLoading(true)
-                  const result = await duplicateOfferte(timeline.laatsteOfferteId)
-                  if (result.error) { setError(result.error); setLoading(false) }
-                  else router.push(`/offertes/${result.id}?wizard=true`)
-                } else {
-                  // Nog geen offertes — maak nieuwe aan
-                  router.push(`/offertes/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)
-                }
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {timeline.laatsteOfferteId ? 'Nieuwe versie offerte' : 'Nieuwe offerte'}
-            </Button>
+                  const result = await factureerVerkoopkans(project.id as string, { bedrag })
+                  setLoading(false)
+                  if (result.error) { setError(result.error) }
+                  else if (result.factuurId) router.push(`/facturatie/${result.factuurId}`)
+                }}
+              >
+                <Receipt className="h-4 w-4" />
+                Factuur maken
+              </Button>
+            </div>
           )}
         </div>
 

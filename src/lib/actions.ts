@@ -4376,6 +4376,83 @@ export async function planDelivery(orderId: string, options: {
 }
 
 // === OFFERTE NAAR FACTUUR ===
+// Directe factuurflow vanuit een verkoopkans (project) — vult ontbrekende prijzen
+// aan op basis van de laatste geaccepteerde offerte of een door user opgegeven bedrag.
+export async function factureerVerkoopkans(
+  projectId: string,
+  opties: { bedrag?: number; omschrijving?: string } = {}
+) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: project } = await supabase
+    .from('projecten')
+    .select('id, naam, relatie_id')
+    .eq('id', projectId)
+    .single()
+  if (!project) return { error: 'Verkoopkans niet gevonden' }
+  if (!project.relatie_id) return { error: 'Verkoopkans heeft geen relatie' }
+
+  // Laatste geaccepteerde offerte ophalen
+  const { data: offertes } = await supabase
+    .from('offertes')
+    .select('id, offertenummer, onderwerp, subtotaal, btw_totaal, totaal, status, versie_nummer, regels:offerte_regels(*)')
+    .eq('project_id', projectId)
+    .order('versie_nummer', { ascending: false })
+  const geaccepteerd = (offertes || []).find(o => o.status === 'geaccepteerd')
+  const laatste = geaccepteerd || (offertes || [])[0]
+
+  if (laatste) {
+    // Als offerte regels heeft én totaal > 0 → normale convertToFactuur
+    const regelsCount = (laatste.regels || []).length
+    if (regelsCount > 0 && Number(laatste.totaal || 0) > 0 && !opties.bedrag) {
+      return await convertToFactuur(laatste.id, 'volledig')
+    }
+  }
+
+  // Fallback: maak factuur direct met gegeven bedrag (excl BTW) of offerte.totaal
+  const totaalIncl = opties.bedrag ?? Number(laatste?.totaal || 0)
+  if (!totaalIncl || totaalIncl <= 0) return { error: 'Geen bedrag bekend — geef een bedrag op of vul de offerte aan' }
+  const excl = Math.round((totaalIncl / 1.21) * 100) / 100
+  const btw = Math.round((totaalIncl - excl) * 100) / 100
+
+  const nummer = await getVolgendeNummer('factuur')
+  const { data: factuur, error } = await supabase
+    .from('facturen')
+    .insert({
+      administratie_id: adminId,
+      relatie_id: project.relatie_id,
+      offerte_id: laatste?.id || null,
+      factuur_type: 'volledig',
+      factuurnummer: nummer,
+      datum: new Date().toISOString().slice(0, 10),
+      vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      status: 'concept',
+      onderwerp: opties.omschrijving || laatste?.onderwerp || project.naam,
+      subtotaal: excl,
+      btw_totaal: btw,
+      totaal: totaalIncl,
+    })
+    .select('id')
+    .single()
+  if (error || !factuur) return { error: error?.message || 'Factuur aanmaken mislukt' }
+
+  await supabase.from('factuur_regels').insert({
+    factuur_id: factuur.id,
+    omschrijving: opties.omschrijving || laatste?.onderwerp || 'Kunststof kozijnen leveren',
+    aantal: 1,
+    prijs: excl,
+    btw_percentage: 21,
+    totaal: excl,
+    volgorde: 0,
+  })
+
+  revalidatePath('/facturatie')
+  revalidatePath(`/projecten/${projectId}`)
+  return { success: true, factuurId: factuur.id, factuurnummer: nummer }
+}
+
 export async function convertToFactuur(offerteId: string, splitType: 'volledig' | 'split' = 'volledig', aanbetalingPercentage = 70) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
@@ -4436,6 +4513,19 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
           volgorde: i,
         }))
       )
+    } else if (Number(offerte.totaal || 0) > 0) {
+      // Fallback voor geïmporteerde Tribe-offertes zonder regels: reken excl BTW uit totaal
+      const totaalIncl = Number(offerte.totaal || 0)
+      const excl = Number(offerte.subtotaal) > 0 ? Number(offerte.subtotaal) : Math.round((totaalIncl / 1.21) * 100) / 100
+      await supabase.from('factuur_regels').insert({
+        factuur_id: factuur.id,
+        omschrijving: offerte.onderwerp || 'Kunststof kozijnen leveren',
+        aantal: 1,
+        prijs: excl,
+        btw_percentage: 21,
+        totaal: excl,
+        volgorde: 0,
+      })
     }
 
     revalidatePath('/facturatie')
