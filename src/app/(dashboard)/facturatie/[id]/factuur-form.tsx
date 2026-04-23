@@ -95,6 +95,20 @@ export function FactuurForm({ factuur, relaties, producten }: {
 
   async function openEmailDialog() {
     setLoading(true)
+    // Eerst auto-opslaan zodat eventuele wijzigingen worden meegenomen in de mail
+    if (factuur) {
+      const fd = new FormData()
+      const form = document.querySelector('form[data-factuur-form]') as HTMLFormElement | null
+      if (form) {
+        for (const el of Array.from(form.elements) as HTMLInputElement[]) {
+          if (el.name) fd.set(el.name, el.value)
+        }
+      }
+      fd.set('id', factuur.id as string)
+      fd.set('regels', JSON.stringify(regels))
+      const saveRes = await saveFactuur(fd)
+      if (saveRes.error) { setError(saveRes.error); setLoading(false); return }
+    }
     const defaults = await getFactuurEmailDefaults(factuur!.id as string)
     if (defaults.error) { setError(defaults.error); setLoading(false); return }
     setEmailTo(defaults.to || '')
@@ -145,6 +159,17 @@ export function FactuurForm({ factuur, relaties, producten }: {
         actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                const form = document.querySelector('form[data-factuur-form]') as HTMLFormElement | null
+                form?.requestSubmit()
+              }}
+              disabled={loading}
+            >
+              <Save className="h-4 w-4" />
+              {loading ? 'Opslaan...' : 'Opslaan'}
+            </Button>
             {!isNew && (
               <>
                 <a href={`/api/pdf/factuur/${factuur?.id}`} target="_blank" rel="noopener noreferrer">
@@ -154,7 +179,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
                   <Link2 className="h-4 w-4" />
                   {generatingLink ? 'Genereren...' : betaalLink ? 'Link vernieuwen' : 'Betaallink'}
                 </Button>
-                <Button variant="secondary" onClick={openEmailDialog} disabled={loading}>
+                <Button onClick={openEmailDialog} disabled={loading}>
                   <Send className="h-4 w-4" />
                   Versturen
                 </Button>
@@ -240,7 +265,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
         </div>
       </Dialog>
 
-      <form action={handleSubmit} className="space-y-4">
+      <form action={handleSubmit} data-factuur-form className="space-y-4">
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -295,7 +320,14 @@ export function FactuurForm({ factuur, relaties, producten }: {
                 <Button type="button" variant="secondary" onClick={handleCrediteer} disabled={loading}>Crediteren</Button>
               )}
             </div>
-            <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
+            {!isNew ? (
+              <Button type="button" onClick={openEmailDialog} disabled={loading}>
+                <Send className="h-4 w-4" />
+                {loading ? 'Versturen...' : 'Versturen'}
+              </Button>
+            ) : (
+              <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
+            )}
           </CardFooter>
         </Card>
       </form>
