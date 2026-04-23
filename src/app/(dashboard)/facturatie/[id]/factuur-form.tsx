@@ -107,13 +107,19 @@ export function FactuurForm({ factuur, relaties, producten }: {
       fd.set('id', factuur.id as string)
       fd.set('regels', JSON.stringify(regels))
       const saveRes = await saveFactuur(fd)
-      if (saveRes.error) { setError(saveRes.error); setLoading(false); return }
+      if (saveRes.error) setError(`Opslaan mislukt: ${saveRes.error}`)
     }
-    const defaults = await getFactuurEmailDefaults(factuur!.id as string)
-    if (defaults.error) { setError(defaults.error); setLoading(false); return }
-    setEmailTo(defaults.to || '')
-    setEmailSubject(defaults.subject || '')
-    setEmailBody(defaults.body || '')
+    // Probeer email-defaults te laden; bij fout open toch de dialog zodat user
+    // handmatig adres/onderwerp/body kan invullen voor review.
+    try {
+      const defaults = await getFactuurEmailDefaults(factuur!.id as string)
+      setEmailTo(defaults.to || '')
+      setEmailSubject(defaults.subject || '')
+      setEmailBody(defaults.body || '')
+      if (defaults.error) setError(defaults.error)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Kon email-defaults niet laden')
+    }
     setEmailAttachments([])
     setShowEmailDialog(true)
     setLoading(false)
