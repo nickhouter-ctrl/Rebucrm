@@ -1060,10 +1060,7 @@ export async function getFactuurEmailDefaults(factuurId: string) {
   }
 
   const betaalSectie = betaalLink
-    ? `U kunt direct online betalen via de volgende link:
-${betaalLink}
-
-Of maak het bedrag over naar:`
+    ? `U kunt direct online betalen via de knop onderaan deze e-mail, of handmatig overmaken naar:`
     : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
 
   const body = `Beste ${klantNaam},
@@ -1087,6 +1084,7 @@ ${medewerkerNaam}`
     to: factuur.relatie?.email || '',
     subject: `Factuur ${factuur.factuurnummer} - Rebu Kozijnen`,
     body,
+    betaalLink: betaalLink || null,
   }
 }
 
@@ -1118,7 +1116,35 @@ export async function sendFactuurEmail(factuurId: string, options: {
       mwInfo = { naam: profiel.naam || undefined, email: profiel.email || undefined, telefoon: mw?.telefoon || undefined }
     }
   }
-  const emailHtml = buildRebuEmailHtml(options.body, undefined, undefined, mwInfo)
+
+  // Auto-genereer Mollie betaallink als nog niet bestaat + openstaand > 0
+  let betaalLink = (factuur.betaal_link as string | null) || null
+  const openstaandBedrag = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
+  if (!betaalLink && openstaandBedrag > 0 && process.env.MOLLIE_API_KEY) {
+    try {
+      const { createMolliePayment } = await import('@/lib/mollie')
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+      const payment = await createMolliePayment({
+        amount: openstaandBedrag,
+        description: `Factuur ${factuur.factuurnummer}`,
+        redirectUrl: `${appUrl}/betaling/succes`,
+        webhookUrl: `${appUrl}/api/mollie/webhook`,
+        metadata: { factuurId },
+      })
+      betaalLink = payment.checkoutUrl
+      await supabase
+        .from('facturen')
+        .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
+        .eq('id', factuurId)
+    } catch (err) {
+      console.error('Mollie betaallink bij versturen mislukt:', err)
+    }
+  }
+
+  // CTA knop: betaallink als die bestaat, anders geen knop
+  const ctaLink = betaalLink || undefined
+  const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
+  const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
 
   // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
