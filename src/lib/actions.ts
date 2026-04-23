@@ -1037,7 +1037,7 @@ export async function getEindafrekeningen() {
 
   const [aanbetRes, restRes] = await Promise.all([
     supabase.from('facturen')
-      .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id')
+      .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
       .eq('administratie_id', adminId)
       .eq('factuur_type', 'aanbetaling')
       .not('status', 'eq', 'gecrediteerd')

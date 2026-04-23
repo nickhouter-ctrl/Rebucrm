@@ -20,6 +20,7 @@ type Aanbetaling = {
   onderwerp: string | null
   relatie: { bedrijfsnaam: string } | null
   order_id: string | null
+  offerte: { id: string; offertenummer: string; subtotaal: number | null; onderwerp: string | null } | null
 }
 
 export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling[] }) {
@@ -37,14 +38,35 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
 
   const columns: ColumnDef<Aanbetaling, unknown>[] = [
     { id: 'relatie', header: 'Klant', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
-    { accessorKey: 'factuurnummer', header: 'Aanbet-factuur' },
-    { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
-    { accessorKey: 'onderwerp', header: 'Onderwerp' },
     {
-      id: 'bedrag_excl',
-      header: 'Bedrag aanbet. excl.',
+      id: 'onderwerp',
+      header: 'Onderwerp',
+      accessorFn: (r) => r.offerte?.onderwerp || r.onderwerp || '-',
+    },
+    { accessorKey: 'datum', header: 'Aanbet-datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
+    {
+      id: 'offerte_totaal',
+      header: 'Offerte totaal excl.',
+      accessorFn: (r) => r.offerte?.subtotaal ?? null,
+      cell: ({ getValue }) => {
+        const v = getValue() as number | null
+        return v != null ? formatCurrency(v) : <span className="text-gray-400 text-xs">onbekend</span>
+      },
+    },
+    {
+      id: 'aanbet',
+      header: 'Aanbetaling excl.',
       accessorFn: (r) => r.subtotaal ?? 0,
       cell: ({ getValue }) => formatCurrency(getValue() as number),
+    },
+    {
+      id: 'rest',
+      header: 'Rest excl.',
+      accessorFn: (r) => (r.offerte?.subtotaal ?? 0) - (r.subtotaal ?? 0),
+      cell: ({ getValue }) => {
+        const v = getValue() as number
+        return v > 0 ? <span className="font-medium text-[#00a66e]">{formatCurrency(v)}</span> : <span className="text-gray-400 text-xs">-</span>
+      },
     },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     {
