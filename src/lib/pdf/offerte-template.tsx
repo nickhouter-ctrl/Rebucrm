@@ -297,41 +297,43 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         return (
           <React.Fragment key={`kozijn-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 18, display: 'flex', flexDirection: 'column' }]} wrap={false}>
+              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 20, paddingBottom: 20, paddingLeft: 22, paddingRight: 22 }]}>
                 <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: COLORS.green }} />
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: 4 }}>
+                {/* Header — blijft altijd bij elkaar */}
+                <View wrap={false} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 4 }}>
                   <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={{ fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#111827', letterSpacing: 0.5 }}>
+                    <Text style={{ fontSize: 12, fontFamily: 'Helvetica-Bold', color: '#111827', letterSpacing: 0.5 }}>
                       {element.naam.toUpperCase()}
                       {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
                     </Text>
-                    <Text style={{ fontSize: 7, color: '#6B7280', marginTop: 1 }}>
+                    <Text style={{ fontSize: 8, color: '#6B7280', marginTop: 2 }}>
                       {[element.systeem, element.afmetingen].filter(Boolean).join(' · ')}
                     </Text>
                   </View>
-                  <Image src={logoPath} style={{ width: 70, height: 'auto' }} />
+                  <Image src={logoPath} style={{ width: 80, height: 'auto' }} />
                 </View>
 
                 {pg.totalPages > 1 && (
-                  <Text style={{ fontSize: 7, color: '#6B7280', textAlign: 'right', marginBottom: 2 }}>Pagina {pg.pageIndex + 1}/{pg.totalPages}</Text>
+                  <Text style={{ fontSize: 7, color: '#6B7280', textAlign: 'right', marginBottom: 4 }}>Pagina {pg.pageIndex + 1}/{pg.totalPages}</Text>
                 )}
 
+                {/* Tekening — vaste max grootte zodat hij altijd binnen A4 past */}
                 {pg.url && (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                    <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  <View wrap={false} style={{ alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
+                    <Image src={pg.url} style={{ width: '100%', maxHeight: 650, objectFit: 'contain' }} />
                   </View>
                 )}
 
-                {/* Prijs DUIDELIJK onder de tekening — altijd zichtbaar, ook als 0 */}
+                {/* Prijs — blijft altijd bij elkaar, komt direct onder tekening */}
                 {pi === 0 && (
-                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'baseline', marginTop: 6, marginBottom: 4, paddingRight: 6 }} wrap={false}>
+                  <View wrap={false} style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'baseline', marginTop: 4, marginBottom: 8, paddingRight: 6 }}>
                     {element.hoeveelheid > 1 && element.prijs > 0 && (
-                      <Text style={{ fontSize: 9, color: '#6B7280', marginRight: 10 }}>
+                      <Text style={{ fontSize: 10, color: '#6B7280', marginRight: 10 }}>
                         {`${element.hoeveelheid}× ${formatCurrencyPdf(element.prijs)} =`}
                       </Text>
                     )}
-                    <Text style={{ fontSize: 16, fontFamily: 'Helvetica-Bold', color: element.prijs > 0 ? COLORS.green : '#6B7280' }}>
+                    <Text style={{ fontSize: 18, fontFamily: 'Helvetica-Bold', color: element.prijs > 0 ? COLORS.green : '#6B7280' }}>
                       {element.prijs > 0
                         ? formatCurrencyPdf(element.hoeveelheid > 1 ? element.hoeveelheid * element.prijs : element.prijs)
                         : 'Prijs op aanvraag'}
@@ -339,9 +341,12 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                   </View>
                 )}
 
-                <Text style={{ fontSize: 6.5, color: '#9CA3AF', textAlign: 'center', marginTop: 4 }}>
-                  {`${COMPANY.naam} · ${COMPANY.adres}, ${COMPANY.postcode} ${COMPANY.plaats} · ${COMPANY.telefoon} · ${COMPANY.email} · ${COMPANY.website}`}
-                </Text>
+                {/* Footer — fixed onderaan met absolute positionering zodat hij altijd op elke pagina onderin staat */}
+                <View fixed style={{ position: 'absolute', bottom: 8, left: 22, right: 22 }}>
+                  <Text style={{ fontSize: 6.5, color: '#9CA3AF', textAlign: 'center' }}>
+                    {`${COMPANY.naam} · ${COMPANY.adres}, ${COMPANY.postcode} ${COMPANY.plaats} · ${COMPANY.telefoon} · ${COMPANY.email} · ${COMPANY.website}`}
+                  </Text>
+                </View>
               </Page>
             ))}
           </React.Fragment>
