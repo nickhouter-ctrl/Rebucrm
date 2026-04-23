@@ -347,10 +347,21 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
         }
       }
     } else if (isEkoOkna) {
-      // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
+      // Prijs kan op meerdere manieren staan:
+      // - "Prijs van het element 1 x 557,80"
+      // - "Prijs van het element 557,80 E"
+      // - "Deurprijs 1 632,37 E"           ← voor deuren
+      // - "Prijs\s+\d+ x 1 632,37" etc.
+      // Probeer in volgorde totdat een match gevonden wordt.
       let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
-      // Fallback: single price before "E" (no "N x" prefix)
       if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs van het element\s*([\d\s.]+,\d{2})\s*E/i)
+      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Deurprijs\s*([\d\s.]+,\d{2})\s*E?/i)
+      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs\s+van\s+het\s+element\s+([\d\s.]+,\d{2})/i)
+      // Laatste fallback: eerste "X,XX E" bedrag na "Glazing used" / "Deurprijs" / "Toebehoren"
+      if (!ekoPriceMatch) {
+        const tailMatch = searchText.match(/(?:Glazing\s+used|Toebehoren|Deurprijs|Prijs\s+van\s+het\s+element)[\s\S]*?([\d][\d\s.]*,\d{2})\s*E\b/i)
+        if (tailMatch) ekoPriceMatch = tailMatch
+      }
       if (ekoPriceMatch) {
         const prijsStr = ekoPriceMatch[1].trim()
         prijs = parseFloat(prijsStr.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
