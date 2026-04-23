@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -282,6 +282,13 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     }
   }
 
+  async function handleDeleteTaak(id: string) {
+    if (!confirm('Taak verwijderen?')) return
+    const result = await deleteTaak(id)
+    if (result.error) setError(result.error)
+    else router.refresh()
+  }
+
   async function handleCreateKlant() {
     if (!klantEmail || !klantNaam || !klantWachtwoord) return
     setKlantLoading(true); setError('')
@@ -515,33 +522,40 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               ) : (
                 <div className="space-y-2">
                   {openTaken.map(t => (
-                    <Link key={t.id} href={`/taken/${t.id}`} className="flex items-start gap-2 group">
+                    <div key={t.id} className="flex items-start gap-2 group">
                       <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-gray-100 text-gray-500">
                         <CheckSquare className="h-3.5 w-3.5" />
                       </div>
-                      <div className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-gray-50 border-gray-200 hover:border-gray-300 transition-colors">
+                      <Link href={`/taken/${t.id}`} className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-gray-50 border-gray-200 hover:border-gray-300 transition-colors">
                         <div className="flex items-start justify-between gap-2 mb-1">
                           <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
                             <span className="font-semibold text-gray-700">Taak</span>
                             <span className="text-gray-600 font-medium">· {t.titel}</span>
                           </div>
-                          {t.deadline && (() => {
-                            const vandaag = new Date(); vandaag.setHours(0,0,0,0)
-                            const dl = new Date(t.deadline); dl.setHours(0,0,0,0)
-                            const overschreden = dl < vandaag
-                            return (
-                              <span className={`text-xs shrink-0 ${overschreden ? 'text-red-600' : 'text-gray-500'}`}>
-                                {formatDateShort(t.deadline)}
-                              </span>
-                            )
-                          })()}
+                          <div className="flex items-center gap-1 shrink-0">
+                            {t.deadline && (() => {
+                              const vandaag = new Date(); vandaag.setHours(0,0,0,0)
+                              const dl = new Date(t.deadline); dl.setHours(0,0,0,0)
+                              const overschreden = dl < vandaag
+                              return (
+                                <span className={`text-xs ${overschreden ? 'text-red-600' : 'text-gray-500'}`}>
+                                  {formatDateShort(t.deadline)}
+                                </span>
+                              )
+                            })()}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-gray-500">
                           <Badge status={t.prioriteit}>{t.prioriteit}</Badge>
                           {t.status && <span>· {t.status}</span>}
                         </div>
+                      </Link>
+                      <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
+                        <button onClick={(e) => { e.preventDefault(); handleDeleteTaak(t.id) }} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                    </Link>
+                    </div>
                   ))}
                 </div>
               )}
@@ -953,14 +967,25 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Prioriteit</th>
                   <th className="px-4 py-3">Deadline</th>
+                  <th className="px-4 py-3 w-20"></th>
                 </tr></thead>
                 <tbody className="divide-y divide-gray-100">
                   {relatieTaken.map(t => (
-                    <tr key={t.id} className="hover:bg-gray-50">
+                    <tr key={t.id} className="hover:bg-gray-50 group">
                       <td className="px-4 py-3"><Link href={`/taken/${t.id}`} className="text-sm font-medium text-gray-900 hover:text-primary">{t.titel}</Link></td>
                       <td className="px-4 py-3"><Badge status={t.status}>{t.status}</Badge></td>
                       <td className="px-4 py-3"><Badge status={t.prioriteit}>{t.prioriteit}</Badge></td>
                       <td className="px-4 py-3 text-sm text-gray-600">{t.deadline ? new Date(t.deadline).toLocaleDateString('nl-NL') : '-'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => router.push(`/taken/${t.id}`)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteTaak(t.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
