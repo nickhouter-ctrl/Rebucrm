@@ -387,20 +387,17 @@ export function StapTekeningen({
           }
         }
 
-        // Slim: vind de BOVENSTE prijs/tabel-header in onderste helft en wis alles
-        // vanaf daar tot onderkant. Alléén als we een duidelijke prijs-tabel-header
-        // detecteren — anders niks forceren (voorkomt witte strepen in de tekening).
+        // Wis prijs-tabel-headers in de onderste helft — maar ALLEEN vanaf de
+        // x-positie waar de tekst staat (rechterhelft). De linker-helft bevat
+        // meestal de onder-aanzicht tekening die compleet moet blijven.
         const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element)$/i
-        let bottomCutoff: number | null = null
         for (const ti of textItems) {
           if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
-            const candidate = Math.max(0, ti.cy - 18)
-            if (bottomCutoff === null || candidate < bottomCutoff) bottomCutoff = candidate
+            const wipeLeft = Math.max(Math.floor(w * 0.50), ti.cx - 40)
+            const wipeTop = Math.max(0, ti.cy - 18)
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
           }
-        }
-        if (bottomCutoff !== null && bottomCutoff < h) {
-          ctx.fillStyle = '#FFFFFF'
-          ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
         // AI VISION: vraag Claude welke regio's we WIT moeten maken (prijzen +
