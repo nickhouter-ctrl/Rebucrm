@@ -253,13 +253,19 @@ export function StapTekeningen({
             cy: Math.round(h - item.transform[5] * 2),
           }))
 
-        // Find the element header line (e.g. "Element 001", "Deur 001", "Merk 1", "Productie maten")
-        const headerMatch = textItems.find((i: { str: string; cy: number }) =>
-          i.cy < h * 0.20 && /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+[\dA-Z]+|Positie|Binnenzicht|Productie\s+maten/i.test(i.str)
-        )
+        // Find ALL element-header items op de pagina (Element/Deur/Merk/Positie/Productie maten).
+        // Op pagina's waar twee elementen samen staan (staart van element A + begin element B)
+        // moeten we ALLES vóór het LAATSTE element-header op de pagina wegcroppen, zodat
+        // alleen de echte tekening van dit element overblijft.
+        const headerPattern = /(?:Gekoppeld\s+)?(?:Deur|Element)\s+\d{3}|Merk\s+[\dA-Z]+|Positie\s*\d{3}|Productie\s+maten/i
+        const allHeaders = textItems
+          .filter((i: { str: string; cy: number }) => headerPattern.test(i.str))
+          .sort((a: { cy: number }, b: { cy: number }) => a.cy - b.cy)
+        // De LAATSTE element-header op de pagina markeert het begin van DIT element
+        const headerMatch = allHeaders.length > 0 ? allHeaders[allHeaders.length - 1] : undefined
         const isGealanPage = !!headerMatch && (/Merk\s+[\dA-Z]+/i.test(headerMatch.str) || /Productie\s+maten/i.test(headerMatch.str))
 
-        // Crop just above the element header (remove leverancier branding)
+        // Crop just above the element header (remove leverancier branding + vorige element staart)
         let cropTop = Math.floor(h * 0.04)
         if (headerMatch) {
           cropTop = Math.max(0, headerMatch.cy - 30)

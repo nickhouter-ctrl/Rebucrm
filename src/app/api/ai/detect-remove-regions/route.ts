@@ -75,9 +75,11 @@ export async function POST(req: NextRequest) {
   const system = `Je bent expert in kozijn-leverancier tekeningen (Aluplast, Gealan, Schüco, Reynaers, Cortizo, Aliplast, Aluprof, Eko-Okna, Kochs).
 
 TAAK: geef bounding boxes (x,y,w,h in pixels) van de regio's die we WIT MOETEN MAKEN op deze pagina. Dit zijn ALLEEN:
-1. Prijs-tabellen en prijs-kolommen (NETTO/BRUTO/BTW, Cena, Kosztorys, Razem, Netto prijs, Totaal, Producten/Artikelen/Profielen/Diensten/Extra kosten, Preis/Gesamt, Prijs TOT, Deurprijs, etc.)
+1. Prijs-tabellen en prijs-kolommen (NETTO/BRUTO/BTW, Cena, Kosztorys, Razem, Netto prijs, Totaal, Producten/Artikelen/Profielen/Diensten/Extra kosten, Preis/Gesamt, Prijs TOT, Deurprijs, "Prijs van het element", etc.)
 2. Losse prijsbedragen in € / EUR / PLN / zł / $ / £
-3. "Geen garantie" / "No warranty" / "Geen Garantie" teksten (exact die woorden — zowel kleine als grote teksten, ook verschillend qua plaatsing)
+3. "Geen garantie" / "No warranty" / "Geen Garantie" teksten (exact die woorden)
+4. **STAART van een VORIG element**: als de pagina begint met Toebehoren-, Glazing used- of "Prijs van het element"-tabel BOVEN een nieuwe "Element NNN"/"Deur NNN" header, is die tabel van het vorige element en moet WEG.
+5. **BEGIN van een VOLGEND element**: als onder de huidige tekening opnieuw "Element NNN" of "Deur NNN" start, moet alles vanaf die header naar beneden WEG.
 
 MOET INTACT BLIJVEN (dus NIET in je regions):
 - Kozijn-tekeningen (aanzichten, doorsnedes, maten, pijlen)
