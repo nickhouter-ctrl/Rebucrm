@@ -327,25 +327,13 @@ export function StapControleren({
           }
         }
 
-        // Multi-taal price-hiding (NL/PL/DE/EN/FR) + fail-safe bottom wipe
-        const priceLabelPattern = /netto|bruto|prijs|prix|preis|price|deurprijs|kosztorys|cena|wartos[cz]|razem|suma|total|totaal|ges\.?amt|eindtotaal|sub\s*totaal|subtotal|excl\s*btw|incl\s*btw|btw/i
-        const currencyWordPattern = /\b(EUR|€|PLN|zł|USD|\$|GBP|£)\b/i
-        const numericPricePattern = /^\s*(?:€|EUR|PLN|zł|\$)?\s*[\d][\d\s.,]*(?:[.,]\d{2})?\s*(?:€|EUR|PLN|zł|\$)?\s*$/i
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|Cena|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)?\b)$/i
-
-        const priceLabels = txtItems.filter((ti: { str: string }) => priceLabelPattern.test(ti.str) || currencyWordPattern.test(ti.str))
-
+        // Alleen expliciete prijs-labels wissen (geen brede numerieke match — dat
+        // veegde ook dimensies op de tekening weg).
+        const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
         for (const ti of txtItems) {
-          const str = ti.str
-          const matchesLabel = priceLabelPattern.test(str) || priceTextPattern.test(str) || currencyWordPattern.test(str)
-          const looksNumeric = numericPricePattern.test(str) && /\d/.test(str) && str.replace(/\D/g, '').length >= 2
-          const isBottomZone = ti.cy > h * 0.65
-          const nearLabel = looksNumeric && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 260 && Math.abs(pl.cy - ti.cy) < 50
-          )
-          if (matchesLabel || nearLabel || (isBottomZone && looksNumeric) || /geen\s*garantie/i.test(str)) {
+          if (explicitPricePattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)) {
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 28)
+            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 26)
           }
         }
 
@@ -362,24 +350,19 @@ export function StapControleren({
           }
         }
 
-        // FAIL-SAFE: vind de BOVENSTE prijs/tabel-label in de onderste helft en wis
-        // alles vanaf daar tot de bodem volledig wit.
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Raam|Totaal|Subtotaal|Cena|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
-        let bottomCutoff = Math.floor(h * 0.90)
+        // Slim: wis van bovenste prijs-tabel-header tot onderkant. Alleen als we
+        // zo'n header vinden, anders laten staan (voorkomt witte strepen).
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element)$/i
+        let bottomCutoff: number | null = null
         for (const ti of txtItems) {
-          if (ti.cy > h * 0.50 && bottomBlockPattern.test(ti.str)) {
-            const candidate = Math.max(0, ti.cy - 20)
-            if (candidate < bottomCutoff) bottomCutoff = candidate
+          if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
+            const candidate = Math.max(0, ti.cy - 18)
+            if (bottomCutoff === null || candidate < bottomCutoff) bottomCutoff = candidate
           }
         }
-        bottomCutoff = Math.min(bottomCutoff, Math.floor(h * 0.90))
-        ctx.fillStyle = '#FFFFFF'
-        ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
-        for (const ti of txtItems) {
-          if (ti.cy > h * 0.82) {
-            ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(0, ti.cy - 18, w, 30)
-          }
+        if (bottomCutoff !== null && bottomCutoff < h) {
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
         const cropBot = Math.floor(h * 0.97), cropH = cropBot - cropTop

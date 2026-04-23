@@ -280,37 +280,13 @@ export function StapTekeningen({
           }
         }
 
-        // Hide supplier price text voor ALLE leveranciers (NL/PL/DE/EN/FR) — meertalig
-        // en bevat prijs-labels, currency-symbolen én generieke prijs-woorden.
-        const priceLabelPattern = /netto|bruto|prijs|prix|preis|price|deurprijs|kosztorys|cena|wartos[cz]|razem|suma|total|totaal|ges\.?amt|eindtotaal|sub\s*totaal|subtotal|excl\s*btw|incl\s*btw|netto\s*totaal|btw/i
-        const currencyWordPattern = /\b(EUR|€|PLN|zł|USD|\$|GBP|£)\b/i
-        // Numeriek: 123,45 / 1.234,56 / 1,234.56 / 1 234.56 — evt met €/EUR/PLN
-        const numericPricePattern = /^\s*(?:€|EUR|PLN|zł|\$)?\s*[\d][\d\s.,]*(?:[.,]\d{2})?\s*(?:€|EUR|PLN|zł|\$)?\s*$/i
-        const priceTextPattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Totaal|Raam|Cena|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)?\b)$/i
-
-        const priceLabels = textItems.filter((ti: { str: string }) => priceLabelPattern.test(ti.str) || currencyWordPattern.test(ti.str))
-
-        function wipe(x: number, y: number, rw: number, rh: number) {
-          ctx.fillStyle = '#FFFFFF'
-          ctx.fillRect(Math.max(0, x), Math.max(0, y), Math.min(w - Math.max(0, x), rw), rh)
-        }
-
+        // Expliciete prijs-labels: die worden altijd wit. Geen brede zoektocht naar
+        // numerieke items — dat veegde ook dimensies in de tekening weg.
+        const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
         for (const ti of textItems) {
-          const str = ti.str
-          const matchesLabel = priceLabelPattern.test(str) || priceTextPattern.test(str) || currencyWordPattern.test(str)
-          const looksNumeric = numericPricePattern.test(str) && /\d/.test(str) && str.replace(/\D/g, '').length >= 2
-          // In onderste 35% van pagina: elk numeriek item = verdacht = wit
-          const isBottomZone = ti.cy > h * 0.65
-          const nearLabel = looksNumeric && priceLabels.some(
-            (pl: { cx: number; cy: number }) => Math.abs(pl.cx - ti.cx) < 260 && Math.abs(pl.cy - ti.cy) < 50
-          )
-          const hide = matchesLabel
-            || nearLabel
-            || (isBottomZone && looksNumeric)
-            || /geen\s*garantie/i.test(str)
-          if (hide) {
-            // Wis ruim: van item helemaal naar rechts, 26px hoog
-            wipe(ti.cx - 8, ti.cy - 18, w - ti.cx + 12, 28)
+          if (explicitPricePattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)) {
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 26)
           }
         }
 
@@ -351,28 +327,20 @@ export function StapTekeningen({
           }
         }
 
-        // FAIL-SAFE: vind de BOVENSTE prijs/tabel-label in de onderste helft van de
-        // pagina, en wis alles vanaf daar tot de onderkant volledig wit. Zo verdwijnt
-        // het hele onderste tabel-blok (NETTO/BTW/BRUTO, Producten, Artikelen, Diensten,
-        // Extra kosten, Totaal netto/bruto, Cena/Kosztorys/Raam/Totaal, enz).
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Raam|Totaal|Subtotaal|Cena|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
-        let bottomCutoff = Math.floor(h * 0.90)
+        // Slim: vind de BOVENSTE prijs/tabel-header in onderste helft en wis alles
+        // vanaf daar tot onderkant. Alléén als we een duidelijke prijs-tabel-header
+        // detecteren — anders niks forceren (voorkomt witte strepen in de tekening).
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element)$/i
+        let bottomCutoff: number | null = null
         for (const ti of textItems) {
-          if (ti.cy > h * 0.50 && bottomBlockPattern.test(ti.str)) {
-            const candidate = Math.max(0, ti.cy - 20)
-            if (candidate < bottomCutoff) bottomCutoff = candidate
+          if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
+            const candidate = Math.max(0, ti.cy - 18)
+            if (bottomCutoff === null || candidate < bottomCutoff) bottomCutoff = candidate
           }
         }
-        // Altijd minstens onderste 10% wit (extra zekerheid)
-        bottomCutoff = Math.min(bottomCutoff, Math.floor(h * 0.90))
-        ctx.fillStyle = '#FFFFFF'
-        ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
-        // Bonus: extra brede wipe van alle resterende tekst-items in onderste 18%
-        for (const ti of textItems) {
-          if (ti.cy > h * 0.82) {
-            ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(0, ti.cy - 18, w, 30)
-          }
+        if (bottomCutoff !== null && bottomCutoff < h) {
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
         const cropH = cropBottom - cropTop
         const croppedCanvas = document.createElement('canvas')
