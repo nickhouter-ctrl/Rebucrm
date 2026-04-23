@@ -521,7 +521,16 @@ export async function getOffertes() {
       .order('datum', { ascending: false })
       .range(from, to)
   )
-  return data
+  // Toon alleen laatste versie per offertenummer (hoogste versie_nummer)
+  const perNummer = new Map<string, typeof data[number]>()
+  for (const o of data) {
+    const key = o.offertenummer || `__${o.id}`
+    const huidig = perNummer.get(key)
+    if (!huidig || (Number(o.versie_nummer) || 0) > (Number(huidig.versie_nummer) || 0)) {
+      perNummer.set(key, o)
+    }
+  }
+  return Array.from(perNummer.values())
 }
 
 export async function getConceptOffertes() {
