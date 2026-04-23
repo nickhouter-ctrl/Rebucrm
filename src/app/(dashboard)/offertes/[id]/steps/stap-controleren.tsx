@@ -130,6 +130,17 @@ export function StapControleren({
     onRegelsChange([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
   }
 
+  function snelVulBedrag() {
+    const input = prompt('Totaalbedrag incl. BTW (bijv. 12500 of 12500,50):')
+    if (input === null) return
+    const bedragIncl = parseFloat(input.replace(/\./g, '').replace(',', '.'))
+    if (!bedragIncl || bedragIncl <= 0) { alert('Ongeldig bedrag'); return }
+    const excl = Math.round((bedragIncl / 1.21) * 100) / 100
+    const omschrijving = prompt('Omschrijving (enter voor "Kunststof kozijnen leveren"):') || 'Kunststof kozijnen leveren'
+    // Vervang alle regels door 1 regel
+    onRegelsChange([{ omschrijving, aantal: 1, prijs: excl, btw_percentage: 21 }])
+  }
+
   function removeRegel(index: number) {
     onRegelsChange(regels.filter((_, i) => i !== index))
   }
@@ -672,10 +683,15 @@ export function StapControleren({
               )}
             </div>
             {!readOnly && (
-            <Button type="button" variant="secondary" size="sm" onClick={addRegel}>
-              <Plus className="h-3 w-3" />
-              Regel toevoegen
-            </Button>
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={snelVulBedrag}>
+                  Bedrag invullen
+                </Button>
+                <Button type="button" variant="secondary" size="sm" onClick={addRegel}>
+                  <Plus className="h-3 w-3" />
+                  Regel toevoegen
+                </Button>
+              </div>
             )}
           </div>
           <CardContent>

@@ -4407,6 +4407,48 @@ export async function planDelivery(orderId: string, options: {
 }
 
 // === OFFERTE NAAR FACTUUR ===
+// Vult een offerte in 1 klik: voegt 1 regel toe met het gegeven totaalbedrag incl BTW,
+// corrigeert subtotaal/btw/totaal op de offerte header. Handig voor geïmporteerde
+// offertes (Tribe of leeg-concept) waar geen prijs bekend is.
+export async function vulOffertePrijs(
+  offerteId: string,
+  bedragIncl: number,
+  omschrijving?: string
+) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  if (!bedragIncl || bedragIncl <= 0) return { error: 'Geef een geldig bedrag op' }
+
+  const sb = createAdminClient()
+  const { data: offerte } = await sb.from('offertes').select('id, onderwerp').eq('id', offerteId).single()
+  if (!offerte) return { error: 'Offerte niet gevonden' }
+
+  const excl = Math.round((bedragIncl / 1.21) * 100) / 100
+  const btw = Math.round((bedragIncl - excl) * 100) / 100
+
+  // Verwijder eventuele bestaande lege regels
+  await sb.from('offerte_regels').delete().eq('offerte_id', offerteId)
+
+  await sb.from('offerte_regels').insert({
+    offerte_id: offerteId,
+    omschrijving: omschrijving || offerte.onderwerp || 'Kunststof kozijnen leveren',
+    aantal: 1,
+    prijs: excl,
+    btw_percentage: 21,
+    totaal: excl,
+    volgorde: 0,
+  })
+
+  await sb.from('offertes').update({
+    subtotaal: excl,
+    btw_totaal: btw,
+    totaal: bedragIncl,
+  }).eq('id', offerteId)
+
+  revalidatePath(`/offertes/${offerteId}`)
+  return { success: true }
+}
+
 // Directe factuurflow vanuit een verkoopkans (project) — vult ontbrekende prijzen
 // aan op basis van de laatste geaccepteerde offerte of een door user opgegeven bedrag.
 export async function factureerVerkoopkans(
