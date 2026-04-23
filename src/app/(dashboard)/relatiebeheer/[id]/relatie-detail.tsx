@@ -223,6 +223,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [klantLoading, setKlantLoading] = useState(false)
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
   const [showNotitieForm, setShowNotitieForm] = useState(false) // legacy, unused
+  const [gereedOpen, setGereedOpen] = useState(false)
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -561,13 +562,17 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               )}
             </div>
 
-            {/* Gereed: notities + afgeronde taken, op datum */}
+            {/* Gereed: notities + afgeronde taken, op datum — standaard ingeklapt */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <button
+                onClick={() => setGereedOpen(!gereedOpen)}
+                className="w-full flex items-center gap-2 text-sm font-semibold text-gray-900 mb-2 hover:text-[#00a66e] transition-colors"
+              >
+                {gereedOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronUp className="h-4 w-4 text-gray-400 rotate-180" />}
                 Gereed
                 <span className="text-xs font-normal text-gray-400">({notities.length + relatieTaken.filter(t => t.status === 'afgerond').length})</span>
-              </h3>
-              {(() => {
+              </button>
+              {gereedOpen && (() => {
                 type Item = { id: string; datum: string; kind: 'notitie' | 'taak'; data: Notitie | RelatieTaak }
                 const items: Item[] = [
                   ...notities.map(n => ({ id: 'n-' + n.id, datum: n.created_at, kind: 'notitie' as const, data: n })),
