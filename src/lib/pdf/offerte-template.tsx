@@ -297,61 +297,42 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         return (
           <React.Fragment key={`kozijn-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 30, paddingBottom: 50, paddingLeft: 30, paddingRight: 30, display: 'flex', flexDirection: 'column' }]} wrap={false}>
-                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
+              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 18, display: 'flex', flexDirection: 'column' }]} wrap={false}>
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: COLORS.green }} />
 
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, marginTop: 6 }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: 4 }}>
                   <View style={{ flex: 1, paddingRight: 12 }}>
-                    <Text style={s.elementNameText}>
+                    <Text style={{ fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#111827', letterSpacing: 0.5 }}>
                       {element.naam.toUpperCase()}
                       {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
                     </Text>
-                    <Text style={s.elementSubText}>
+                    <Text style={{ fontSize: 7, color: '#6B7280', marginTop: 1 }}>
                       {[element.systeem, element.afmetingen].filter(Boolean).join(' \u00B7 ')}
                     </Text>
                   </View>
-                  <Image src={logoPath} style={{ width: 90, height: 'auto' }} />
+                  {pi === 0 && element.prijs > 0 && (
+                    <Text style={{ fontSize: 12, fontFamily: 'Helvetica-Bold', color: COLORS.green, marginRight: 10 }}>
+                      {element.hoeveelheid > 1
+                        ? `${element.hoeveelheid}\u00D7 ${formatCurrencyPdf(element.prijs)} = ${formatCurrencyPdf(element.hoeveelheid * element.prijs)}`
+                        : formatCurrencyPdf(element.prijs)}
+                    </Text>
+                  )}
+                  <Image src={logoPath} style={{ width: 70, height: 'auto' }} />
                 </View>
 
                 {pg.totalPages > 1 && (
-                  <Text style={s.pageIndicator}>Pagina {pg.pageIndex + 1}/{pg.totalPages}</Text>
+                  <Text style={{ fontSize: 7, color: '#6B7280', textAlign: 'right', marginBottom: 2 }}>Pagina {pg.pageIndex + 1}/{pg.totalPages}</Text>
                 )}
 
                 {pg.url && (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 6, overflow: 'hidden' }}>
+                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                   </View>
                 )}
 
-                {/* Verkoopprijs in groene letters (alleen op eerste pagina) */}
-                {pi === 0 && element.prijs > 0 && (
-                  <View style={{ alignItems: 'flex-end', marginBottom: 6 }} wrap={false}>
-                    <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: COLORS.green }}>
-                      {element.hoeveelheid > 1
-                        ? `${element.hoeveelheid}x ${formatCurrencyPdf(element.prijs)} = ${formatCurrencyPdf(element.hoeveelheid * element.prijs)}`
-                        : formatCurrencyPdf(element.prijs)
-                      }
-                    </Text>
-                  </View>
-                )}
-
-                <View style={s.footer}>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerLabel}>{COMPANY.naam}</Text>
-                    <Text style={s.footerText}>{COMPANY.adres}</Text>
-                    <Text style={s.footerText}>{COMPANY.postcode} {COMPANY.plaats}</Text>
-                  </View>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerText}>{COMPANY.telefoon}</Text>
-                    <Text style={s.footerText}>{COMPANY.email}</Text>
-                    <Text style={s.footerText}>{COMPANY.website}</Text>
-                  </View>
-                  <View style={s.footerCol}>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>BTW: </Text>{COMPANY.btw}</Text>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>KVK: </Text>{COMPANY.kvk}</Text>
-                    <Text style={s.footerText}><Text style={s.footerLabel}>IBAN: </Text>{COMPANY.iban}</Text>
-                  </View>
-                </View>
+                <Text style={{ fontSize: 6.5, color: '#9CA3AF', textAlign: 'center', marginTop: 4 }}>
+                  {COMPANY.naam} \u00B7 {COMPANY.adres}, {COMPANY.postcode} {COMPANY.plaats} \u00B7 {COMPANY.telefoon} \u00B7 {COMPANY.email} \u00B7 {COMPANY.website}
+                </Text>
               </Page>
             ))}
           </React.Fragment>
