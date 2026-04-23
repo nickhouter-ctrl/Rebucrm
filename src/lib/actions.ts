@@ -1292,6 +1292,96 @@ export async function pushFactuurToSnelStart(factuurId: string) {
   return { success: true, boekingId: boeking.id }
 }
 
+// Maakt een creditnota voor een bestaande factuur: nieuwe factuur met NEGATIEVE bedragen,
+// link naar origineel, origineel wordt op status 'gecrediteerd' gezet, push naar SnelStart.
+export async function crediteerFactuur(factuurId: string, reden?: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: original } = await supabaseAdmin
+    .from('facturen')
+    .select('*, regels:factuur_regels(*)')
+    .eq('id', factuurId)
+    .single()
+
+  if (!original) return { error: 'Factuur niet gevonden' }
+  if (original.status === 'gecrediteerd') return { error: 'Factuur is al gecrediteerd' }
+  if (original.status === 'concept') return { error: 'Concept-facturen kunnen niet gecrediteerd worden — verwijder ze gewoon' }
+
+  // Nieuw factuurnummer
+  const { data: nieuwNummer } = await supabaseAdmin.rpc('volgende_nummer', {
+    p_administratie_id: adminId,
+    p_type: 'factuur',
+  })
+  if (!nieuwNummer) return { error: 'Kon geen nieuw factuurnummer genereren' }
+
+  const vandaag = new Date().toISOString().slice(0, 10)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const regels = (original.regels as any[]) || []
+
+  const negSubtotaal = regels.reduce((s, r) => s + (-Number(r.aantal) * Number(r.prijs)), 0)
+  const negBtw = regels.reduce((s, r) => s + (-Number(r.aantal) * Number(r.prijs) * Number(r.btw_percentage) / 100), 0)
+  const negTotaal = negSubtotaal + negBtw
+
+  const { data: creditnota, error: insertErr } = await supabaseAdmin
+    .from('facturen')
+    .insert({
+      administratie_id: adminId,
+      factuurnummer: nieuwNummer,
+      datum: vandaag,
+      vervaldatum: vandaag,
+      onderwerp: `Creditnota ${original.factuurnummer}${reden ? ` — ${reden}` : ''}`,
+      status: 'verzonden',
+      factuur_type: 'credit',
+      relatie_id: original.relatie_id,
+      order_id: original.order_id,
+      offerte_id: original.offerte_id,
+      gerelateerde_factuur_id: original.id,
+      subtotaal: Math.round(negSubtotaal * 100) / 100,
+      btw_totaal: Math.round(negBtw * 100) / 100,
+      totaal: Math.round(negTotaal * 100) / 100,
+      betaald_bedrag: 0,
+    })
+    .select('id, factuurnummer')
+    .single()
+  if (insertErr || !creditnota) return { error: insertErr?.message || 'Creditnota aanmaken mislukt' }
+
+  // Regels inverteren
+  const creditRegels = regels.map(r => ({
+    factuur_id: creditnota.id,
+    omschrijving: `Credit: ${r.omschrijving}`,
+    aantal: Number(r.aantal),
+    prijs: -Number(r.prijs),
+    btw_percentage: Number(r.btw_percentage),
+    totaal: -Number(r.aantal) * Number(r.prijs),
+    volgorde: r.volgorde || 0,
+  }))
+  if (creditRegels.length > 0) {
+    await supabaseAdmin.from('factuur_regels').insert(creditRegels)
+  }
+
+  // Origineel op 'gecrediteerd' zetten
+  await supabaseAdmin.from('facturen').update({ status: 'gecrediteerd' }).eq('id', original.id)
+
+  // Push naar SnelStart
+  try {
+    const { isSnelStartEnabled } = await import('@/lib/snelstart')
+    if (isSnelStartEnabled()) {
+      await pushFactuurToSnelStart(creditnota.id).catch(err => {
+        console.error('SnelStart push creditnota mislukt:', err)
+      })
+    }
+  } catch (err) {
+    console.error('SnelStart integratie fout creditnota:', err)
+  }
+
+  revalidatePath('/facturatie')
+  revalidatePath(`/facturatie/${factuurId}`)
+  return { success: true, creditnotaId: creditnota.id, factuurnummer: creditnota.factuurnummer }
+}
+
 // Haalt uit SnelStart de openstaande bedragen op en update betaald_bedrag + status
 // in CRM. Facturen die in SnelStart op 0 openstaan worden hier als 'betaald' gemarkeerd,
 // gedeeltelijk betaalde facturen als 'deels_betaald', overige behouden status tenzij

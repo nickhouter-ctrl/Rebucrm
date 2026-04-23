@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { saveFactuur, deleteFactuur, getFactuurEmailDefaults, sendFactuurEmail, generateBetaallink } from '@/lib/actions'
+import { saveFactuur, deleteFactuur, getFactuurEmailDefaults, sendFactuurEmail, generateBetaallink, crediteerFactuur } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -77,6 +77,20 @@ export function FactuurForm({ factuur, relaties, producten }: {
     const result = await deleteFactuur(factuur.id as string)
     if (result.error) setError(result.error)
     else router.push('/facturatie')
+  }
+
+  async function handleCrediteer() {
+    if (!factuur) return
+    const reden = prompt('Reden voor crediteren (optioneel):') || ''
+    if (reden === null) return
+    if (!confirm(`Creditnota maken voor ${factuur.factuurnummer}? Dit maakt een nieuwe factuur met negatief totaal aan en synct met SnelStart.`)) return
+    setLoading(true)
+    const result = await crediteerFactuur(factuur.id as string, reden)
+    setLoading(false)
+    if (result.error) setError(result.error)
+    else if (result.creditnotaId) {
+      router.push(`/facturatie/${result.creditnotaId}`)
+    }
   }
 
   async function openEmailDialog() {
@@ -275,7 +289,12 @@ export function FactuurForm({ factuur, relaties, producten }: {
             </div>
           </CardContent>
           <CardFooter className="flex justify-between">
-            <div>{!isNew && <Button type="button" variant="danger" onClick={handleDelete}><Trash2 className="h-4 w-4" />Verwijderen</Button>}</div>
+            <div className="flex gap-2">
+              {!isNew && <Button type="button" variant="danger" onClick={handleDelete}><Trash2 className="h-4 w-4" />Verwijderen</Button>}
+              {!isNew && factuur?.status !== 'concept' && factuur?.status !== 'gecrediteerd' && factuur?.factuur_type !== 'credit' && (
+                <Button type="button" variant="secondary" onClick={handleCrediteer} disabled={loading}>Crediteren</Button>
+              )}
+            </div>
             <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
           </CardFooter>
         </Card>
