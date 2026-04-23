@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { saveTaak, deleteTaak, saveTaakNotitie, deleteTaakNotitie, completeTaak, uncompleteTaak } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
@@ -42,6 +42,29 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   const [notities, setNotities] = useState(initialNotities)
   const [notitieText, setNotitieText] = useState('')
+  // Sla bij eerste render de echte referrer-URL op in sessionStorage zodat
+  // de "terug"-navigatie betrouwbaar is — ook na page-refresh of meerdere
+  // edits op dezelfde taak. router.back() bleek onbetrouwbaar omdat Next.js
+  // soms extra history-entries pusht bij client-side navigatie.
+  const backUrlRef = useRef<string | null>(null)
+  const storageKey = `taak-back-${(taak?.id as string) || 'nieuw'}`
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = sessionStorage.getItem(storageKey)
+    if (stored) {
+      backUrlRef.current = stored
+      return
+    }
+    const ref = document.referrer
+    if (!ref) return
+    try {
+      const url = new URL(ref)
+      if (url.origin !== window.location.origin) return
+      if (url.pathname.startsWith('/taken/')) return
+      backUrlRef.current = url.pathname + url.search
+      sessionStorage.setItem(storageKey, backUrlRef.current)
+    } catch { /* ignore */ }
+  }, [storageKey])
   const [editNotitieId, setEditNotitieId] = useState<string | null>(null)
   const [editNotitieText, setEditNotitieText] = useState('')
   const [showVervolgTaak, setShowVervolgTaak] = useState(false)
@@ -58,12 +81,13 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     : offertes
 
   function navigateAfterSave(savedId?: string) {
-    // Altijd terug naar de vorige pagina waar de gebruiker vandaan kwam.
-    // router.back() gebruikt de browser-history — werkt voor alle routes
-    // (klant-detail, project-detail, taken-lijst). Fallback alleen als er
-    // geen history is (direct geopend via URL/bookmark).
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      router.back()
+    // Terug naar de pagina waar de gebruiker écht vandaan kwam, opgeslagen
+    // bij mount in sessionStorage. Dit blijft correct ook na page refresh
+    // of meerdere saves binnen dezelfde taak.
+    if (typeof window !== 'undefined' && backUrlRef.current) {
+      const target = backUrlRef.current
+      sessionStorage.removeItem(storageKey)
+      router.push(target)
       return
     }
     if (selectedRelatieId) {
