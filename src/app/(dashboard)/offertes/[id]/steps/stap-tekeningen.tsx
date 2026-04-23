@@ -285,9 +285,10 @@ export function StapTekeningen({
         }
 
         // Hide supplier prices on green bars
-        // Detect green bars (>30% of row green, ≥12px tall), then paint over
-        // text with the bar's own green color. This preserves the bar as a
-        // visual separator (no white stripes) while hiding price text.
+        // Detect green bars: rijen waar >70% van de breedte groen is, ≥12 én
+        // ≤40px tall. Dit sluit groene kozijn-tekeningen (Onder-aanzicht in
+        // Eko-Okna) uit — die zijn veel hoger dan 40px en hebben een
+        // geconcentreerde groene vorm, geen volledige-breedte groene rij.
         const imgData = ctx.getImageData(0, 0, w, h)
         const greenBarRows: boolean[] = new Array(h).fill(false)
         for (let y = 0; y < h; y++) {
@@ -297,7 +298,7 @@ export function StapTekeningen({
             const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
             if (g > 80 && g > r + 20 && g > b + 20) greenCount++
           }
-          greenBarRows[y] = greenCount > (w / 2) * 0.30
+          greenBarRows[y] = greenCount > (w / 2) * 0.70
         }
         const bars: { start: number; end: number }[] = []
         let barStart = -1
@@ -305,7 +306,8 @@ export function StapTekeningen({
           if (y < h && greenBarRows[y]) {
             if (barStart === -1) barStart = y
           } else if (barStart !== -1) {
-            if (y - barStart >= 12) bars.push({ start: barStart, end: y })
+            const barHeight = y - barStart
+            if (barHeight >= 12 && barHeight <= 40) bars.push({ start: barStart, end: y })
             barStart = -1
           }
         }
@@ -334,7 +336,7 @@ export function StapTekeningen({
         }
 
         // Expliciete prijs-labels + "Geen garantie" teksten wissen.
-        const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
+        const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*[Tt]otaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|TZ\s*\d|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
         const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
         for (const ti of textItems) {
           if (explicitPricePattern.test(ti.str)) {
@@ -387,14 +389,18 @@ export function StapTekeningen({
           }
         }
 
-        // Wis prijs-tabel-headers in de onderste helft — maar ALLEEN vanaf de
-        // x-positie waar de tekst staat (rechterhelft). De linker-helft bevat
-        // meestal de onder-aanzicht tekening die compleet moet blijven.
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element)$/i
+        // Wis prijs-tabel-headers. In onderste 25% van de pagina zijn dit
+        // summary-tabellen die ALTIJD full-width zijn (Totaal elementen,
+        // Betaling, TZ) — daar wissen we van links tot rechts. In middenzone
+        // (55%-75%) staan prijzen meestal rechts naast een tekening en wissen
+        // we alleen de rechterhelft zodat de tekening intact blijft.
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
         for (const ti of textItems) {
           if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
-            const wipeLeft = Math.max(Math.floor(w * 0.50), ti.cx - 40)
             const wipeTop = Math.max(0, ti.cy - 18)
+            // Onderste 25%: full-width summary tables
+            // Middenzone: alleen rechts van de tekst-positie
+            const wipeLeft = ti.cy > h * 0.75 ? 0 : Math.max(Math.floor(w * 0.50), ti.cx - 40)
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
           }

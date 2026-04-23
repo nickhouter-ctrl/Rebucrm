@@ -90,6 +90,8 @@ MOET INTACT BLIJVEN (dus NIET in je regions):
 
 Maak de boxes krap-genoeg zodat je ALLEEN prijzen/garantie dekt, met wat marge (~5-10px) om zekerheid. Als je twijfelt of iets een prijs is: inclusief opnemen want zichtbare prijzen zijn ONAANVAARDBAAR. Als iets een dimensie of specs is: NIET opnemen.
 
+**Summary-tabellen onderaan (laatste 25% van de pagina)**: als er een tabel/boxje is met "Totaal elementen", "Totaal offerte/order", "Betaling:", "Eind totaal", "Netto Totaal", "TZ NN%" of "+N stojak", maak de bounding box dan VOL-BREED (van x=0 tot aan pagina-breedte) zodat de volledige kolom verdwijnt — een half-weggewiste tabel is een veel voorkomende fout.
+
 Geef MEERDERE boxes als prijzen verspreid staan. Bv. Aluplast heeft vaak links een prijs-kolom EN onderaan een totaaltabel — beide erbij.`
 
   try {

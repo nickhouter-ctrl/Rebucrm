@@ -43,7 +43,8 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // per-element sectie start met "Productie maten", prijzen in "Netto prijs / Raam / Totaal" tabel.
   const isGealanNL = !isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
   const isGealan = !isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text)
-  const isKochs = !isGealan && !isGealanNL && !isAluplast && /K-Vision\s+\d+/.test(text)
+  // Kochs: K-Vision (oud) of Primus MD + Premidoor (nieuw)
+  const isKochs = !isGealan && !isGealanNL && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text))
   const isEkoOkna = !isGealan && !isGealanNL && !isKochs && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
@@ -60,7 +61,11 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
   } else if (isKochs) {
-    const totaalMatch = text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/)
+    // Primus MD: "Totaal offerte/order : 2.253,13 EUR" (zonder TZ toeslag),
+    // anders "Netto Totaal : X,XX EUR". Element-prijs = totaal zonder TZ-marge.
+    const totaalMatch = text.match(/Totaal\s*offerte\/order\s*:\s*([\d.,]+)\s*EUR/)
+      || text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/)
+      || text.match(/Eind\s*totaal\s*:\s*([\d.,]+)\s*EUR/)
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
@@ -147,15 +152,16 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else if (isKochs) {
-    // K-Vision PDF format (from actual text extraction):
-    // "001 Kozijnmerk D\nBinnenzicht\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm\n1\n"
-    // Position number + description on SAME line, hoeveelheid AFTER Afmeting line
-    const elementPattern = /^(\d{3})\s+[^\n]+\n[\s\S]{0,300}?Systeem\s*:\s*([^\n]+)\nAfmeting(?:en)?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n(\d+)\n/gm
+    // Kochs K-Vision OF Primus MD:
+    //   K-Vision: "001 Kozijnmerk D\nBinnenzicht\nSysteem : K-Vision 120\nAfmeting : 1500 x 1200 mm\n1\n"
+    //   Primus MD: "001 \nBinnenzicht\n Systeem : Premidoor 76\nAfmeting : 2600 x 2450 mm\n1\n"
+    // Het verschil: Primus MD heeft geen omschrijving op de "001"-regel en soms een leading space voor "Systeem".
+    const elementPattern = /(?:^|\n)\s*(\d{3})(?:\s+[^\n]*)?\n[\s\S]{0,400}?Systeem\s*:\s*([^\n]+)\n[\s\S]{0,100}?Afmeting(?:en)?\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n\s*(\d+)\n/g
     while ((match = elementPattern.exec(text)) !== null) {
       const hoeveelheid = parseInt(match[5]) || 1
 
       // Find next element to determine section boundary
-      const nextPattern = /^\d{3}\s+[^\n]+\n[\s\S]{0,300}?Systeem\s*:/gm
+      const nextPattern = /(?:^|\n)\s*\d{3}(?:\s+[^\n]*)?\n[\s\S]{0,400}?Systeem\s*:/g
       nextPattern.lastIndex = match.index + match[0].length
       const nextPosMatch = nextPattern.exec(text)
       const sectionEnd = nextPosMatch ? nextPosMatch.index : text.length
