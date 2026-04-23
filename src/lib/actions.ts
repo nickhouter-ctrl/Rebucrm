@@ -4680,6 +4680,34 @@ Rebu Kozijnen`
   return { success: true }
 }
 
+// Alle verzonden e-mails (met bijlagen) voor een offerte
+export async function getOfferteEmailLog(offerteId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const { data } = await supabase
+    .from('email_log')
+    .select('id, aan, onderwerp, bijlagen, verstuurd_op, verstuurd_door')
+    .eq('offerte_id', offerteId)
+    .eq('administratie_id', adminId)
+    .order('verstuurd_op', { ascending: false })
+  return data || []
+}
+
+// Alle verzonden e-mails (met bijlagen) voor een factuur
+export async function getFactuurEmailLog(factuurId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const { data } = await supabase
+    .from('email_log')
+    .select('id, aan, onderwerp, bijlagen, verstuurd_op, verstuurd_door')
+    .eq('factuur_id', factuurId)
+    .eq('administratie_id', adminId)
+    .order('verstuurd_op', { ascending: false })
+  return data || []
+}
+
 // === EMAIL LOG DETAIL ===
 export async function getEmailLogDetail(id: string) {
   const supabase = await createClient()

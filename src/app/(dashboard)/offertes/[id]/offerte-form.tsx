@@ -45,7 +45,7 @@ const ZAKELIJK_REGELS: Regel[] = [
   { omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: 0, btw_percentage: 21 },
 ]
 
-export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder }: {
+export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder, emailLog }: {
   offerte: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
@@ -53,6 +53,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   initialRelatieName?: string | null
   wizardMode?: boolean | 'concept'
   linkedOrder?: { id: string; ordernummer: string; status: string } | null
+  emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
 }) {
   const router = useRouter()
   const isNew = !offerte
@@ -341,6 +342,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
       selectedRelatieName={selectedRelatieName}
       selectedProjectName={selectedProjectName}
       linkedOrder={linkedOrder}
+      emailLog={emailLog}
     />
   )
 }
@@ -356,6 +358,7 @@ function EditOfferteView({
   selectedRelatieName,
   selectedProjectName,
   linkedOrder,
+  emailLog,
 }: {
   offerte: Record<string, unknown>
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
@@ -366,6 +369,7 @@ function EditOfferteView({
   selectedRelatieName: string
   selectedProjectName: string
   linkedOrder?: { id: string; ordernummer: string; status: string } | null
+  emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -658,6 +662,41 @@ function EditOfferteView({
             <FolderKanban className="h-3.5 w-3.5" />
             Bekijk klus
           </Button>
+        </div>
+      )}
+
+      {/* Verstuurde e-mails met bijlagen */}
+      {emailLog && emailLog.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <Send className="h-4 w-4 text-gray-500" />
+            Verstuurde e-mails ({emailLog.length})
+          </h3>
+          <div className="space-y-2">
+            {emailLog.map(m => (
+              <div key={m.id} className="border border-gray-100 rounded-md p-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-gray-900 truncate">{m.onderwerp || '(geen onderwerp)'}</div>
+                    <div className="text-xs text-gray-500">Aan: {m.aan}</div>
+                  </div>
+                  <span className="text-xs text-gray-400 shrink-0">
+                    {new Date(m.verstuurd_op).toLocaleString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                {m.bijlagen && m.bijlagen.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {m.bijlagen.map((b, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1 text-gray-700">
+                        <FileText className="h-3 w-3 text-gray-400" />
+                        {b.filename}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
