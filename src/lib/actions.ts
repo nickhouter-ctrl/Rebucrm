@@ -510,18 +510,18 @@ export async function deleteProduct(id: string) {
 }
 
 // === OFFERTES ===
-export async function getOffertes() {
+export async function getOffertes(includeArchief = false) {
   const supabase = await createClient()
-  // Supabase limiteert tot 1000 rijen per request — pagineren door alles heen
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = await fetchAllRows<any>((from, to) =>
-    supabase
+  const data = await fetchAllRows<any>((from, to) => {
+    let q = supabase
       .from('offertes')
       .select('*, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
       .order('datum', { ascending: false })
       .range(from, to)
-  )
-  // Toon alleen laatste versie per offertenummer (hoogste versie_nummer)
+    if (!includeArchief) q = q.or('gearchiveerd.is.null,gearchiveerd.eq.false')
+    return q
+  })
   const perNummer = new Map<string, typeof data[number]>()
   for (const o of data) {
     const key = o.offertenummer || `__${o.id}`
@@ -531,6 +531,40 @@ export async function getOffertes() {
     }
   }
   return Array.from(perNummer.values())
+}
+
+export async function getArchiefOffertes() {
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('*, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
+      .eq('gearchiveerd', true)
+      .order('gearchiveerd_op', { ascending: false })
+      .range(from, to)
+  )
+  const perNummer = new Map<string, typeof data[number]>()
+  for (const o of data) {
+    const key = o.offertenummer || `__${o.id}`
+    const huidig = perNummer.get(key)
+    if (!huidig || (Number(o.versie_nummer) || 0) > (Number(huidig.versie_nummer) || 0)) {
+      perNummer.set(key, o)
+    }
+  }
+  return Array.from(perNummer.values())
+}
+
+export async function archiveerOfferte(offerteId: string, gearchiveerd = true) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('offertes')
+    .update({ gearchiveerd, gearchiveerd_op: gearchiveerd ? new Date().toISOString() : null })
+    .eq('id', offerteId)
+  if (error) return { error: error.message }
+  revalidatePath('/offertes')
+  revalidatePath(`/offertes/${offerteId}`)
+  return { success: true }
 }
 
 export async function getConceptOffertes() {

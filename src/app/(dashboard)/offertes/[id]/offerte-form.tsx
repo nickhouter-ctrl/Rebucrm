@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
-import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage } from '@/lib/actions'
+import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage, archiveerOfferte } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -614,6 +614,14 @@ function EditOfferteView({
                 Factureren
               </Button>
             )}
+            <Button variant="ghost" onClick={async () => {
+              const huidigGearchiveerd = !!(offerte as Record<string, unknown>)?.gearchiveerd
+              if (!confirm(huidigGearchiveerd ? 'Terug naar actieve lijst?' : 'Offerte naar archief verplaatsen?')) return
+              await archiveerOfferte(offerte!.id as string, !huidigGearchiveerd)
+              router.push('/offertes')
+            }} disabled={loading}>
+              {(offerte as Record<string, unknown>)?.gearchiveerd ? 'Terug naar actief' : 'Archiveren'}
+            </Button>
             <Button variant="danger" onClick={handleDelete} disabled={loading}>
               <Trash2 className="h-4 w-4" />
               Verwijderen

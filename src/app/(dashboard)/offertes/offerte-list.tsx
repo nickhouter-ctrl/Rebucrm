@@ -85,6 +85,9 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
         description="Beheer uw offertes en orders"
         actions={
           <div className="flex gap-2">
+            <Link href="/offertes/archief">
+              <Button variant="ghost">Archief</Button>
+            </Link>
             <Link href="/offertes/orders">
               <Button variant="secondary">Orders bekijken</Button>
             </Link>
