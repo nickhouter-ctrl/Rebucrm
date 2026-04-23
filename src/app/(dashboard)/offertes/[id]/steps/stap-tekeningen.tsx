@@ -359,10 +359,12 @@ export function StapTekeningen({
           const previewBase64 = previewDataUrl.replace(/^data:image\/jpeg;base64,/, '')
           previewCanvas.remove()
 
+          // Leverancier-naam uit parsed data zodat AI per-leverancier kan leren
+          const supplierName = (parsed.elementen?.[0]?.systeem || '').split(/[,\s]/)[0] || 'unknown'
           const res = await fetch('/api/ai/detect-drawing-box', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw, imageHeight: ph }),
+            body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw, imageHeight: ph, supplier: supplierName }),
           })
           if (res.ok) {
             const { x, y, w: bw, h: bh } = (await res.json()) as { x: number; y: number; w: number; h: number }

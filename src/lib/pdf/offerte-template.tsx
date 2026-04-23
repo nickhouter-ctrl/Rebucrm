@@ -120,45 +120,68 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
 
   return (
     <Document>
-      {/* ====== PAGINA 1: COVER ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
+      {/* ====== PAGINA 1: COVER — fris wit met groen accent ====== */}
+      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: '#FFFFFF' }]}>
         <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={coverBgPath} style={s.fullPageBg} />
-          <View style={s.coverBottomBar}>
-            <View>
-              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5 }}>
-                <Text>OFFERTENUMMER:  </Text>
-                <Text style={{ fontFamily: 'Helvetica' }}>{offerte.offertenummer}</Text>
+          {/* Top gradient accent */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, backgroundColor: COLORS.green }} />
+
+          {/* Logo groot centraal */}
+          <View style={{ marginTop: 180, alignItems: 'center' }}>
+            <Image src={logoPath} style={{ width: 280, height: 'auto' }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 12, letterSpacing: 2 }}>MAKEN HET VERSCHIL</Text>
+          </View>
+
+          {/* OFFERTE titel */}
+          <View style={{ marginTop: 90, alignItems: 'center' }}>
+            <Text style={{ fontSize: 34, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 4 }}>OFFERTE</Text>
+            <View style={{ width: 60, height: 3, backgroundColor: COLORS.green, marginTop: 14 }} />
+          </View>
+
+          {/* Offerte info block */}
+          <View style={{ marginTop: 40, alignItems: 'center' }}>
+            {relatie && (
+              <Text style={{ fontSize: 14, color: COLORS.text, marginBottom: 14 }}>
+                Voor: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{relatie.bedrijfsnaam}</Text>
               </Text>
-              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5, marginTop: 2 }}>
-                <Text>OFFERTEDATUM:   </Text>
-                <Text style={{ fontFamily: 'Helvetica' }}>{formatDatePdf(offerte.datum)}</Text>
-              </Text>
-            </View>
+            )}
+            <Text style={{ fontSize: 10, color: COLORS.textLight, letterSpacing: 1 }}>
+              OFFERTENUMMER · <Text style={{ color: COLORS.text, fontFamily: 'Helvetica-Bold' }}>{offerte.offertenummer}</Text>
+            </Text>
+            <Text style={{ fontSize: 10, color: COLORS.textLight, letterSpacing: 1, marginTop: 4 }}>
+              DATUM · <Text style={{ color: COLORS.text, fontFamily: 'Helvetica-Bold' }}>{formatDatePdf(offerte.datum)}</Text>
+            </Text>
+          </View>
+
+          {/* Footer — company info */}
+          <View style={{ position: 'absolute', bottom: 50, left: 50, right: 50, alignItems: 'center' }}>
+            <View style={{ width: '100%', height: 0.5, backgroundColor: '#E5E7EB', marginBottom: 16 }} />
+            <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: COLORS.green, letterSpacing: 1 }}>{COMPANY.naam.toUpperCase()}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 4 }}>{COMPANY.adres} · {COMPANY.postcode} {COMPANY.plaats}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 2 }}>{COMPANY.telefoon} · {COMPANY.email} · {COMPANY.website}</Text>
           </View>
         </View>
       </Page>
 
-      {/* ====== PAGINA 2: INHOUD ====== */}
-      {regels.length > 0 && <Page size="A4" style={[s.page, s.contentPage]}>
-        <View style={s.contentSidebar} />
-        <Image src={rkIconPath} style={s.watermarkImage} />
+      {/* ====== PAGINA 2: INHOUD — fris zonder sidebar/watermerk ====== */}
+      {regels.length > 0 && <Page size="A4" style={[s.page, { paddingTop: 40, paddingBottom: 60, paddingLeft: 50, paddingRight: 50 }]}>
+        {/* Top groene accent */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
 
-        <View style={s.logoArea}>
-          <Image src={logoPath} style={{ width: 160, height: 'auto' }} />
-        </View>
-
-        <View style={s.clientSection}>
-          {relatie && (
-            <>
-              <Text style={s.clientName}>{relatie.bedrijfsnaam}</Text>
-              {relatie.contactpersoon && <Text style={s.clientDetail}>t.a.v. {relatie.contactpersoon}</Text>}
-              {relatie.adres && <Text style={s.clientDetail}>{relatie.adres}</Text>}
-              {(relatie.postcode || relatie.plaats) && (
-                <Text style={s.clientDetail}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
-              )}
-            </>
-          )}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+          <View style={{ flex: 1 }}>
+            {relatie && (
+              <>
+                <Text style={s.clientName}>{relatie.bedrijfsnaam}</Text>
+                {relatie.contactpersoon && <Text style={s.clientDetail}>t.a.v. {relatie.contactpersoon}</Text>}
+                {relatie.adres && <Text style={s.clientDetail}>{relatie.adres}</Text>}
+                {(relatie.postcode || relatie.plaats) && (
+                  <Text style={s.clientDetail}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
+                )}
+              </>
+            )}
+          </View>
+          <Image src={logoPath} style={{ width: 130, height: 'auto' }} />
         </View>
 
         <View style={s.metaSection}>
@@ -274,22 +297,20 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         return (
           <React.Fragment key={`kozijn-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 30, paddingBottom: 70, paddingLeft: 30, paddingRight: 50, position: 'relative', display: 'flex', flexDirection: 'column' }]} wrap={false}>
-                <View style={s.contentSidebar} />
-                <Image src={rkIconPath} style={s.watermarkImage} />
-                <View style={s.logoArea}>
-                  <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
-                </View>
+              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 30, paddingBottom: 50, paddingLeft: 30, paddingRight: 30, display: 'flex', flexDirection: 'column' }]} wrap={false}>
+                <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
 
-                {/* Element naam als schone tekst */}
-                <View style={{ marginBottom: 4, marginTop: 20 }}>
-                  <Text style={s.elementNameText}>
-                    {element.naam.toUpperCase()}
-                    {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
-                  </Text>
-                  <Text style={s.elementSubText}>
-                    {[element.systeem, element.afmetingen].filter(Boolean).join(' \u00B7 ')}
-                  </Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, marginTop: 6 }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={s.elementNameText}>
+                      {element.naam.toUpperCase()}
+                      {element.hoeveelheid > 1 ? ` (${element.hoeveelheid}x)` : ''}
+                    </Text>
+                    <Text style={s.elementSubText}>
+                      {[element.systeem, element.afmetingen].filter(Boolean).join(' \u00B7 ')}
+                    </Text>
+                  </View>
+                  <Image src={logoPath} style={{ width: 90, height: 'auto' }} />
                 </View>
 
                 {pg.totalPages > 1 && (
@@ -339,19 +360,16 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
 
       {/* ====== SAMENVATTING + VOORWAARDEN (alleen als er kozijnelementen zijn) ====== */}
       {kozijnen.length > 0 && (
-        <Page size="A4" style={[s.page, s.contentPage]}>
-          <View style={s.contentSidebar} />
-          <Image src={rkIconPath} style={s.watermarkImage} />
-          <View style={s.logoArea}>
-            <Image src={logoPath} style={{ width: 120, height: 'auto' }} />
+        <Page size="A4" style={[s.page, { paddingTop: 40, paddingBottom: 60, paddingLeft: 50, paddingRight: 50 }]} wrap={false}>
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
+
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+            <Text style={{ fontSize: 16, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 1 }}>TOTAALOVERZICHT</Text>
+            <Image src={logoPath} style={{ width: 110, height: 'auto' }} />
           </View>
 
           {/* Totalen */}
-          <View style={{ marginBottom: 20, marginTop: 60 }}>
-            <Text style={{ fontSize: 13, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 0.5, marginBottom: 10 }}>
-              TOTAALOVERZICHT
-            </Text>
-
+          <View style={{ marginBottom: 20 }}>
             {/* Element overzicht tabel */}
             <View style={{ borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 4, marginBottom: 12 }}>
               <View style={{ flexDirection: 'row', backgroundColor: '#F3F4F6', borderBottomWidth: 0.5, borderBottomColor: '#D1D5DB', paddingVertical: 5, paddingHorizontal: 8 }}>
@@ -468,10 +486,34 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         </Page>
       )}
 
-      {/* ====== ACHTERPAGINA MET FOTO ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={backPagePath} style={s.fullPageBg} />
+      {/* ====== ACHTERPAGINA — fris, wit met groene accent ====== */}
+      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: '#FFFFFF' }]}>
+        <View style={{ width: '100%', height: '100%', position: 'relative', alignItems: 'center' }}>
+          {/* Top groene accent */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, backgroundColor: COLORS.green }} />
+
+          {/* Logo + bedankje */}
+          <View style={{ marginTop: 240, alignItems: 'center' }}>
+            <Image src={logoPath} style={{ width: 220, height: 'auto' }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 10, letterSpacing: 2 }}>MAKEN HET VERSCHIL</Text>
+          </View>
+
+          <View style={{ marginTop: 80, alignItems: 'center' }}>
+            <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 1 }}>Bedankt voor uw vertrouwen</Text>
+            <View style={{ width: 60, height: 3, backgroundColor: COLORS.green, marginTop: 14 }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 18, textAlign: 'center', maxWidth: 360, lineHeight: 1.6 }}>
+              We kijken er naar uit om samen dit project te realiseren. Heeft u vragen over deze offerte? Neem gerust contact met ons op.
+            </Text>
+          </View>
+
+          {/* Footer company info */}
+          <View style={{ position: 'absolute', bottom: 50, left: 50, right: 50, alignItems: 'center' }}>
+            <View style={{ width: '100%', height: 0.5, backgroundColor: '#E5E7EB', marginBottom: 16 }} />
+            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.green, letterSpacing: 1 }}>{COMPANY.naam.toUpperCase()}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 6 }}>{COMPANY.adres} · {COMPANY.postcode} {COMPANY.plaats}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 2 }}>{COMPANY.telefoon} · {COMPANY.email} · {COMPANY.website}</Text>
+            <Text style={{ fontSize: 8, color: COLORS.textLight, marginTop: 8 }}>BTW {COMPANY.btw} · KVK {COMPANY.kvk} · IBAN {COMPANY.iban}</Text>
+          </View>
         </View>
       </Page>
     </Document>

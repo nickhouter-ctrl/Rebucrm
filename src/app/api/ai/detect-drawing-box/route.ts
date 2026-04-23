@@ -2,10 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
 import { anthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // Claude Vision identificeert de bounding box van wat we aan de klant tonen:
 // de kozijn-tekening + specs, zonder leveranciersprijzen, logo's of footers.
-// Wordt gebruikt om de pagina strak te croppen — geen witte rechthoeken nodig.
+//
+// AI LEERT: per leverancier wordt het beste resultaat opgeslagen als template
+// (als percentage van pagina-afmetingen). Volgende pagina's van dezelfde
+// leverancier gebruiken direct het cached template — geen AI-call nodig.
+// Zo maakt het systeem niet elke keer opnieuw dezelfde fouten.
 
 export const maxDuration = 60
 export const dynamic = 'force-dynamic'
@@ -32,6 +37,31 @@ export async function POST(req: NextRequest) {
 
   if (!imageBase64 || !imageWidth || !imageHeight) {
     return NextResponse.json({ error: 'Ontbrekende image/dimensies' }, { status: 400 })
+  }
+
+  const sb = createAdminClient()
+  const supplierKey = (supplier || 'unknown').toLowerCase().trim()
+
+  // STAP 1: Template cache — als we deze leverancier eerder hebben gezien én het
+  // template is gevalideerd of minimaal 3x gebruikt zonder klachten, hergebruiken
+  // we het direct. AI leert van succes én vermijdt steeds opnieuw dezelfde analyse.
+  const { data: template } = await sb
+    .from('ai_tekening_template')
+    .select('*')
+    .eq('supplier', supplierKey)
+    .maybeSingle()
+
+  if (template && (template.validated || (template.usage_count ?? 0) >= 3)) {
+    const x = Math.round(Number(template.box_x_pct) * imageWidth)
+    const y = Math.round(Number(template.box_y_pct) * imageHeight)
+    const w = Math.round(Number(template.box_w_pct) * imageWidth)
+    const h = Math.round(Number(template.box_h_pct) * imageHeight)
+    // Update usage counter
+    await sb.from('ai_tekening_template').update({
+      usage_count: (template.usage_count ?? 0) + 1,
+      last_used: new Date().toISOString(),
+    }).eq('id', template.id)
+    return NextResponse.json({ x, y, w, h, reason: 'cached template', fromCache: true })
   }
 
   const system = `Je bent expert in kozijn-leverancier technische tekeningen (Aluplast, Gealan, Schüco, Reynaers, Cortizo, Aliplast, Aluprof, Eko-Okna, Kochs).
@@ -80,7 +110,44 @@ Geef een royale rechthoek met ruimte rond de tekening (~20px marge). Coordinaten
     const w = Math.max(1, Math.min(imageWidth - x, Math.round(object.w)))
     const h = Math.max(1, Math.min(imageHeight - y, Math.round(object.h)))
 
-    return NextResponse.json({ x, y, w, h, reason: object.reason })
+    // STAP 2: Save template voor deze leverancier (als percentage zodat het
+    // schaal-onafhankelijk is). Volgende pagina's van dezelfde leverancier
+    // gebruiken dit direct.
+    try {
+      const boxXPct = x / imageWidth
+      const boxYPct = y / imageHeight
+      const boxWPct = w / imageWidth
+      const boxHPct = h / imageHeight
+      if (template) {
+        await sb.from('ai_tekening_template').update({
+          page_width: imageWidth,
+          page_height: imageHeight,
+          box_x_pct: boxXPct,
+          box_y_pct: boxYPct,
+          box_w_pct: boxWPct,
+          box_h_pct: boxHPct,
+          usage_count: (template.usage_count ?? 0) + 1,
+          last_used: new Date().toISOString(),
+        }).eq('id', template.id)
+      } else {
+        await sb.from('ai_tekening_template').insert({
+          supplier: supplierKey,
+          page_width: imageWidth,
+          page_height: imageHeight,
+          box_x_pct: boxXPct,
+          box_y_pct: boxYPct,
+          box_w_pct: boxWPct,
+          box_h_pct: boxHPct,
+          confidence: 0.85,
+          usage_count: 1,
+          last_used: new Date().toISOString(),
+        })
+      }
+    } catch (cacheErr) {
+      console.warn('template cache insert fout:', cacheErr)
+    }
+
+    return NextResponse.json({ x, y, w, h, reason: object.reason, fromCache: false })
   } catch (err) {
     console.error('AI detect-drawing-box error:', err)
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
