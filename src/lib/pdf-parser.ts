@@ -347,20 +347,31 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
         }
       }
     } else if (isEkoOkna) {
-      // Prijs kan op meerdere manieren staan:
-      // - "Prijs van het element 1 x 557,80"
-      // - "Prijs van het element 557,80 E"
-      // - "Deurprijs 1 632,37 E"           ← voor deuren
-      // - "Prijs\s+\d+ x 1 632,37" etc.
-      // Probeer in volgorde totdat een match gevonden wordt.
-      let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
-      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs van het element\s*([\d\s.]+,\d{2})\s*E/i)
-      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Deurprijs\s*([\d\s.]+,\d{2})\s*E?/i)
-      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs\s+van\s+het\s+element\s+([\d\s.]+,\d{2})/i)
-      // Laatste fallback: eerste "X,XX E" bedrag na "Glazing used" / "Deurprijs" / "Toebehoren"
+      // Prijs kan op meerdere manieren staan. Flexibele patronen met
+      // optionele whitespace/newlines tussen label en getal:
+      const patterns = [
+        /Prijs\s+van\s+het\s+element[\s\n]*\d+\s*x\s*([\d\s.]+,\d{2})/i,
+        /Prijs\s+van\s+het\s+element[\s\n]*([\d\s.]+,\d{2})/i,
+        /Deurprijs[\s\n]*([\d\s.]+[.,]\d{2})/i,
+        /Prijs\s+gekoppeld\s+element[\s\n]*([\d\s.]+[.,]\d{2})/i,
+      ]
+      let ekoPriceMatch: RegExpMatchArray | null = null
+      for (const p of patterns) {
+        const m = searchText.match(p)
+        if (m) { ekoPriceMatch = m; break }
+      }
+      // Laatste redmiddel: pak het GROOTSTE bedrag in de sectie met formaat
+      // "X,XX E" of "X.XXX,XX E" — dit is vrijwel altijd de element-prijs
+      // omdat kleinere getallen afmetingen/gewicht zijn en "Prijs op aanvraag"
+      // niet matcht. Beperk tot bedragen > 30 om false positives uit te sluiten.
       if (!ekoPriceMatch) {
-        const tailMatch = searchText.match(/(?:Glazing\s+used|Toebehoren|Deurprijs|Prijs\s+van\s+het\s+element)[\s\S]*?([\d][\d\s.]*,\d{2})\s*E\b/i)
-        if (tailMatch) ekoPriceMatch = tailMatch
+        const allPriceMatches = [...searchText.matchAll(/([\d][\d\s.]*,\d{2})\s*E\b/g)]
+        let maxPrijs = 0
+        for (const m of allPriceMatches) {
+          const v = parseFloat(m[1].replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
+          if (v > 30 && v > maxPrijs) maxPrijs = v
+        }
+        if (maxPrijs > 0) prijs = maxPrijs
       }
       if (ekoPriceMatch) {
         const prijsStr = ekoPriceMatch[1].trim()
