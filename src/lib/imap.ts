@@ -628,119 +628,12 @@ async function processNewEmail(
         .eq('message_id', email.message_id)
     }
 
-    // Find or create project + concept offerte linked to the klant
-    let conceptOfferteId: string | null = null
-    let isNieuweVersie = false
-    if (finalRelatieId) {
-      const projectNaam = email.onderwerp || '(geen onderwerp)'
-
-      // Check if a project with the same name already exists for this relatie
-      const { data: bestaandProject } = await supabase
-        .from('projecten')
-        .select('id')
-        .eq('administratie_id', administratieId)
-        .eq('relatie_id', finalRelatieId)
-        .ilike('naam', projectNaam)
-        .limit(1)
-        .maybeSingle()
-
-      const projectId = bestaandProject?.id || null
-      let finalProjectId = projectId
-
-      if (!finalProjectId) {
-        // Create new project
-        const { data: newProject } = await supabase
-          .from('projecten')
-          .insert({
-            administratie_id: administratieId,
-            relatie_id: finalRelatieId,
-            naam: projectNaam,
-            status: 'actief',
-          })
-          .select('id')
-          .single()
-        finalProjectId = newProject?.id || null
-      }
-
-      // Check if an offerte already exists for this project → create new version
-      let bestaandeOfferte: { id: string; offertenummer: string; groep_id: string | null; versie_nummer: number } | null = null
-      if (finalProjectId) {
-        const { data } = await supabase
-          .from('offertes')
-          .select('id, offertenummer, groep_id, versie_nummer')
-          .eq('project_id', finalProjectId)
-          .order('versie_nummer', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-        bestaandeOfferte = data
-      }
-
-      const vandaag = new Date().toISOString().split('T')[0]
-
-      if (bestaandeOfferte) {
-        // Create new version of existing offerte
-        isNieuweVersie = true
-        const groepId = bestaandeOfferte.groep_id || bestaandeOfferte.id
-        const volgendVersie = bestaandeOfferte.versie_nummer + 1
-
-        const { data: newOfferte } = await supabase
-          .from('offertes')
-          .insert({
-            administratie_id: administratieId,
-            relatie_id: finalRelatieId,
-            project_id: finalProjectId,
-            offertenummer: bestaandeOfferte.offertenummer,
-            datum: vandaag,
-            status: 'concept',
-            onderwerp: projectNaam,
-            subtotaal: 0,
-            btw_totaal: 0,
-            totaal: 0,
-            versie_nummer: volgendVersie,
-            groep_id: groepId,
-          })
-          .select('id')
-          .single()
-        conceptOfferteId = newOfferte?.id || null
-
-        // Ensure groep_id is set on the original offerte
-        if (!bestaandeOfferte.groep_id) {
-          await supabase
-            .from('offertes')
-            .update({ groep_id: groepId })
-            .eq('id', bestaandeOfferte.id)
-        }
-      } else {
-        // Create brand new offerte
-        const { data: offertenummer } = await supabase.rpc('volgende_nummer', {
-          p_administratie_id: administratieId,
-          p_type: 'offerte',
-        })
-
-        const { data: newOfferte } = await supabase
-          .from('offertes')
-          .insert({
-            administratie_id: administratieId,
-            relatie_id: finalRelatieId,
-            project_id: finalProjectId,
-            offertenummer: offertenummer || '',
-            datum: vandaag,
-            status: 'concept',
-            onderwerp: projectNaam,
-            subtotaal: 0,
-            btw_totaal: 0,
-            totaal: 0,
-          })
-          .select('id')
-          .single()
-        conceptOfferteId = newOfferte?.id || null
-      }
-    }
-
+    // Geen automatische verkoopkans of concept-offerte aanmaken — dit gebeurt pas
+    // wanneer de gebruiker de aanvraag handmatig promoveert via /aanvragen.
     await supabase.from('taken').insert({
       administratie_id: administratieId,
-      titel: isNieuweVersie ? `Nieuwe versie aanvraag - ${email.onderwerp || '(geen onderwerp)'}` : `Nieuwe aanvraag - offerte nog te maken`,
-      omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
+      titel: 'Nieuwe aanvraag - offerte nog te maken',
+      omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"`,
       prioriteit: 'hoog',
       status: 'open',
       relatie_id: finalRelatieId,
