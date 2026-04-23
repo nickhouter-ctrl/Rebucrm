@@ -7,6 +7,35 @@ import { buildRebuEmailHtml } from '@/lib/email-template'
 import { sendEmail } from '@/lib/email'
 import { createMolliePayment } from '@/lib/mollie'
 
+// === HELPER: genereer Mollie betaallink voor een factuur als die nog niet bestaat ===
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function zorgVoorBetaallinkAdmin(factuurId: string, sb: any): Promise<string | null> {
+  try {
+    const { data: f } = await sb.from('facturen')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, betaal_link')
+      .eq('id', factuurId).single()
+    if (!f) return null
+    if (f.betaal_link) return f.betaal_link
+    if (['concept', 'gecrediteerd', 'geannuleerd'].includes(f.status)) return null
+    const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
+    if (openstaand <= 0) return null
+    if (!process.env.MOLLIE_API_KEY) return null
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const payment = await createMolliePayment({
+      amount: openstaand,
+      description: `Factuur ${f.factuurnummer}`,
+      redirectUrl: `${appUrl}/betaling/succes`,
+      webhookUrl: `${appUrl}/api/mollie/webhook`,
+      metadata: { factuurId: f.id },
+    })
+    await sb.from('facturen').update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl }).eq('id', f.id)
+    return payment.checkoutUrl
+  } catch (err) {
+    console.error('zorgVoorBetaallinkAdmin fout:', err)
+    return null
+  }
+}
+
 // === HELPER: Get klant context (profiel + relatie IDs) ===
 async function getKlantContext() {
   const supabase = await createClient()
@@ -510,6 +539,7 @@ async function autoFacturerenNaAcceptatie(
       )
     }
 
+    await zorgVoorBetaallinkAdmin(factuur.id, supabaseAdmin)
     factuurIdToSend = factuur.id
   } else {
     // === Split: 70% aanbetaling + 30% restbetaling ===
@@ -569,6 +599,8 @@ async function autoFacturerenNaAcceptatie(
       totaal: aanbetalingSubtotaal,
       volgorde: 0,
     })
+
+    await zorgVoorBetaallinkAdmin(factuur1.id, supabaseAdmin)
 
     // Factuur 2: restbetaling 30% — status 'concept'
     const { data: factuur2, error: err2 } = await supabaseAdmin

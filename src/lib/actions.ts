@@ -972,6 +972,9 @@ export async function saveFactuur(formData: FormData) {
     await supabase.from('factuur_regels').insert(regelRecords)
   }
 
+  // Altijd Mollie betaallink proberen te genereren (stil falen is OK)
+  await zorgVoorBetaallink(factuurId)
+
   revalidatePath('/facturatie')
   return { success: true }
 }
@@ -1568,6 +1571,44 @@ export async function syncSnelstartBetalingen() {
     gepushtNaarSnelstart: gepushtNieuw,
     pushErrors: pushErrors.slice(0, 20),
     nietGevonden: niet_gevonden.slice(0, 20),
+  }
+}
+
+// Maakt een Mollie betaallink aan als die nog niet bestaat én de factuur openstaand is.
+// Veilig om na elke factuur-insert aan te roepen — faalt stil als Mollie niet
+// geconfigureerd is, als factuur al betaald is, of bij Mollie-API errors.
+export async function zorgVoorBetaallink(factuurId: string): Promise<string | null> {
+  try {
+    const supabaseAdmin = createAdminClient()
+    const { data: factuur } = await supabaseAdmin
+      .from('facturen')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, betaal_link, mollie_payment_id')
+      .eq('id', factuurId)
+      .single()
+    if (!factuur) return null
+    if (factuur.betaal_link) return factuur.betaal_link as string
+    if (['concept', 'gecrediteerd', 'geannuleerd'].includes(factuur.status as string)) return null
+    const openstaand = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
+    if (openstaand <= 0) return null
+    if (!process.env.MOLLIE_API_KEY) return null
+
+    const { createMolliePayment } = await import('@/lib/mollie')
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const payment = await createMolliePayment({
+      amount: openstaand,
+      description: `Factuur ${factuur.factuurnummer}`,
+      redirectUrl: `${appUrl}/betaling/succes`,
+      webhookUrl: `${appUrl}/api/mollie/webhook`,
+      metadata: { factuurId: factuur.id as string },
+    })
+    await supabaseAdmin
+      .from('facturen')
+      .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
+      .eq('id', factuurId)
+    return payment.checkoutUrl
+  } catch (err) {
+    console.error('zorgVoorBetaallink fout:', err)
+    return null
   }
 }
 
@@ -4520,6 +4561,7 @@ export async function factureerVerkoopkans(
     totaal: excl,
     volgorde: 0,
   })
+  await zorgVoorBetaallink(factuur.id)
 
   revalidatePath('/facturatie')
   revalidatePath(`/projecten/${projectId}`)
@@ -4601,6 +4643,7 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       })
     }
 
+    await zorgVoorBetaallink(factuur.id)
     revalidatePath('/facturatie')
     return { success: true, factuurIds: [factuur.id] }
   } else {
@@ -4683,6 +4726,8 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
       totaal: restSubtotaal,
       volgorde: 0,
     })
+    await zorgVoorBetaallink(factuur1.id)
+    await zorgVoorBetaallink(factuur2.id)
 
     revalidatePath('/facturatie')
     return { success: true, factuurIds: [factuur1.id, factuur2.id] }
