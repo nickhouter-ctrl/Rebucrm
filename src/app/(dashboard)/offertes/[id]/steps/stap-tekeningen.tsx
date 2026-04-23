@@ -95,9 +95,56 @@ export function StapTekeningen({
 
       // Step 3: Parse leverancier text client-side (consistent with pdfjs extraction)
       const { totaal, elementen } = parseLeverancierPdfText(fullText)
+
+      // Step 3b: AI validatie — Claude controleert de lijst, corrigeert fouten,
+      // voegt gemiste elementen toe (Deur 008/010) en filtert ghost-referenties.
+      setProgress('AI controleert element-lijst...')
+      let finaleElementen = elementen
+      let finaalTotaal = totaal
+      try {
+        const aiRes = await fetch('/api/ai/extract-offerte', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: fullText,
+            regexResult: {
+              totaal,
+              elementen: elementen.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
+            },
+          }),
+        })
+        if (aiRes.ok) {
+          const ai = await aiRes.json() as { elementen?: Array<{ naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type?: string; prijs: number; glasType?: string; beslag?: string; uwWaarde?: string; drapirichting?: string; dorpel?: string; sluiting?: string; scharnieren?: string; gewicht?: string; omtrek?: string }>; totaal?: number }
+          if (ai.elementen && ai.elementen.length > 0) {
+            // Merge AI per naam met regex (regex heeft meer spec-velden)
+            const regexByNaam = new Map(elementen.map(e => [e.naam, e]))
+            finaleElementen = ai.elementen.map(a => {
+              const r = regexByNaam.get(a.naam)
+              return r
+                ? { ...r, prijs: a.prijs, hoeveelheid: a.hoeveelheid, afmetingen: a.afmetingen || r.afmetingen, systeem: a.systeem || r.systeem }
+                : {
+                    naam: a.naam, hoeveelheid: a.hoeveelheid, systeem: a.systeem, kleur: a.kleur || '',
+                    afmetingen: a.afmetingen || '', type: a.type || '', prijs: a.prijs,
+                    glasType: a.glasType || '', beslag: a.beslag || '', uwWaarde: a.uwWaarde || '',
+                    tekeningPath: '',
+                    drapirichting: a.drapirichting || '', dorpel: a.dorpel || '', sluiting: a.sluiting || '',
+                    scharnieren: a.scharnieren || '', gewicht: a.gewicht || '', omtrek: a.omtrek || '',
+                    paneel: '', commentaar: '', hoekverbinding: '', montageGaten: '',
+                    afwatering: '', scharnierenKleur: '', lakKleur: '',
+                    sluitcilinder: '', aantalSleutels: '', gelijksluitend: '',
+                    krukBinnen: '', krukBuiten: '',
+                  }
+            })
+            finaalTotaal = ai.totaal ?? finaleElementen.reduce((s, e) => s + e.prijs * e.hoeveelheid, 0)
+          }
+        }
+      } catch {
+        // Bij AI-fout: regex resultaat als fallback
+      }
+
       const parsed: ParsedPdfResult = {
-        totaal,
-        elementen: elementen.map(e => ({
+        totaal: finaalTotaal,
+        elementen: finaleElementen.map(e => ({
           naam: e.naam, hoeveelheid: e.hoeveelheid, systeem: e.systeem, kleur: e.kleur,
           afmetingen: e.afmetingen, type: e.type, prijs: e.prijs, glasType: e.glasType,
           beslag: e.beslag, uwWaarde: e.uwWaarde, drapirichting: e.drapirichting,
@@ -109,7 +156,7 @@ export function StapTekeningen({
           aantalSleutels: e.aantalSleutels, gelijksluitend: e.gelijksluitend,
           krukBinnen: e.krukBinnen, krukBuiten: e.krukBuiten,
         })),
-        aantalElementen: elementen.length,
+        aantalElementen: finaleElementen.length,
       }
 
       // Step 4: Render tekeningen from pages
