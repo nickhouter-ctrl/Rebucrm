@@ -1,6 +1,8 @@
 import { getEmails, getEmailSyncStatus, getMedewerkers, getProjecten } from '@/lib/actions'
 import { EmailView } from './email-view'
 
+export const revalidate = 20
+
 export default async function EmailPage() {
   const [{ emails, total }, syncStatus, medewerkers, projecten] = await Promise.all([
     getEmails(),
