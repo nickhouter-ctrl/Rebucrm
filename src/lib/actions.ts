@@ -922,6 +922,54 @@ export async function deleteOrder(id: string) {
   return { success: true }
 }
 
+// Aanbetalings-facturen waarvoor (nog) geen rest-/volledige factuur is gemaakt
+// binnen 9 maanden bij dezelfde klant. Helpt om te zien welke klanten nog een
+// eindafrekening moeten krijgen.
+export async function getEindafrekeningen() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const supabase = await createClient()
+
+  const [aanbetRes, restRes] = await Promise.all([
+    supabase.from('facturen')
+      .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id')
+      .eq('administratie_id', adminId)
+      .eq('factuur_type', 'aanbetaling')
+      .not('status', 'eq', 'gecrediteerd')
+      .order('datum', { ascending: false }),
+    supabase.from('facturen')
+      .select('id, relatie_id, datum, order_id')
+      .eq('administratie_id', adminId)
+      .in('factuur_type', ['restbetaling', 'volledig'])
+      .not('status', 'eq', 'gecrediteerd'),
+  ])
+
+  const rests = restRes.data || []
+  const restByRel = new Map<string, { datum: string | null; order_id: string | null }[]>()
+  for (const r of rests) {
+    if (!r.relatie_id) continue
+    if (!restByRel.has(r.relatie_id)) restByRel.set(r.relatie_id, [])
+    restByRel.get(r.relatie_id)!.push({ datum: r.datum, order_id: r.order_id })
+  }
+
+  const eenJaarGeleden = new Date()
+  eenJaarGeleden.setFullYear(eenJaarGeleden.getFullYear() - 1)
+
+  const open = (aanbetRes.data || []).filter(a => {
+    if (!a.datum || new Date(a.datum) < eenJaarGeleden) return false
+    const kandidaten = restByRel.get(a.relatie_id) || []
+    const match = kandidaten.find(r => {
+      if (!r.datum) return false
+      if (a.order_id && r.order_id && a.order_id === r.order_id) return true
+      const days = (new Date(r.datum).getTime() - new Date(a.datum!).getTime()) / 86400000
+      return days > 0 && days <= 270
+    })
+    return !match
+  })
+
+  return open
+}
+
 // === FACTUREN ===
 export async function getFacturen() {
   const supabase = await createClient()
@@ -2278,7 +2326,7 @@ export async function getDashboardData() {
 
   // Grote tabellen pagineren (Supabase max-rows = 1000)
   const [facturenData, offertesData, takenData] = await Promise.all([
-    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
     fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
   ])
@@ -2300,13 +2348,17 @@ export async function getDashboardData() {
   const relatiesData = relatiesRes.data || []
   const profielenData = profielenRes.data || []
 
-  // Basis KPIs — omzet = gefactureerd deze maand (excl. concept + gecrediteerd)
+  // Basis KPIs — omzet = gefactureerd deze maand (excl. concept + gecrediteerd + credit-nota's).
+  // Credit-facturen verlagen de omzet NIET; zij verminderen het openstaand-saldo
+  // via snelstart_openstaand of betaald_bedrag.
   const UITGESLOTEN_STATUSSEN = ['concept', 'gecrediteerd']
   const huidigeMaand = new Date().getMonth() + 1
   const huidigJaar = new Date().getFullYear()
   const omzet = facturenData
     .filter(f => {
       if (!f.datum || UITGESLOTEN_STATUSSEN.includes(f.status)) return false
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((f as any).factuur_type === 'credit') return false
       const fd = new Date(f.datum)
       return fd.getFullYear() === huidigJaar && fd.getMonth() + 1 === huidigeMaand
     })
@@ -2342,6 +2394,8 @@ export async function getDashboardData() {
     const bedrag = facturenData
       .filter(f => {
         if (UITGESLOTEN_STATUSSEN.includes(f.status) || !f.datum) return false
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((f as any).factuur_type === 'credit') return false
         const fd = new Date(f.datum)
         return fd.getFullYear() === jaar && fd.getMonth() + 1 === maand
       })

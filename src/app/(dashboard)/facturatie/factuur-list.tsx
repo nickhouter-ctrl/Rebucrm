@@ -174,6 +174,9 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         description="Beheer uw facturen"
         actions={
           <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={() => router.push('/facturatie/eindafrekening')}>
+              Eindafrekening nodig
+            </Button>
             <Button variant="secondary" onClick={handleSyncSnelstart} disabled={syncing}>
               <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Bezig...' : 'Sync SnelStart'}
