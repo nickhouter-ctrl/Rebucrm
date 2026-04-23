@@ -6,7 +6,14 @@ import { OfferteDocument, KozijnElement } from '@/lib/pdf/offerte-template'
 import { parseLeverancierPdfText } from '@/lib/pdf-parser'
 
 function normalizeName(name: string): string {
-  return name.replace(/\s+/g, ' ').trim().toLowerCase()
+  // Normaliseer: 'Deur 008', 'DEUR 008', 'Element 008' → allemaal '008' voor matching
+  // zodat labels van de Aluplast/Aluprof parser ('Deur X') en de prijzen-meta
+  // ('Element X') toch bij elkaar vinden.
+  return name
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/^(deur|element|gekoppeld\s+element|merk|positie)\s+0*/, '')
 }
 
 export async function GET(
