@@ -582,44 +582,63 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                         const n = item.data as Notitie
                         const isTaakNot = !!n.taak
                         const datumStr = format(new Date(n.created_at), "d MMMM yyyy 'om' HH:mm", { locale: nl })
-                        const inner = (
-                          <div className={`flex-1 min-w-0 rounded-lg px-4 py-3 border ${isTaakNot ? 'bg-gray-50 border-gray-200 hover:border-gray-300 transition-colors' : 'bg-amber-50 border-amber-100'}`}>
-                            <div className="flex items-start justify-between gap-2 mb-1">
-                              <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
-                                <span className={`font-semibold ${isTaakNot ? 'text-gray-700' : 'text-amber-900'}`}>{isTaakNot ? 'Taak' : 'Notitie'}</span>
-                                {isTaakNot && n.taak?.titel && <span className="text-gray-600 font-medium">· {n.taak.titel}</span>}
+                        const isEditing = editNotitieId === n.id
+                        return (
+                          <div key={item.id} className="flex items-start gap-2 group">
+                            {isTaakNot && n.taak?.id ? (
+                              <Link href={`/taken/${n.taak.id}`} className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-gray-100 text-gray-500">
+                                <CheckSquare className="h-3.5 w-3.5" />
+                              </Link>
+                            ) : (
+                              <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-amber-50 text-amber-500">
+                                <MessageSquare className="h-3.5 w-3.5" />
                               </div>
-                              <span className="text-xs text-gray-400 shrink-0">{datumStr}</span>
-                            </div>
-                            <div className="text-xs text-gray-500 mb-1">{n.gebruiker?.naam || 'Onbekend'}</div>
-                            {!isTaakNot && (
-                              <p className="text-sm whitespace-pre-wrap text-amber-900">{n.tekst}</p>
                             )}
-                          </div>
-                        )
-                        return isTaakNot && n.taak?.id ? (
-                          <Link key={item.id} href={`/taken/${n.taak.id}`} className="flex items-start gap-2">
-                            <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-gray-100 text-gray-500">
-                              <CheckSquare className="h-3.5 w-3.5" />
+                            <div className={`flex-1 min-w-0 rounded-lg px-4 py-3 border ${isTaakNot ? 'bg-gray-50 border-gray-200' : 'bg-amber-50 border-amber-100'}`}>
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
+                                  <span className={`font-semibold ${isTaakNot ? 'text-gray-700' : 'text-amber-900'}`}>{isTaakNot ? 'Taak' : 'Notitie'}</span>
+                                  {isTaakNot && n.taak?.titel && (
+                                    <Link href={`/taken/${n.taak.id}`} className="text-gray-600 font-medium hover:text-[#00a66e]">· {n.taak.titel}</Link>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className="text-xs text-gray-400 mr-1">{datumStr}</span>
+                                  {!isEditing && (
+                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                      <button onClick={() => startEdit(n)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button onClick={() => handleDeleteNotitie(n.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-xs text-gray-500 mb-1">{n.gebruiker?.naam || 'Onbekend'}</div>
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <textarea value={editNotitieText} onChange={e => setEditNotitieText(e.target.value)} rows={3} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]" />
+                                  <div className="flex gap-2 justify-end">
+                                    <Button variant="ghost" size="sm" onClick={() => { setEditNotitieId(null); setEditNotitieText('') }}>Annuleren</Button>
+                                    <Button size="sm" onClick={() => handleEditNotitie(n.id)}>Opslaan</Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                !isTaakNot && <p className="text-sm whitespace-pre-wrap text-amber-900">{n.tekst}</p>
+                              )}
                             </div>
-                            {inner}
-                          </Link>
-                        ) : (
-                          <div key={item.id} className="flex items-start gap-2">
-                            <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-amber-50 text-amber-500">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            </div>
-                            {inner}
                           </div>
                         )
                       } else {
                         const t = item.data as RelatieTaak
                         return (
-                          <Link key={item.id} href={`/taken/${t.id}`} className="flex items-start gap-2">
-                            <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-emerald-50 text-emerald-600">
+                          <div key={item.id} className="flex items-start gap-2 group">
+                            <Link href={`/taken/${t.id}`} className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-emerald-50 text-emerald-600">
                               <CheckSquare className="h-3.5 w-3.5" />
-                            </div>
-                            <div className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-emerald-50/40 border-emerald-100">
+                            </Link>
+                            <Link href={`/taken/${t.id}`} className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-emerald-50/40 border-emerald-100">
                               <div className="flex items-start justify-between gap-2 mb-1">
                                 <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
                                   <span className="font-semibold text-emerald-700">Taak afgerond</span>
@@ -627,8 +646,16 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                                 </div>
                                 {t.deadline && <span className="text-xs text-gray-400 shrink-0">{formatDateShort(t.deadline)}</span>}
                               </div>
+                            </Link>
+                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
+                              <button onClick={() => router.push(`/taken/${t.id}`)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button onClick={() => handleDeleteTaak(t.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
-                          </Link>
+                          </div>
                         )
                       }
                     })}
