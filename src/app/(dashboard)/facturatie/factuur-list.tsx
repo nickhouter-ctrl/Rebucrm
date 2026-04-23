@@ -21,6 +21,8 @@ interface Factuur {
   vervaldatum: string | null
   status: string
   totaal: number
+  subtotaal: number | null
+  btw_totaal: number | null
   betaald_bedrag: number
   factuur_type: string | null
   relatie: { bedrijfsnaam: string } | null
@@ -104,11 +106,20 @@ const columns: ColumnDef<Factuur, unknown>[] = [
     ) : <span className="text-gray-300">-</span>,
   },
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
-  { accessorKey: 'totaal', header: 'Totaal', cell: ({ getValue }) => formatCurrency(getValue() as number) },
+  {
+    id: 'bedrag_excl',
+    header: 'Bedrag excl. BTW',
+    accessorFn: (row) => row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0)),
+    cell: ({ getValue }) => formatCurrency(getValue() as number),
+  },
   {
     id: 'openstaand',
-    header: 'Openstaand',
-    accessorFn: (row) => row.totaal - row.betaald_bedrag,
+    header: 'Openstaand excl.',
+    accessorFn: (row) => {
+      const excl = row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0))
+      const pct = row.totaal ? excl / row.totaal : 1
+      return (row.totaal - row.betaald_bedrag) * pct
+    },
     cell: ({ getValue }) => {
       const val = getValue() as number
       return <span className={val > 0 ? 'text-red-600 font-medium' : ''}>{formatCurrency(val)}</span>

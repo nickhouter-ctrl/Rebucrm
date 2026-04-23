@@ -29,7 +29,7 @@ export function ArchiefOfferteList({ offertes }: { offertes: any[] }) {
     { id: 'relatie', header: 'Relatie', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
     { accessorKey: 'onderwerp', header: 'Onderwerp' },
     { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
-    { accessorKey: 'totaal', header: 'Totaal', cell: ({ getValue }) => formatCurrency(getValue() as number) },
+    { id: 'bedrag_excl', header: 'Bedrag excl. BTW', accessorFn: (r) => r.subtotaal ?? ((r.totaal || 0) - (r.btw_totaal || 0)), cell: ({ getValue }) => formatCurrency(getValue() as number) },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     {
       id: 'acties', header: '',

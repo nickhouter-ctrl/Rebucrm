@@ -575,7 +575,7 @@ export async function getArchiefFacturen() {
   const data = await fetchAllRows((from, to) =>
     supabase
       .from('facturen')
-      .select('id, factuurnummer, datum, status, totaal, factuur_type, relatie:relaties(bedrijfsnaam)')
+      .select('id, factuurnummer, datum, status, totaal, subtotaal, btw_totaal, factuur_type, relatie:relaties(bedrijfsnaam)')
       .eq('administratie_id', adminId)
       .or('status.eq.gecrediteerd,factuur_type.eq.credit')
       .order('datum', { ascending: false })

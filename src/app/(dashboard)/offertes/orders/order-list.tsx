@@ -28,6 +28,8 @@ interface Order {
   datum: string
   status: string
   totaal: number
+  subtotaal: number | null
+  btw_totaal: number | null
   relatie: { bedrijfsnaam: string } | null
   onderwerp: string | null
   facturen: FactuurInfo[]
@@ -135,7 +137,12 @@ const columns: ColumnDef<Order, unknown>[] = [
   { id: 'relatie', header: 'Relatie', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
   { accessorKey: 'onderwerp', header: 'Onderwerp' },
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
-  { accessorKey: 'totaal', header: 'Totaal', cell: ({ getValue }) => formatCurrency(getValue() as number) },
+  {
+    id: 'bedrag_excl',
+    header: 'Bedrag excl. BTW',
+    accessorFn: (row) => row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0)),
+    cell: ({ getValue }) => formatCurrency(getValue() as number),
+  },
   {
     id: 'facturatie',
     header: 'Facturatie',

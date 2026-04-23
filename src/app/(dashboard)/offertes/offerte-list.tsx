@@ -24,6 +24,8 @@ interface Offerte {
   datum: string
   status: string
   totaal: number
+  subtotaal: number | null
+  btw_totaal: number | null
   versie_nummer: number | null
   relatie: { bedrijfsnaam: string } | null
   project: { naam: string } | null
@@ -64,8 +66,9 @@ const columns: ColumnDef<Offerte, unknown>[] = [
     cell: ({ getValue }) => <Badge status={getValue() as string} />,
   },
   {
-    accessorKey: 'totaal',
-    header: 'Totaal',
+    id: 'bedrag_excl',
+    header: 'Bedrag excl. BTW',
+    accessorFn: (row) => row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0)),
     cell: ({ getValue }) => formatCurrency(getValue() as number),
   },
 ]

@@ -49,7 +49,7 @@ export function ArchiefView({ offertes, facturen }: { offertes: Offerte[]; factu
     { id: 'relatie', header: 'Relatie', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
     { accessorKey: 'onderwerp', header: 'Onderwerp' },
     { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
-    { accessorKey: 'totaal', header: 'Totaal', cell: ({ getValue }) => formatCurrency(getValue() as number) },
+    { id: 'bedrag_excl', header: 'Bedrag excl. BTW', accessorFn: (r: { totaal: number; subtotaal?: number | null; btw_totaal?: number | null }) => r.subtotaal ?? ((r.totaal || 0) - (r.btw_totaal || 0)), cell: ({ getValue }: { getValue: () => unknown }) => formatCurrency(getValue() as number) },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     {
       id: 'gearch', header: 'Gearchiveerd',
@@ -72,7 +72,7 @@ export function ArchiefView({ offertes, facturen }: { offertes: Offerte[]; factu
     { id: 'relatie', header: 'Relatie', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
     { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
     { accessorKey: 'factuur_type', header: 'Type' },
-    { accessorKey: 'totaal', header: 'Totaal', cell: ({ getValue }) => formatCurrency(getValue() as number) },
+    { id: 'bedrag_excl', header: 'Bedrag excl. BTW', accessorFn: (r: { totaal: number; subtotaal?: number | null; btw_totaal?: number | null }) => r.subtotaal ?? ((r.totaal || 0) - (r.btw_totaal || 0)), cell: ({ getValue }: { getValue: () => unknown }) => formatCurrency(getValue() as number) },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
   ]
 
