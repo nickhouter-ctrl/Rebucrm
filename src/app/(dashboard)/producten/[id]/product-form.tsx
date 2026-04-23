@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveProduct, deleteProduct } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,6 +29,7 @@ export function ProductForm({ product }: { product: ProductData | null }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !product
+  const { navigateBack } = useBackNav(`product-${product?.id || 'nieuw'}`)
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -38,7 +40,7 @@ export function ProductForm({ product }: { product: ProductData | null }) {
       setError(result.error)
       setLoading(false)
     } else {
-      router.push('/producten')
+      navigateBack('/producten')
     }
   }
 
@@ -46,7 +48,7 @@ export function ProductForm({ product }: { product: ProductData | null }) {
     if (!product || !confirm('Weet u zeker dat u dit product wilt verwijderen?')) return
     const result = await deleteProduct(product.id)
     if (result.error) setError(result.error)
-    else router.push('/producten')
+    else navigateBack('/producten')
   }
 
   return (

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Save, Trash2, ArrowLeft } from 'lucide-react'
 import { saveFaalkost, deleteFaalkost } from '@/lib/actions'
 import { faalkostenCategorieen, faalkostenCategorieLabels } from '@/lib/constants'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface FaalkostFormProps {
   faalkost: Record<string, unknown> | null
@@ -20,6 +21,7 @@ export function FaalkostForm({ faalkost, projecten, isNew }: FaalkostFormProps) 
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const { navigateBack } = useBackNav(`faalkost-${(faalkost?.id as string) || 'nieuw'}`)
 
   async function handleSubmit(formData: FormData) {
     setLoading(true)
@@ -31,13 +33,13 @@ export function FaalkostForm({ faalkost, projecten, isNew }: FaalkostFormProps) 
       setLoading(false)
       return
     }
-    router.push('/faalkosten')
+    navigateBack('/faalkosten')
   }
 
   async function handleDelete() {
     if (!faalkost?.id || !confirm('Weet je zeker dat je deze faalkost wilt verwijderen?')) return
     await deleteFaalkost(faalkost.id as string)
-    router.push('/faalkosten')
+    navigateBack('/faalkosten')
   }
 
   return (

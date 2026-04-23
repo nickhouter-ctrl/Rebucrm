@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
 import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { Receipt } from 'lucide-react'
 import { showToast } from '@/components/ui/toast'
 import type { ProjectTimeline } from '@/lib/actions'
@@ -52,6 +53,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
+  const { navigateBack } = useBackNav(`project-${(timeline?.project?.id as string) || 'nieuw'}`)
   const [emailDetail, setEmailDetail] = useState<{
     onderwerp: string | null
     aan: string
@@ -108,7 +110,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
     const result = await saveProject(formData)
     if (result.error) { setError(result.error); setLoading(false); return }
     showToast('Verkoopkans opgeslagen')
-    if (isNew) router.push('/projecten')
+    if (isNew) navigateBack('/projecten')
     else { setEditing(false); setLoading(false); router.refresh() }
   }
 
@@ -116,7 +118,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
     if (!project || !confirm('Weet u zeker dat u deze verkoopkans wilt verwijderen?')) return
     const result = await deleteProject(project.id as string)
     if (result.error) setError(result.error)
-    else router.push('/projecten')
+    else navigateBack('/projecten')
   }
 
   // Nieuw project: toon alleen het formulier

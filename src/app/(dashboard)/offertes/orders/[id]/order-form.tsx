@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveOrder, deleteOrder, saveOrderMedewerker, deleteOrderMedewerker } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { Dialog } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { PageHeader } from '@/components/ui/page-header'
@@ -58,6 +59,7 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
   const [orderMedewerkers, setOrderMedewerkers] = useState(initialOrderMedewerkers)
   const [medDialogOpen, setMedDialogOpen] = useState(false)
   const [medSaving, setMedSaving] = useState(false)
+  const { navigateBack } = useBackNav(`order-${(order?.id as string) || 'nieuw'}`)
 
   const [regels, setRegels] = useState<Regel[]>(
     (order?.regels as Regel[]) || [{ omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }]
@@ -94,14 +96,14 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
     formData.set('regels', JSON.stringify(regels))
     const result = await saveOrder(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else router.push('/offertes/orders')
+    else navigateBack('/offertes/orders')
   }
 
   async function handleDelete() {
     if (!order || !confirm('Weet u zeker dat u deze order wilt verwijderen?')) return
     const result = await deleteOrder(order.id as string)
     if (result.error) setError(result.error)
-    else router.push('/offertes/orders')
+    else navigateBack('/offertes/orders')
   }
 
   async function handleAddMedewerker(formData: FormData) {

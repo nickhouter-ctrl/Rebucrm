@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveFactuur, deleteFactuur, getFactuurEmailDefaults, sendFactuurEmail, generateBetaallink, crediteerFactuur } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -29,6 +30,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !factuur
+  const { navigateBack } = useBackNav(`factuur-${(factuur?.id as string) || 'nieuw'}`)
 
   const [regels, setRegels] = useState<Regel[]>(
     (factuur?.regels as Regel[]) || [{ omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }]
@@ -69,14 +71,14 @@ export function FactuurForm({ factuur, relaties, producten }: {
     formData.set('regels', JSON.stringify(regels))
     const result = await saveFactuur(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else router.push('/facturatie')
+    else navigateBack('/facturatie')
   }
 
   async function handleDelete() {
     if (!factuur || !confirm('Weet u zeker dat u deze factuur wilt verwijderen?')) return
     const result = await deleteFactuur(factuur.id as string)
     if (result.error) setError(result.error)
-    else router.push('/facturatie')
+    else navigateBack('/facturatie')
   }
 
   async function handleCrediteer() {

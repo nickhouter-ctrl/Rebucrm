@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveProject, deleteProject } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -18,20 +19,21 @@ export function ProjectForm({ project, relaties }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !project
+  const { navigateBack } = useBackNav(`project-${(project?.id as string) || 'nieuw'}`)
 
   async function handleSubmit(formData: FormData) {
     setLoading(true); setError('')
     if (project) formData.set('id', project.id as string)
     const result = await saveProject(formData)
     if (result.error) { setError(result.error); setLoading(false) }
-    else router.push('/projecten')
+    else navigateBack('/projecten')
   }
 
   async function handleDelete() {
     if (!project || !confirm('Verwijderen?')) return
     const result = await deleteProject(project.id as string)
     if (result.error) setError(result.error)
-    else router.push('/projecten')
+    else navigateBack('/projecten')
   }
 
   return (

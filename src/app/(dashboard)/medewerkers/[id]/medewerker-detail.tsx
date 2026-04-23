@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
 import { PageHeader } from '@/components/ui/page-header'
 import { saveMedewerker, deleteMedewerker, createMedewerkerAccount } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { ArrowLeft, Trash2, KeyRound, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 
@@ -39,6 +40,7 @@ export function MedewerkerDetail({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [type, setType] = useState((medewerker?.type as string) || 'werknemer')
+  const { navigateBack } = useBackNav(`medewerker-${(medewerker?.id as string) || 'nieuw'}`)
   const [accountDialogOpen, setAccountDialogOpen] = useState(false)
   const [accountLoading, setAccountLoading] = useState(false)
   const [accountError, setAccountError] = useState('')
@@ -53,7 +55,7 @@ export function MedewerkerDetail({
       setError(result.error)
       setLoading(false)
     } else {
-      router.push('/medewerkers')
+      navigateBack('/medewerkers')
     }
   }
 
@@ -61,7 +63,7 @@ export function MedewerkerDetail({
     if (!medewerker || !confirm('Weet u zeker dat u deze medewerker wilt verwijderen?')) return
     const result = await deleteMedewerker(medewerker.id as string)
     if (result.error) setError(result.error)
-    else router.push('/medewerkers')
+    else navigateBack('/medewerkers')
   }
 
   async function handleCreateAccount(formData: FormData) {

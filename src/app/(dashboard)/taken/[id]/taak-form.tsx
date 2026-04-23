@@ -1,8 +1,9 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { saveTaak, deleteTaak, saveTaakNotitie, deleteTaakNotitie, completeTaak, uncompleteTaak } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -42,29 +43,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   const [notities, setNotities] = useState(initialNotities)
   const [notitieText, setNotitieText] = useState('')
-  // Sla bij eerste render de echte referrer-URL op in sessionStorage zodat
-  // de "terug"-navigatie betrouwbaar is — ook na page-refresh of meerdere
-  // edits op dezelfde taak. router.back() bleek onbetrouwbaar omdat Next.js
-  // soms extra history-entries pusht bij client-side navigatie.
-  const backUrlRef = useRef<string | null>(null)
-  const storageKey = `taak-back-${(taak?.id as string) || 'nieuw'}`
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const stored = sessionStorage.getItem(storageKey)
-    if (stored) {
-      backUrlRef.current = stored
-      return
-    }
-    const ref = document.referrer
-    if (!ref) return
-    try {
-      const url = new URL(ref)
-      if (url.origin !== window.location.origin) return
-      if (url.pathname.startsWith('/taken/')) return
-      backUrlRef.current = url.pathname + url.search
-      sessionStorage.setItem(storageKey, backUrlRef.current)
-    } catch { /* ignore */ }
-  }, [storageKey])
+  const { navigateBack } = useBackNav(`taak-${(taak?.id as string) || 'nieuw'}`)
   const [editNotitieId, setEditNotitieId] = useState<string | null>(null)
   const [editNotitieText, setEditNotitieText] = useState('')
   const [showVervolgTaak, setShowVervolgTaak] = useState(false)
@@ -81,21 +60,10 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     : offertes
 
   function navigateAfterSave(savedId?: string) {
-    // Terug naar de pagina waar de gebruiker écht vandaan kwam, opgeslagen
-    // bij mount in sessionStorage. Dit blijft correct ook na page refresh
-    // of meerdere saves binnen dezelfde taak.
-    if (typeof window !== 'undefined' && backUrlRef.current) {
-      const target = backUrlRef.current
-      sessionStorage.removeItem(storageKey)
-      router.push(target)
-      return
-    }
-    if (selectedRelatieId) {
-      router.push(`/relatiebeheer/${selectedRelatieId}`)
-      return
-    }
-    if (savedId) router.push(`/taken/${savedId}`)
-    else router.push('/taken')
+    const fallback = selectedRelatieId
+      ? `/relatiebeheer/${selectedRelatieId}`
+      : savedId ? `/taken/${savedId}` : '/taken'
+    navigateBack(fallback)
   }
 
   async function handleSubmit(formData: FormData) {
