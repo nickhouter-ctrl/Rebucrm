@@ -1439,13 +1439,17 @@ export async function crediteerFactuur(factuurId: string, reden?: string) {
     await supabaseAdmin.from('factuur_regels').insert(creditRegels)
   }
 
-  // Origineel op 'gecrediteerd' zetten
-  await supabaseAdmin.from('facturen').update({ status: 'gecrediteerd' }).eq('id', original.id)
-
-  // Push naar SnelStart
+  // Push BEIDE naar SnelStart (eerst origineel als die nog niet gepusht is, dan credit)
   try {
     const { isSnelStartEnabled } = await import('@/lib/snelstart')
     if (isSnelStartEnabled()) {
+      // 1) Origineel pushen als hij nog niet in SS staat (en nog verzonden-status heeft)
+      if (!original.snelstart_boeking_id) {
+        await pushFactuurToSnelStart(original.id as string).catch(err => {
+          console.error('SnelStart push origineel (voor credit) mislukt:', err)
+        })
+      }
+      // 2) Credit pushen
       await pushFactuurToSnelStart(creditnota.id).catch(err => {
         console.error('SnelStart push creditnota mislukt:', err)
       })
@@ -1453,6 +1457,9 @@ export async function crediteerFactuur(factuurId: string, reden?: string) {
   } catch (err) {
     console.error('SnelStart integratie fout creditnota:', err)
   }
+
+  // Origineel PAS op 'gecrediteerd' zetten NADAT push gelukt is (anders skipt push hem)
+  await supabaseAdmin.from('facturen').update({ status: 'gecrediteerd' }).eq('id', original.id)
 
   revalidatePath('/facturatie')
   revalidatePath(`/facturatie/${factuurId}`)
