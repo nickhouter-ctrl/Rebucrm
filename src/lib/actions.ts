@@ -1060,7 +1060,7 @@ export async function getEindafrekeningen() {
   for (const arr of restByRel.values()) arr.sort((a, b) => a.datum.localeCompare(b.datum))
 
   const zesMndGeleden = new Date()
-  zesMndGeleden.setMonth(zesMndGeleden.getMonth() - 6)
+  zesMndGeleden.setMonth(zesMndGeleden.getMonth() - 9)
 
   // Sorteer aanbetalingen op datum oplopend zodat oudste eerst een rest
   // krijgt toegewezen (FIFO).
