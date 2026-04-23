@@ -335,6 +335,53 @@ export function StapTekeningen({
           }
         }
 
+        // Detecteer blauwe/paarse Totalen-balken (Aluplast/Eko-Okna). Zelfde
+        // logica als groene balk maar voor lichtblauw (r≈220 g≈220 b≈250).
+        // Wis de balk + 80px eronder zodat ook de smalle gekleurde kolommetjes
+        // onder de Totalen-balk verdwijnen. Beperk tot onderste helft van pagina.
+        const blueBarRows: boolean[] = new Array(h).fill(false)
+        for (let y = Math.floor(h * 0.4); y < h; y++) {
+          let blueCount = 0
+          for (let x = 0; x < w; x += 2) {
+            const idx = (y * w + x) * 4
+            const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+            if (b > 200 && b > r + 8 && b > g - 10 && r > 180 && g > 180) blueCount++
+          }
+          blueBarRows[y] = blueCount > (w / 2) * 0.55
+        }
+        const blueBars: { start: number; end: number }[] = []
+        let bbs = -1
+        for (let y = 0; y <= h; y++) {
+          if (y < h && blueBarRows[y]) {
+            if (bbs === -1) bbs = y
+          } else if (bbs !== -1) {
+            const bh = y - bbs
+            if (bh >= 8 && bh <= 45) blueBars.push({ start: bbs, end: y })
+            bbs = -1
+          }
+        }
+        for (const bar of blueBars) {
+          let barLeft = w, barRight = 0
+          for (let y = bar.start; y < bar.end; y++) {
+            for (let x = 0; x < w; x++) {
+              const idx = (y * w + x) * 4
+              const r = imgData.data[idx], g = imgData.data[idx + 1], b = imgData.data[idx + 2]
+              if (b > 200 && b > r + 8 && b > g - 10 && r > 180 && g > 180) {
+                if (x < barLeft) barLeft = x
+                if (x > barRight) barRight = x
+              }
+            }
+          }
+          if (barRight > barLeft) {
+            const padL = Math.max(0, barLeft - 3)
+            const padR = Math.min(w, barRight + 4)
+            ctx.fillStyle = '#FFFFFF'
+            // Wis de balk + 100px eronder: dekt ook de smalle gekleurde
+            // kolommetjes (totaal-rijen) die onder de Totalen-balk staan.
+            ctx.fillRect(padL, bar.start, padR - padL, (bar.end - bar.start) + 100)
+          }
+        }
+
         // Prijs-tabel headers + "Geen garantie" wissen. Strategie:
         // - ALLEEN in RECHTER-helft wissen (tekening staat altijd links).
         // - Voor tabel-headers ("Prijs van het element", "Deurprijs", totaal-rijen)
@@ -342,10 +389,21 @@ export function StapTekeningen({
         // - "Geen garantie" zit tussen de specs-tabel rijen (midden-rechts) en
         //   heeft soms een gele/groene achtergrond-cel. Wis de complete rij
         //   van links-specs-kolom (≈ midden) tot rechter rand.
-        const tableHeaderPattern = /^(Prijs\s*van\s*het\s*element|Deurprijs|Netto\s*[Tt]otaal|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Netto\s*prijs|Prijs\s*TOT\.?|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
+        const tableHeaderPattern = /^(Prijs\s*(?:van\s*het|gekoppeld)\s*element|Deurprijs|Netto\s*[Tt]otaal|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Netto\s*prijs|Prijs\s*TOT\.?|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
         const pricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b|\d+[\d.,\s]*,\d{2}\s*E\b|TZ\s*\d)$/i
-        const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
+        // Fragment-matching: pdfjs splitst "Geen garantie!" soms in losse items
+        // zoals "Geen", "garantie!", "ZONDER", "GARANTIE". We pakken elk item
+        // dat garantie/warranty/zonder bevat en wissen de hele rij.
+        const garantieFragmentPattern = /\b(?:garantie|garantie!|GARANTIE|warranty|Warranty|NO\s*WARRANTY|ZONDER)\b/
         const rightHalfStart = Math.floor(w * 0.48)
+        // Groepeer garantie-fragments per y-lijn zodat we per rij 1 wipe doen
+        const garantieYs = new Set<number>()
+        for (const ti of textItems) {
+          if (garantieFragmentPattern.test(ti.str)) {
+            // Snap naar 8px-buckets zodat fragmenten op dezelfde tekst-lijn samenvallen
+            garantieYs.add(Math.round(ti.cy / 8) * 8)
+          }
+        }
         for (const ti of textItems) {
           const strLen = ti.str.length
           if (tableHeaderPattern.test(ti.str)) {
@@ -358,14 +416,13 @@ export function StapTekeningen({
             const approxWidth = Math.max(80, strLen * 7) + 16
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, approxWidth, 26)
-          } else if (garantiePattern.test(ti.str)) {
-            // "Geen garantie" → wis de hele rij van midden-pagina tot rechter
-            // rand, met ruime hoogte zodat de gekleurde achtergrondcel mee gaat.
-            const wipeLeft = Math.max(rightHalfStart, ti.cx - 140)
-            const wipeWidth = w - wipeLeft - 8
-            ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(wipeLeft, ti.cy - 22, wipeWidth, 38)
           }
+        }
+        // Wis alle garantie-rijen: van ~midden-pagina tot rechter rand, 44px hoog
+        // (dekt tekst + gekleurde achtergrond-cel + eventuele afsluitregel).
+        for (const y of garantieYs) {
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(rightHalfStart - 30, y - 22, w - (rightHalfStart - 30) - 8, 44)
         }
 
         // Wis het Raam/Totaal tabelblok — beperk tot rechter-helft met
@@ -409,11 +466,12 @@ export function StapTekeningen({
         // Wis prijs-tabel-headers in onderste helft. Wipe bereikt hier alleen
         // de rechterkant (vanaf midden) zodat aanzicht-tekeningen links intact
         // blijven. Tabellen met totalen lopen vaak door tot onder = wipe tot h.
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+(?:van\s+het|gekoppeld)\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
         for (const ti of textItems) {
-          if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
+          // Drempel verlaagd naar 40% zodat "Totalen"-balk halverwege/onderin
+          // de pagina ook getriggerd wordt. Links-beveiliging blijft actief.
+          if (ti.cy > h * 0.40 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
-            // Altijd vanaf midden-pagina naar rechts — nooit door linkerhelft
             const wipeLeft = Math.max(Math.floor(w * 0.48), ti.cx - 40)
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
