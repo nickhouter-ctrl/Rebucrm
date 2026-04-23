@@ -327,13 +327,16 @@ export function StapControleren({
           }
         }
 
-        // Alleen expliciete prijs-labels wissen (geen brede numerieke match — dat
-        // veegde ook dimensies op de tekening weg).
         const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
+        const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
         for (const ti of txtItems) {
-          if (explicitPricePattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)) {
+          if (explicitPricePattern.test(ti.str)) {
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 26)
+          } else if (garantiePattern.test(ti.str)) {
+            const approxWidth = Math.max(60, ti.str.length * 6)
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, ti.cx - 4), ti.cy - 14, approxWidth + 8, 20)
           }
         }
 
@@ -365,28 +368,35 @@ export function StapControleren({
           ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
-        // AI-Vision laag: laat Claude aangeven welke items leveranciersprijzen zijn
+        // AI VISION: laat Claude bounding boxes aanwijzen van prijzen + garantie
         try {
+          const previewScale = 0.5
+          const pw2 = Math.round(w * previewScale)
+          const ph2 = Math.round(h * previewScale)
+          const preview = document.createElement('canvas')
+          preview.width = pw2
+          preview.height = ph2
+          preview.getContext('2d')!.drawImage(cvs, 0, 0, pw2, ph2)
+          const previewBase64 = preview.toDataURL('image/jpeg', 0.75).replace(/^data:image\/jpeg;base64,/, '')
+          preview.remove()
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const indexed = txtItems.map((ti: any, i: number) => ({ i, str: ti.str, x: ti.cx, y: ti.cy }))
-          const res = await fetch('/api/ai/detect-price-zones', {
+          const supplierName = ((elementen as any[])?.[0]?.systeem || '').split(/[,\s]/)[0] || 'unknown'
+          const res = await fetch('/api/ai/detect-remove-regions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: indexed, pageW: w, pageH: h }),
+            body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw2, imageHeight: ph2, supplier: supplierName }),
           })
           if (res.ok) {
-            const { hide } = (await res.json()) as { hide?: number[] }
-            if (Array.isArray(hide)) {
-              for (const idx of hide) {
-                const ti = txtItems[idx]
-                if (!ti) continue
+            const { regions } = (await res.json()) as { regions?: { x: number; y: number; w: number; h: number }[] }
+            if (Array.isArray(regions)) {
+              for (const r of regions) {
                 ctx.fillStyle = '#FFFFFF'
-                ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 18, w - Math.max(0, ti.cx - 10), 28)
+                ctx.fillRect(Math.round(r.x / previewScale), Math.round(r.y / previewScale), Math.round(r.w / previewScale), Math.round(r.h / previewScale))
               }
             }
           }
         } catch (aiErr) {
-          console.warn('AI price-zone detectie gefaald:', aiErr)
+          console.warn('AI remove-regions detectie gefaald:', aiErr)
         }
 
         const cropBot = Math.floor(h * 0.97), cropH = cropBot - cropTop

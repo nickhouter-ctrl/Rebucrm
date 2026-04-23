@@ -280,13 +280,20 @@ export function StapTekeningen({
           }
         }
 
-        // Expliciete prijs-labels: die worden altijd wit. Geen brede zoektocht naar
-        // numerieke items — dat veegde ook dimensies in de tekening weg.
+        // Expliciete prijs-labels + "Geen garantie" teksten wissen.
         const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*totaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
+        const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
         for (const ti of textItems) {
-          if (explicitPricePattern.test(ti.str) || /geen\s*garantie/i.test(ti.str)) {
+          if (explicitPricePattern.test(ti.str)) {
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, w - Math.max(0, ti.cx - 8), 26)
+          } else if (garantiePattern.test(ti.str)) {
+            // "Geen garantie" kan OVER de tekening staan — wissen met EXACT breed-genoeg
+            // rechthoek (niet tot rechterrand) zodat omringende dimensies intact blijven.
+            const strLen = ti.str.length
+            const approxWidth = Math.max(60, strLen * 6)
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(Math.max(0, ti.cx - 4), ti.cy - 14, approxWidth + 8, 20)
           }
         }
 
@@ -343,11 +350,10 @@ export function StapTekeningen({
           ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
-        // AI VISION: vraag Claude Vision om de exacte bounding box van wat naar
-        // de klant gaat (tekening+specs, zonder prijzen/logo/footer). We croppen
-        // daarop — geen witte vlekken of doorkrassingen meer.
+        // AI VISION: vraag Claude welke regio's we WIT moeten maken (prijzen +
+        // "Geen garantie"). We croppen NIET — de tekening + specs moeten altijd
+        // volledig zichtbaar blijven. Alleen aangewezen regio's worden wit.
         try {
-          // Klein preview voor AI (canvas at 0.5× scale) voor snelheid + goedkoop
           const previewScale = 0.5
           const pw = Math.round(w * previewScale)
           const ph = Math.round(h * previewScale)
@@ -359,38 +365,34 @@ export function StapTekeningen({
           const previewBase64 = previewDataUrl.replace(/^data:image\/jpeg;base64,/, '')
           previewCanvas.remove()
 
-          // Leverancier-naam uit parsed data zodat AI per-leverancier kan leren
           const supplierName = (parsed.elementen?.[0]?.systeem || '').split(/[,\s]/)[0] || 'unknown'
-          const res = await fetch('/api/ai/detect-drawing-box', {
+          const res = await fetch('/api/ai/detect-remove-regions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw, imageHeight: ph, supplier: supplierName }),
           })
           if (res.ok) {
-            const { x, y, w: bw, h: bh } = (await res.json()) as { x: number; y: number; w: number; h: number }
-            if (bw > 50 && bh > 50) {
-              // Schaal bounding box terug naar full-res
-              const fx = Math.round(x / previewScale)
-              const fy = Math.round(y / previewScale)
-              const fw = Math.round(bw / previewScale)
-              const fh = Math.round(bh / previewScale)
-              // Update cropTop/cropBottom zodat we daadwerkelijk croppen
-              ;(canvas as unknown as { __aiBox?: { fx: number; fy: number; fw: number; fh: number } }).__aiBox = { fx, fy, fw, fh }
+            const { regions } = (await res.json()) as { regions?: { x: number; y: number; w: number; h: number }[] }
+            if (Array.isArray(regions)) {
+              for (const r of regions) {
+                const fx = Math.round(r.x / previewScale)
+                const fy = Math.round(r.y / previewScale)
+                const fw = Math.round(r.w / previewScale)
+                const fh = Math.round(r.h / previewScale)
+                ctx.fillStyle = '#FFFFFF'
+                ctx.fillRect(fx, fy, fw, fh)
+              }
             }
           }
         } catch (aiErr) {
-          console.warn('AI drawing-box detectie gefaald, val terug op regex-wipes:', aiErr)
+          console.warn('AI remove-regions detectie gefaald, regex-wipes blijven actief:', aiErr)
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const aiBox = (canvas as any).__aiBox as { fx: number; fy: number; fw: number; fh: number } | undefined
-        let srcX = 0, srcY = cropTop, srcW = w, srcH = cropBottom - cropTop
-        if (aiBox && aiBox.fw > 100 && aiBox.fh > 100) {
-          // Gebruik AI bounding box met kleine padding (20px) voor een klant-vriendelijke crop
-          srcX = Math.max(0, aiBox.fx - 20)
-          srcY = Math.max(0, aiBox.fy - 20)
-          srcW = Math.min(w - srcX, aiBox.fw + 40)
-          srcH = Math.min(h - srcY, aiBox.fh + 40)
-        }
+        // We croppen ALLEEN de leveranciers-header bovenaan (cropTop) en een
+        // minimale footer. Tekening + alle specs blijven ALTIJD volledig zichtbaar.
+        const srcX = 0
+        const srcY = cropTop
+        const srcW = w
+        const srcH = cropBottom - cropTop
         const croppedCanvas = document.createElement('canvas')
         croppedCanvas.width = srcW
         croppedCanvas.height = srcH
