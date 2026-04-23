@@ -1159,6 +1159,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                 />
                 <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie.contactpersoon || ''} />
                 <Input id="email" name="email" label="E-mail" type="email" defaultValue={relatie.email || ''} />
+                <Input id="factuur_email" name="factuur_email" label="Factuur-e-mail (optioneel)" type="email" defaultValue={(relatie as Record<string, unknown>).factuur_email as string || ''} placeholder="Leeg = algemene e-mail gebruiken" />
                 <Input id="telefoon" name="telefoon" label="Telefoon" defaultValue={relatie.telefoon || ''} />
                 <Input id="adres" name="adres" label="Adres" defaultValue={relatie.adres || ''} />
                 <Input id="postcode" name="postcode" label="Postcode" defaultValue={relatie.postcode || ''} />

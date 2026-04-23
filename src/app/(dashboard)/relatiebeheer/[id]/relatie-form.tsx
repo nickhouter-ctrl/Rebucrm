@@ -260,6 +260,7 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
               />
               <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie?.contactpersoon || ''} />
               <Input ref={emailRef} id="email" name="email" label="E-mail" type="email" defaultValue={relatie?.email || ''} />
+              <Input id="factuur_email" name="factuur_email" label="Factuur-e-mail (optioneel)" type="email" defaultValue={(relatie as Record<string, unknown> | undefined)?.factuur_email as string || ''} placeholder="Leeg = algemene e-mail gebruiken" />
               <Input ref={telefoonRef} id="telefoon" name="telefoon" label="Telefoon" defaultValue={relatie?.telefoon || ''} />
               <Input ref={adresRef} id="adres" name="adres" label="Adres" defaultValue={relatie?.adres || ''} />
               <Input ref={postcodeRef} id="postcode" name="postcode" label="Postcode" defaultValue={relatie?.postcode || ''} />

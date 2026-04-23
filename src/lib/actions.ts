@@ -245,6 +245,7 @@ export async function saveRelatie(formData: FormData) {
     type: formData.get('type') as string,
     contactpersoon: formData.get('contactpersoon') as string || null,
     email: formData.get('email') as string || null,
+    factuur_email: formData.get('factuur_email') as string || null,
     telefoon: formData.get('telefoon') as string || null,
     adres: formData.get('adres') as string || null,
     postcode: formData.get('postcode') as string || null,
@@ -1080,8 +1081,12 @@ Mocht u vragen hebben over deze factuur, neem dan gerust contact met ons op.
 Met vriendelijke groet,
 ${medewerkerNaam}`
 
+  // Factuur-email voorrang: als relatie een apart factuur_email heeft gebruiken we dat
+  const relatieRec = factuur.relatie as { email?: string | null; factuur_email?: string | null } | null
+  const factuurEmail = (relatieRec?.factuur_email || '').trim() || (relatieRec?.email || '')
+
   return {
-    to: factuur.relatie?.email || '',
+    to: factuurEmail,
     subject: `Factuur ${factuur.factuurnummer} - Rebu Kozijnen`,
     body,
     betaalLink: betaalLink || null,
