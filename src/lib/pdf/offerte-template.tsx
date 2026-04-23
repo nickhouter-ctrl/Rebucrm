@@ -355,7 +355,7 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
 
       {/* ====== SAMENVATTING + VOORWAARDEN (alleen als er kozijnelementen zijn) ====== */}
       {kozijnen.length > 0 && (
-        <Page size="A4" style={[s.page, { paddingTop: 40, paddingBottom: 60, paddingLeft: 50, paddingRight: 50 }]} wrap={false}>
+        <Page size="A4" style={[s.page, { paddingTop: 24, paddingBottom: 24, paddingLeft: 28, paddingRight: 28, backgroundColor: '#FFFFFF' }]}>
           <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
 
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
