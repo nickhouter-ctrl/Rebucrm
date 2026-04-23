@@ -923,16 +923,15 @@ export async function deleteOrder(id: string) {
 }
 
 // De 22 aanbetalings-factuurnummers die Tribe momenteel als 'eindafrekening
-// nodig' markeert (1e factuur zonder 3e factuur, per unieke klant, laatste 22
-// chronologisch). Deze lijst is de bron van waarheid voor /facturatie/eindafrekening.
-const TRIBE_EINDAFREKENING_NUMMERS = new Set([
+// nodig' markeert, in exact dezelfde volgorde als Tribe toont (nieuwste eerst).
+const TRIBE_EINDAFREKENING_NUMMERS = [
   'F-2026-00172', 'F-2026-00171', 'F-2026-00169', 'F-2026-00165',
   'F-2026-00156', 'F-2026-00152', 'F-2026-00150', 'F-2026-00148',
   'F-2026-00145', 'F-2026-00143', 'F-2026-00147', 'F-2026-00133',
   'F-2026-00134', 'F-2026-00130', 'F-2026-00127', 'F-2026-00126',
   'F-2026-00110', 'F-2026-00103', 'F-2026-00106', 'F-2026-00096',
   'F-2026-00094', 'F-2026-00089',
-])
+]
 
 // Maak een concept-restbetalingsfactuur voor een bestaande aanbetaling.
 // Bedrag = offerte.subtotaal − aanbetaling.subtotaal (BTW evenredig herberekend).
@@ -1050,13 +1049,16 @@ export async function getEindafrekeningen() {
   // Ground truth = Tribe's 22. Filter CRM facturen direct op deze whitelist
   // zodat onze lijst 1-op-1 overeenkomt met wat in Tribe staat. Lees dan de
   // bijbehorende offerte voor het juiste totaalbedrag excl BTW.
-  const nummers = Array.from(TRIBE_EINDAFREKENING_NUMMERS)
+  const nummers = TRIBE_EINDAFREKENING_NUMMERS
   const { data: aanbetaligs } = await supabase.from('facturen')
     .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
     .eq('administratie_id', adminId)
     .in('factuurnummer', nummers)
-    .order('datum', { ascending: false })
-  return aanbetaligs || []
+  // Sorteer in exact dezelfde volgorde als de Tribe-whitelist
+  const ordered = nummers
+    .map(nr => (aanbetaligs || []).find(f => f.factuurnummer === nr))
+    .filter(Boolean)
+  return ordered
 }
 
 // Oude matching-logica wordt niet meer gebruikt; behouden voor eventuele
