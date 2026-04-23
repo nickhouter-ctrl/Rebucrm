@@ -1037,42 +1037,46 @@ export async function getEindafrekeningen() {
 
   const [aanbetRes, restRes] = await Promise.all([
     supabase.from('facturen')
-      .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
+      .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
       .eq('administratie_id', adminId)
       .eq('factuur_type', 'aanbetaling')
       .not('status', 'eq', 'gecrediteerd')
       .order('datum', { ascending: false }),
     supabase.from('facturen')
-      .select('id, relatie_id, datum, order_id')
+      .select('id, relatie_id, datum, order_id, offerte_id')
       .eq('administratie_id', adminId)
       .in('factuur_type', ['restbetaling', 'volledig'])
       .not('status', 'eq', 'gecrediteerd'),
   ])
 
   const rests = restRes.data || []
-  const restByRel = new Map<string, { id: string; datum: string; order_id: string | null; used: boolean }[]>()
+  const restByRel = new Map<string, { id: string; datum: string; order_id: string | null; offerte_id: string | null; used: boolean }[]>()
   for (const r of rests) {
     if (!r.relatie_id || !r.datum) continue
     if (!restByRel.has(r.relatie_id)) restByRel.set(r.relatie_id, [])
-    restByRel.get(r.relatie_id)!.push({ id: r.id, datum: r.datum, order_id: r.order_id, used: false })
+    restByRel.get(r.relatie_id)!.push({ id: r.id, datum: r.datum, order_id: r.order_id, offerte_id: (r as { offerte_id?: string | null }).offerte_id || null, used: false })
   }
   // Sorteer rests per klant op datum oplopend voor 1-op-1 koppeling
   for (const arr of restByRel.values()) arr.sort((a, b) => a.datum.localeCompare(b.datum))
 
-  const eenJaarGeleden = new Date()
-  eenJaarGeleden.setFullYear(eenJaarGeleden.getFullYear() - 1)
+  const zesMndGeleden = new Date()
+  zesMndGeleden.setMonth(zesMndGeleden.getMonth() - 6)
 
   // Sorteer aanbetalingen op datum oplopend zodat oudste eerst een rest
-  // krijgt toegewezen (FIFO). Klanten met meerdere klussen krijgen dus
-  // elke aanbetaling zijn eigen rest-factuur — niet dezelfde rest dubbel.
+  // krijgt toegewezen (FIFO).
   const aanbetSorted = [...(aanbetRes.data || [])].sort((a, b) => (a.datum || '').localeCompare(b.datum || ''))
   const open = []
   for (const a of aanbetSorted) {
     if (!a.datum) continue
+    // Test/0-bedrag facturen uitsluiten
+    if (!a.subtotaal || a.subtotaal === 0) continue
+    const relNaam = ((a.relatie as unknown as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || '').toLowerCase()
+    if (/\btest\b/.test(relNaam)) continue
+
     const kandidaten = restByRel.get(a.relatie_id) || []
-    // Eerst exacte order_id match
-    let match = kandidaten.find(r => !r.used && a.order_id && r.order_id === a.order_id)
-    // Anders: eerste nog niet gebruikte rest die op of na aanbet datum ligt binnen 9 maanden
+    // Match priority: 1) zelfde offerte_id, 2) zelfde order_id, 3) FIFO datum-venster
+    let match = kandidaten.find(r => !r.used && a.offerte_id && r.offerte_id === a.offerte_id)
+    if (!match) match = kandidaten.find(r => !r.used && a.order_id && r.order_id === a.order_id)
     if (!match) {
       match = kandidaten.find(r => {
         if (r.used) return false
@@ -1081,11 +1085,10 @@ export async function getEindafrekeningen() {
       })
     }
     if (match) { match.used = true; continue }
-    // Alleen recente aanbetalings (<1 jaar) als openstaand tonen
-    if (new Date(a.datum) < eenJaarGeleden) continue
+    // Alleen aanbetalings van laatste 6 maanden blijven in de lijst staan
+    if (new Date(a.datum) < zesMndGeleden) continue
     open.push(a)
   }
-  // Sorteer openstaand op datum desc voor weergave
   open.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''))
   return open
 }
