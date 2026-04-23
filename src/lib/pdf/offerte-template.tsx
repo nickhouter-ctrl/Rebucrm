@@ -294,18 +294,10 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
         // Als er geen tekening is, render toch een element-specs pagina zonder afbeelding
         const pages = realPages.length > 0 ? realPages : [{ url: '', pageIndex: 0, totalPages: 1 }]
 
-        // Hoge elementen (deuren, schuifpuien) passen beter op landscape A4 zodat
-        // de volledige tekening zichtbaar is. Detecteer via afmetingen of type.
-        const afmMatch = (element.afmetingen || '').match(/(\d+)\s*mm\s*x\s*(\d+)\s*mm/i)
-        const breedte = afmMatch ? parseInt(afmMatch[1]) : 0
-        const hoogte = afmMatch ? parseInt(afmMatch[2]) : 0
-        const isHoogElement = hoogte > 2400 && hoogte > breedte * 1.3
-        const pageOrientation = isHoogElement ? 'landscape' : 'portrait'
-
         return (
           <React.Fragment key={`kozijn-${idx}`}>
             {pages.map((pg, pi) => (
-              <Page key={`kozijn-${idx}-p${pi}`} size="A4" orientation={pageOrientation} style={[s.page, { paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 18, display: 'flex', flexDirection: 'column' }]} wrap={false}>
+              <Page key={`kozijn-${idx}-p${pi}`} size="A4" style={[s.page, { paddingTop: 14, paddingBottom: 14, paddingLeft: 18, paddingRight: 18, display: 'flex', flexDirection: 'column' }]} wrap={false}>
                 <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, backgroundColor: COLORS.green }} />
 
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: 4 }}>
@@ -318,13 +310,6 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                       {[element.systeem, element.afmetingen].filter(Boolean).join(' · ')}
                     </Text>
                   </View>
-                  {pi === 0 && element.prijs > 0 && (
-                    <Text style={{ fontSize: 12, fontFamily: 'Helvetica-Bold', color: COLORS.green, marginRight: 10 }}>
-                      {element.hoeveelheid > 1
-                        ? `${element.hoeveelheid}× ${formatCurrencyPdf(element.prijs)} = ${formatCurrencyPdf(element.hoeveelheid * element.prijs)}`
-                        : formatCurrencyPdf(element.prijs)}
-                    </Text>
-                  )}
                   <Image src={logoPath} style={{ width: 70, height: 'auto' }} />
                 </View>
 
@@ -335,6 +320,22 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
                 {pg.url && (
                   <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                     <Image src={pg.url} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </View>
+                )}
+
+                {/* Prijs DUIDELIJK onder de tekening — altijd zichtbaar, ook als 0 */}
+                {pi === 0 && (
+                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'baseline', marginTop: 6, marginBottom: 4, paddingRight: 6 }} wrap={false}>
+                    {element.hoeveelheid > 1 && element.prijs > 0 && (
+                      <Text style={{ fontSize: 9, color: '#6B7280', marginRight: 10 }}>
+                        {`${element.hoeveelheid}× ${formatCurrencyPdf(element.prijs)} =`}
+                      </Text>
+                    )}
+                    <Text style={{ fontSize: 16, fontFamily: 'Helvetica-Bold', color: element.prijs > 0 ? COLORS.green : '#6B7280' }}>
+                      {element.prijs > 0
+                        ? formatCurrencyPdf(element.hoeveelheid > 1 ? element.hoeveelheid * element.prijs : element.prijs)
+                        : 'Prijs op aanvraag'}
+                    </Text>
                   </View>
                 )}
 
