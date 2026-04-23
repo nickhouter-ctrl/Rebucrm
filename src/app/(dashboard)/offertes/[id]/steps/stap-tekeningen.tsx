@@ -335,20 +335,34 @@ export function StapTekeningen({
           }
         }
 
-        // Expliciete prijs-labels + "Geen garantie" teksten wissen. Gebruik
-        // geschatte tekstbreedte (ipv tot rechterrand) zodat dimensies en
-        // andere aanzicht-labels aan dezelfde y-positie intact blijven.
-        const explicitPricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|Netto\s*prijs|Netto\s*[Tt]otaal|Prijs\s*TOT\.?|Prijs\s*van\s*het\s*element|Deurprijs|Totaal\s*excl|Totaal\s*incl|Totaal\s*netto|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|TZ\s*\d|Subtotaal|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b)$/i
+        // Prijs-tabel headers + "Geen garantie" wissen. Strategie:
+        // - ALLEEN in RECHTER-helft wissen (tekening staat altijd links).
+        // - Voor tabel-headers ("Prijs van het element", "Deurprijs", totaal-rijen)
+        //   gebruik bredere wipe die de hele rechter-kolom dekt (~tot einde).
+        // - Voor losse prijsbedragen en "Geen garantie": smalle box rond tekst.
+        const tableHeaderPattern = /^(Prijs\s*van\s*het\s*element|Deurprijs|Netto\s*[Tt]otaal|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Netto\s*prijs|Prijs\s*TOT\.?|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
+        const pricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b|\d+[\d.,\s]*,\d{2}\s*E\b|TZ\s*\d)$/i
         const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
+        const rightHalfStart = Math.floor(w * 0.48)
         for (const ti of textItems) {
           const strLen = ti.str.length
-          const approxWidth = Math.max(60, strLen * 7) + 16
-          if (explicitPricePattern.test(ti.str)) {
+          if (tableHeaderPattern.test(ti.str)) {
+            // Tabel-rij header: wis van links van de tekst tot rechter marge
+            const wipeLeft = Math.max(rightHalfStart, ti.cx - 30)
+            const wipeWidth = w - wipeLeft - 8
+            ctx.fillStyle = '#FFFFFF'
+            ctx.fillRect(wipeLeft, ti.cy - 18, wipeWidth, 32)
+          } else if (pricePattern.test(ti.str)) {
+            // Los prijsbedrag: smalle box, alleen in rechter helft
+            if (ti.cx < rightHalfStart) continue
+            const approxWidth = Math.max(80, strLen * 7) + 16
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, approxWidth, 26)
           } else if (garantiePattern.test(ti.str)) {
+            // "Geen garantie" kan overal staan — wis met genereuze marge
+            const approxWidth = Math.max(120, strLen * 8) + 30
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 4), ti.cy - 14, approxWidth, 20)
+            ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 16, approxWidth, 24)
           }
         }
 
@@ -390,17 +404,17 @@ export function StapTekeningen({
           }
         }
 
-        // Wis prijs-tabel-headers met een geschatte tabelbreedte — NOOIT full-
-        // width, zodat aanzicht-tekeningen op dezelfde y-hoogte intact blijven.
+        // Wis prijs-tabel-headers in onderste helft. Wipe bereikt hier alleen
+        // de rechterkant (vanaf midden) zodat aanzicht-tekeningen links intact
+        // blijven. Tabellen met totalen lopen vaak door tot onder = wipe tot h.
         const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
         for (const ti of textItems) {
           if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
-            const wipeLeft = Math.max(0, ti.cx - 40)
-            // Schat tabelbreedte: ~300px vanaf de tekst, clamped op paginabreedte
-            const wipeWidth = Math.min(360, w - wipeLeft)
+            // Altijd vanaf midden-pagina naar rechts — nooit door linkerhelft
+            const wipeLeft = Math.max(Math.floor(w * 0.48), ti.cx - 40)
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(wipeLeft, wipeTop, wipeWidth, h - wipeTop)
+            ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
           }
         }
 
