@@ -342,6 +342,37 @@ export function StapTekeningen({
           ctx.fillStyle = '#FFFFFF'
           ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
+
+        // AI-Vision laag: stuur textItems naar Claude en laat hem aangeven welke
+        // items leveranciersprijzen bevatten. Dit vangt formaten af die onze
+        // statische regex niet kent (Kosztorys, Cena brutto, NETTO tabel, etc).
+        try {
+          const indexed = textItems.map((ti: { str: string; cx: number; cy: number }, i: number) => ({
+            i,
+            str: ti.str,
+            x: ti.cx,
+            y: ti.cy,
+          }))
+          const res = await fetch('/api/ai/detect-price-zones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: indexed, pageW: w, pageH: h }),
+          })
+          if (res.ok) {
+            const { hide } = (await res.json()) as { hide?: number[] }
+            if (Array.isArray(hide)) {
+              for (const idx of hide) {
+                const ti = textItems[idx]
+                if (!ti) continue
+                ctx.fillStyle = '#FFFFFF'
+                ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 18, w - Math.max(0, ti.cx - 10), 28)
+              }
+            }
+          }
+        } catch (aiErr) {
+          // AI-call mag geen hele extractie breken; regex-wipes zijn al gedaan
+          console.warn('AI price-zone detectie gefaald:', aiErr)
+        }
         const cropH = cropBottom - cropTop
         const croppedCanvas = document.createElement('canvas')
         croppedCanvas.width = w

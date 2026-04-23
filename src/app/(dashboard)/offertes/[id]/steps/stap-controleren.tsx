@@ -365,6 +365,30 @@ export function StapControleren({
           ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
+        // AI-Vision laag: laat Claude aangeven welke items leveranciersprijzen zijn
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const indexed = txtItems.map((ti: any, i: number) => ({ i, str: ti.str, x: ti.cx, y: ti.cy }))
+          const res = await fetch('/api/ai/detect-price-zones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: indexed, pageW: w, pageH: h }),
+          })
+          if (res.ok) {
+            const { hide } = (await res.json()) as { hide?: number[] }
+            if (Array.isArray(hide)) {
+              for (const idx of hide) {
+                const ti = txtItems[idx]
+                if (!ti) continue
+                ctx.fillStyle = '#FFFFFF'
+                ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 18, w - Math.max(0, ti.cx - 10), 28)
+              }
+            }
+          }
+        } catch (aiErr) {
+          console.warn('AI price-zone detectie gefaald:', aiErr)
+        }
+
         const cropBot = Math.floor(h * 0.97), cropH = cropBot - cropTop
         const cc = document.createElement('canvas'); cc.width = w; cc.height = cropH
         cc.getContext('2d')!.drawImage(cvs, 0, cropTop, w, cropH, 0, 0, w, cropH)
