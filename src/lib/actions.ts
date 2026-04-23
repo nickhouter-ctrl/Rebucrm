@@ -2364,21 +2364,29 @@ export async function getDashboardData() {
     })
     .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   // Openstaand + vervallen uit SnelStart openstaandSaldo (via sync gevuld).
-  // Facturen zonder snelstart_openstaand tellen niet mee (zijn historisch/niet gesynchroniseerd).
+  // Facturen zonder snelstart_openstaand tellen niet mee (zijn historisch/niet
+  // gesynchroniseerd). Uitzondering: credit-nota's zonder sync worden met hun
+  // totaal als NEGATIEF openstaand meegerekend, zodat ze direct het openstaand-
+  // saldo verlagen en niet de omzet.
   const vandaagStr = new Date().toISOString().slice(0, 10)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openstaand = facturenData.reduce((sum, f: any) => {
     const o = f.snelstart_openstaand
-    return o != null ? sum + Number(o) : sum
+    if (o != null) return sum + Number(o)
+    if (f.factuur_type === 'credit' && f.status !== 'gecrediteerd') {
+      return sum + Number(f.totaal || 0)
+    }
+    return sum
   }, 0)
   // Vervallen-logica identiek aan SnelStart: alle openstaand (incl negatieve credit)
   // waar vervaldatum <= vandaag (inclusief vandaag zelf).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const achterstallig = facturenData.reduce((sum, f: any) => {
     const o = f.snelstart_openstaand
-    if (o == null) return sum
+    const bedrag = o != null ? Number(o) : (f.factuur_type === 'credit' && f.status !== 'gecrediteerd' ? Number(f.totaal || 0) : null)
+    if (bedrag == null) return sum
     if (!f.vervaldatum || f.vervaldatum > vandaagStr) return sum
-    return sum + Number(o)
+    return sum + bedrag
   }, 0)
   const openOffertes = offertesData.filter(o => o.status === 'verzonden').length
   const openTaken = takenData.filter(t => t.status !== 'afgerond').length
