@@ -1050,31 +1050,43 @@ export async function getEindafrekeningen() {
   ])
 
   const rests = restRes.data || []
-  const restByRel = new Map<string, { datum: string | null; order_id: string | null }[]>()
+  const restByRel = new Map<string, { id: string; datum: string; order_id: string | null; used: boolean }[]>()
   for (const r of rests) {
-    if (!r.relatie_id) continue
+    if (!r.relatie_id || !r.datum) continue
     if (!restByRel.has(r.relatie_id)) restByRel.set(r.relatie_id, [])
-    restByRel.get(r.relatie_id)!.push({ datum: r.datum, order_id: r.order_id })
+    restByRel.get(r.relatie_id)!.push({ id: r.id, datum: r.datum, order_id: r.order_id, used: false })
   }
+  // Sorteer rests per klant op datum oplopend voor 1-op-1 koppeling
+  for (const arr of restByRel.values()) arr.sort((a, b) => a.datum.localeCompare(b.datum))
 
   const eenJaarGeleden = new Date()
   eenJaarGeleden.setFullYear(eenJaarGeleden.getFullYear() - 1)
 
-  const open = (aanbetRes.data || []).filter(a => {
-    if (!a.datum || new Date(a.datum) < eenJaarGeleden) return false
+  // Sorteer aanbetalingen op datum oplopend zodat oudste eerst een rest
+  // krijgt toegewezen (FIFO). Klanten met meerdere klussen krijgen dus
+  // elke aanbetaling zijn eigen rest-factuur — niet dezelfde rest dubbel.
+  const aanbetSorted = [...(aanbetRes.data || [])].sort((a, b) => (a.datum || '').localeCompare(b.datum || ''))
+  const open = []
+  for (const a of aanbetSorted) {
+    if (!a.datum) continue
     const kandidaten = restByRel.get(a.relatie_id) || []
-    const match = kandidaten.find(r => {
-      if (!r.datum) return false
-      if (a.order_id && r.order_id && a.order_id === r.order_id) return true
-      const days = (new Date(r.datum).getTime() - new Date(a.datum!).getTime()) / 86400000
-      // Accepteer rest-facturen die op of na de aanbetaling liggen binnen
-      // 9 maanden. Ook ±30 dagen ervoor (bij kleine datumverschillen) geldt
-      // als match voor dezelfde klus.
-      return days >= -30 && days <= 270
-    })
-    return !match
-  })
-
+    // Eerst exacte order_id match
+    let match = kandidaten.find(r => !r.used && a.order_id && r.order_id === a.order_id)
+    // Anders: eerste nog niet gebruikte rest die op of na aanbet datum ligt binnen 9 maanden
+    if (!match) {
+      match = kandidaten.find(r => {
+        if (r.used) return false
+        const days = (new Date(r.datum).getTime() - new Date(a.datum!).getTime()) / 86400000
+        return days >= 0 && days <= 270
+      })
+    }
+    if (match) { match.used = true; continue }
+    // Alleen recente aanbetalings (<1 jaar) als openstaand tonen
+    if (new Date(a.datum) < eenJaarGeleden) continue
+    open.push(a)
+  }
+  // Sorteer openstaand op datum desc voor weergave
+  open.sort((a, b) => (b.datum || '').localeCompare(a.datum || ''))
   return open
 }
 
