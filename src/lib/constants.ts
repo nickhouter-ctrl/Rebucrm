@@ -16,6 +16,7 @@ import {
   UserSearch,
   HardHat,
   AlertTriangle,
+  Archive,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -43,6 +44,7 @@ export const navigationItems: NavItem[] = [
   { label: 'Documenten inbox', href: '/documenten', icon: Inbox },
   { label: 'Faalkosten', href: '/faalkosten', icon: AlertTriangle },
   { label: 'Rapportages', href: '/rapportages', icon: BarChart3 },
+  { label: 'Archief', href: '/archief', icon: Archive },
   { label: 'Beheer', href: '/beheer', icon: Settings },
 ]
 

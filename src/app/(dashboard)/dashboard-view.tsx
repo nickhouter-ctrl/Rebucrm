@@ -411,7 +411,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   }
   const dertigDagenGeleden = new Date()
   dertigDagenGeleden.setDate(dertigDagenGeleden.getDate() - 30)
-  const verkoopkansenZonderOfferte = (data.openVerkoopkansen || []).filter(v => !v.heeft_offerte && v.bron !== 'import' && new Date(v.created_at) > dertigDagenGeleden)
+  const verkoopkansenZonderOfferte = (data.openVerkoopkansen || []).filter(v => !v.heeft_offerte && v.bron !== 'import' && v.aantal_emails === 0 && new Date(v.created_at) > dertigDagenGeleden)
   if (verkoopkansenZonderOfferte.length > 0) {
     notifications.push({ label: 'verkoopkansen zonder offerte', href: '/projecten?filter=zonder_offerte', count: verkoopkansenZonderOfferte.length })
   }

@@ -563,8 +563,25 @@ export async function archiveerOfferte(offerteId: string, gearchiveerd = true) {
     .eq('id', offerteId)
   if (error) return { error: error.message }
   revalidatePath('/offertes')
+  revalidatePath('/archief')
   revalidatePath(`/offertes/${offerteId}`)
   return { success: true }
+}
+
+export async function getArchiefFacturen() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const supabase = await createClient()
+  const data = await fetchAllRows((from, to) =>
+    supabase
+      .from('facturen')
+      .select('id, factuurnummer, datum, status, totaal, factuur_type, relatie:relaties(bedrijfsnaam)')
+      .eq('administratie_id', adminId)
+      .or('status.eq.gecrediteerd,factuur_type.eq.credit')
+      .order('datum', { ascending: false })
+      .range(from, to)
+  )
+  return data
 }
 
 export async function getConceptOffertes() {
