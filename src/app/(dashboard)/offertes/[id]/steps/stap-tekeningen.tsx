@@ -343,41 +343,56 @@ export function StapTekeningen({
           ctx.fillRect(0, bottomCutoff, w, h - bottomCutoff)
         }
 
-        // AI-Vision laag: stuur textItems naar Claude en laat hem aangeven welke
-        // items leveranciersprijzen bevatten. Dit vangt formaten af die onze
-        // statische regex niet kent (Kosztorys, Cena brutto, NETTO tabel, etc).
+        // AI VISION: vraag Claude Vision om de exacte bounding box van wat naar
+        // de klant gaat (tekening+specs, zonder prijzen/logo/footer). We croppen
+        // daarop — geen witte vlekken of doorkrassingen meer.
         try {
-          const indexed = textItems.map((ti: { str: string; cx: number; cy: number }, i: number) => ({
-            i,
-            str: ti.str,
-            x: ti.cx,
-            y: ti.cy,
-          }))
-          const res = await fetch('/api/ai/detect-price-zones', {
+          // Klein preview voor AI (canvas at 0.5× scale) voor snelheid + goedkoop
+          const previewScale = 0.5
+          const pw = Math.round(w * previewScale)
+          const ph = Math.round(h * previewScale)
+          const previewCanvas = document.createElement('canvas')
+          previewCanvas.width = pw
+          previewCanvas.height = ph
+          previewCanvas.getContext('2d')!.drawImage(canvas, 0, 0, pw, ph)
+          const previewDataUrl = previewCanvas.toDataURL('image/jpeg', 0.75)
+          const previewBase64 = previewDataUrl.replace(/^data:image\/jpeg;base64,/, '')
+          previewCanvas.remove()
+
+          const res = await fetch('/api/ai/detect-drawing-box', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items: indexed, pageW: w, pageH: h }),
+            body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw, imageHeight: ph }),
           })
           if (res.ok) {
-            const { hide } = (await res.json()) as { hide?: number[] }
-            if (Array.isArray(hide)) {
-              for (const idx of hide) {
-                const ti = textItems[idx]
-                if (!ti) continue
-                ctx.fillStyle = '#FFFFFF'
-                ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 18, w - Math.max(0, ti.cx - 10), 28)
-              }
+            const { x, y, w: bw, h: bh } = (await res.json()) as { x: number; y: number; w: number; h: number }
+            if (bw > 50 && bh > 50) {
+              // Schaal bounding box terug naar full-res
+              const fx = Math.round(x / previewScale)
+              const fy = Math.round(y / previewScale)
+              const fw = Math.round(bw / previewScale)
+              const fh = Math.round(bh / previewScale)
+              // Update cropTop/cropBottom zodat we daadwerkelijk croppen
+              ;(canvas as unknown as { __aiBox?: { fx: number; fy: number; fw: number; fh: number } }).__aiBox = { fx, fy, fw, fh }
             }
           }
         } catch (aiErr) {
-          // AI-call mag geen hele extractie breken; regex-wipes zijn al gedaan
-          console.warn('AI price-zone detectie gefaald:', aiErr)
+          console.warn('AI drawing-box detectie gefaald, val terug op regex-wipes:', aiErr)
         }
-        const cropH = cropBottom - cropTop
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const aiBox = (canvas as any).__aiBox as { fx: number; fy: number; fw: number; fh: number } | undefined
+        let srcX = 0, srcY = cropTop, srcW = w, srcH = cropBottom - cropTop
+        if (aiBox && aiBox.fw > 100 && aiBox.fh > 100) {
+          // Gebruik AI bounding box met kleine padding (20px) voor een klant-vriendelijke crop
+          srcX = Math.max(0, aiBox.fx - 20)
+          srcY = Math.max(0, aiBox.fy - 20)
+          srcW = Math.min(w - srcX, aiBox.fw + 40)
+          srcH = Math.min(h - srcY, aiBox.fh + 40)
+        }
         const croppedCanvas = document.createElement('canvas')
-        croppedCanvas.width = w
-        croppedCanvas.height = cropH
-        croppedCanvas.getContext('2d')!.drawImage(canvas, 0, cropTop, w, cropH, 0, 0, w, cropH)
+        croppedCanvas.width = srcW
+        croppedCanvas.height = srcH
+        croppedCanvas.getContext('2d')!.drawImage(canvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
         canvas.remove()
         return croppedCanvas
       }

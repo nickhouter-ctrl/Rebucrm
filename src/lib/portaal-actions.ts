@@ -109,6 +109,24 @@ export async function getPortaalDashboard() {
       totaal: o.totaal,
       relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
     })),
+    recenteEmails: await (async () => {
+      // Verzonden mails (vanuit CRM) naar klant — uit email_log
+      const { data } = await supabaseAdmin
+        .from('email_log')
+        .select('id, aan, onderwerp, verstuurd_op, offerte_id, offerte:offertes(offertenummer)')
+        .in('relatie_id', ctx.relatieIds)
+        .order('verstuurd_op', { ascending: false })
+        .limit(10)
+      return (data || []).map(e => ({
+        id: e.id as string,
+        aan: (e.aan as string) || '',
+        onderwerp: (e.onderwerp as string) || '(geen onderwerp)',
+        verstuurd_op: e.verstuurd_op as string,
+        offerte_id: (e.offerte_id as string) || null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        offertenummer: ((e.offerte as any)?.offertenummer) || null,
+      }))
+    })(),
   }
 }
 
