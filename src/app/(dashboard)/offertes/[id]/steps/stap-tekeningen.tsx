@@ -339,7 +339,9 @@ export function StapTekeningen({
         // - ALLEEN in RECHTER-helft wissen (tekening staat altijd links).
         // - Voor tabel-headers ("Prijs van het element", "Deurprijs", totaal-rijen)
         //   gebruik bredere wipe die de hele rechter-kolom dekt (~tot einde).
-        // - Voor losse prijsbedragen en "Geen garantie": smalle box rond tekst.
+        // - "Geen garantie" zit tussen de specs-tabel rijen (midden-rechts) en
+        //   heeft soms een gele/groene achtergrond-cel. Wis de complete rij
+        //   van links-specs-kolom (≈ midden) tot rechter rand.
         const tableHeaderPattern = /^(Prijs\s*van\s*het\s*element|Deurprijs|Netto\s*[Tt]otaal|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Netto\s*prijs|Prijs\s*TOT\.?|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma|Preis|Gesamt)$/i
         const pricePattern = /^(€\s*[\d.,]+|[\d.,]+\s*€|[\d.,]+\s*(?:EUR|PLN|USD|GBP)\b|\d+[\d.,\s]*,\d{2}\s*E\b|TZ\s*\d)$/i
         const garantiePattern = /geen\s*garantie|no\s*warranty|geen\s*Garantie!?/i
@@ -347,22 +349,22 @@ export function StapTekeningen({
         for (const ti of textItems) {
           const strLen = ti.str.length
           if (tableHeaderPattern.test(ti.str)) {
-            // Tabel-rij header: wis van links van de tekst tot rechter marge
             const wipeLeft = Math.max(rightHalfStart, ti.cx - 30)
             const wipeWidth = w - wipeLeft - 8
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(wipeLeft, ti.cy - 18, wipeWidth, 32)
           } else if (pricePattern.test(ti.str)) {
-            // Los prijsbedrag: smalle box, alleen in rechter helft
             if (ti.cx < rightHalfStart) continue
             const approxWidth = Math.max(80, strLen * 7) + 16
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(Math.max(0, ti.cx - 8), ti.cy - 18, approxWidth, 26)
           } else if (garantiePattern.test(ti.str)) {
-            // "Geen garantie" kan overal staan — wis met genereuze marge
-            const approxWidth = Math.max(120, strLen * 8) + 30
+            // "Geen garantie" → wis de hele rij van midden-pagina tot rechter
+            // rand, met ruime hoogte zodat de gekleurde achtergrondcel mee gaat.
+            const wipeLeft = Math.max(rightHalfStart, ti.cx - 140)
+            const wipeWidth = w - wipeLeft - 8
             ctx.fillStyle = '#FFFFFF'
-            ctx.fillRect(Math.max(0, ti.cx - 10), ti.cy - 16, approxWidth, 24)
+            ctx.fillRect(wipeLeft, ti.cy - 22, wipeWidth, 38)
           }
         }
 
@@ -407,7 +409,7 @@ export function StapTekeningen({
         // Wis prijs-tabel-headers in onderste helft. Wipe bereikt hier alleen
         // de rechterkant (vanaf midden) zodat aanzicht-tekeningen links intact
         // blijven. Tabellen met totalen lopen vaak door tot onder = wipe tot h.
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+van\s+het\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
         for (const ti of textItems) {
           if (ti.cy > h * 0.55 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)

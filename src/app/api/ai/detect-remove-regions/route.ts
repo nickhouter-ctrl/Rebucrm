@@ -58,7 +58,9 @@ export async function POST(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cachedRegions = (template as any)?.remove_regions_pct as { x: number; y: number; w: number; h: number }[] | null
 
-  if (cachedRegions && Array.isArray(cachedRegions) && cachedRegions.length > 0 && (template?.validated || (template?.usage_count ?? 0) >= 3)) {
+  // Cache pas vertrouwen als template expliciet gevalideerd is. Usage_count
+  // alleen is niet genoeg — een fout gecachte regio blijft anders hangen.
+  if (cachedRegions && Array.isArray(cachedRegions) && cachedRegions.length > 0 && template?.validated) {
     const regions = cachedRegions.map(r => ({
       x: Math.round(r.x * imageWidth),
       y: Math.round(r.y * imageHeight),
@@ -75,11 +77,12 @@ export async function POST(req: NextRequest) {
   const system = `Je bent expert in kozijn-leverancier tekeningen (Aluplast, Gealan, Schüco, Reynaers, Cortizo, Aliplast, Aluprof, Eko-Okna, Kochs).
 
 TAAK: geef bounding boxes (x,y,w,h in pixels) van de regio's die we WIT MOETEN MAKEN op deze pagina. Dit zijn ALLEEN:
-1. Prijs-tabellen en prijs-kolommen (NETTO/BRUTO/BTW, Cena, Kosztorys, Razem, Netto prijs, Totaal, Producten/Artikelen/Profielen/Diensten/Extra kosten, Preis/Gesamt, Prijs TOT, Deurprijs, "Prijs van het element", etc.)
+1. Prijs-tabellen en prijs-kolommen (NETTO/BRUTO/BTW, Cena, Kosztorys, Razem, Netto prijs, Totaal, Totalen, Producten/Artikelen/Profielen/Diensten/Extra kosten, Preis/Gesamt, Prijs TOT, Deurprijs, "Prijs van het element", etc.). De box MOET de complete kolom dekken — tot aan de rechter pagina-rand — anders blijft de helft zichtbaar. Bij twijfel liever 20px te breed dan 5px te smal.
 2. Losse prijsbedragen in € / EUR / PLN / zł / $ / £
-3. "Geen garantie" / "No warranty" / "Geen Garantie" teksten (exact die woorden)
+3. "Geen garantie" / "No warranty" / "Geen Garantie" teksten (exact die woorden) — INCLUSIEF de gekleurde achtergrond-cel (vaak geel of groen) waarin de tekst staat. De box moet de VOLLEDIGE tabel-rij dekken waarin "Geen garantie" staat, van begin-van-de-specs-kolom (meestal rond x=midden-pagina) tot aan de rechter rand. Een smalle box alléén rond de tekst laat de gekleurde cel voor de helft zichtbaar — dat is fout.
 4. **STAART van een VORIG element**: als de pagina begint met Toebehoren-, Glazing used- of "Prijs van het element"-tabel BOVEN een nieuwe "Element NNN"/"Deur NNN" header, is die tabel van het vorige element en moet WEG.
 5. **BEGIN van een VOLGEND element**: als onder de huidige tekening opnieuw "Element NNN" of "Deur NNN" start, moet alles vanaf die header naar beneden WEG.
+6. **"Totalen"-balk onderaan**: als onderaan de pagina een smalle balk/tabel met het label "Totalen" of "Totaal offerte" of "Eind totaal" staat (vaak blauw of grijs), wis die INCLUSIEF de kleine kolommetjes eronder. Beperk tot de breedte van de tabel zelf — nooit full-width als er een tekening links doorheen loopt.
 
 MOET INTACT BLIJVEN (dus NIET in je regions):
 - Kozijn-tekeningen (aanzichten, doorsnedes, maten, pijlen)
