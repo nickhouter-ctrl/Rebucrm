@@ -922,6 +922,74 @@ export async function deleteOrder(id: string) {
   return { success: true }
 }
 
+// Maak een concept-restbetalingsfactuur voor een bestaande aanbetaling.
+// Bedrag = offerte.subtotaal − aanbetaling.subtotaal (BTW evenredig herberekend).
+export async function maakEindafrekening(aanbetalingId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: aanbet } = await supabase
+    .from('facturen')
+    .select('id, factuurnummer, relatie_id, offerte_id, order_id, onderwerp, subtotaal, btw_totaal, totaal, factuur_type, administratie_id')
+    .eq('id', aanbetalingId)
+    .single()
+  if (!aanbet) return { error: 'Aanbetaling niet gevonden' }
+  if (aanbet.factuur_type !== 'aanbetaling') return { error: 'Factuur is geen aanbetaling' }
+
+  let offerteSubtotaal = 0
+  let offertenummer = ''
+  let offerteId = aanbet.offerte_id as string | null
+  if (offerteId) {
+    const { data: off } = await supabase.from('offertes').select('subtotaal, totaal, offertenummer').eq('id', offerteId).single()
+    if (off) { offerteSubtotaal = Number(off.subtotaal || 0); offertenummer = off.offertenummer }
+  }
+  // Geen offerte gevonden? Schat: aanbetaling = 70% ⇒ rest = 30/70 van aanbet
+  if (!offerteSubtotaal) offerteSubtotaal = Number(aanbet.subtotaal || 0) / 0.7
+
+  const restSubtotaal = Math.max(0, offerteSubtotaal - Number(aanbet.subtotaal || 0))
+  const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
+  const restTotaal = Math.round((restSubtotaal + restBtw) * 100) / 100
+
+  const { data: nummer } = await supabase.rpc('volgende_nummer', { p_administratie_id: adminId, p_type: 'factuur' })
+  const { data: nieuw, error } = await supabase.from('facturen').insert({
+    administratie_id: adminId,
+    relatie_id: aanbet.relatie_id,
+    offerte_id: offerteId,
+    order_id: aanbet.order_id,
+    factuur_type: 'restbetaling',
+    gerelateerde_factuur_id: aanbet.id,
+    factuurnummer: nummer,
+    datum: new Date().toISOString().slice(0, 10),
+    vervaldatum: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+    status: 'concept',
+    onderwerp: `Restbetaling${offertenummer ? ` — ${offertenummer}` : ''}${aanbet.onderwerp ? ` / ${aanbet.onderwerp.replace(/^Aanbetaling\s*\d+%\s*-\s*/i, '')}` : ''}`,
+    subtotaal: restSubtotaal,
+    btw_totaal: restBtw,
+    totaal: restTotaal,
+    betaald_bedrag: 0,
+  }).select('id').single()
+
+  if (error) return { error: error.message }
+
+  await supabase.from('factuur_regels').insert({
+    factuur_id: nieuw.id,
+    omschrijving: `Restbetaling${offertenummer ? ` offerte ${offertenummer}` : ` aansluitend op ${aanbet.factuurnummer}`}`,
+    aantal: 1,
+    prijs: restSubtotaal,
+    btw_percentage: 21,
+    totaal: restSubtotaal,
+    volgorde: 0,
+  })
+
+  // Link aanbetaling terug naar rest
+  await supabase.from('facturen').update({ gerelateerde_factuur_id: nieuw.id }).eq('id', aanbet.id)
+
+  revalidatePath('/facturatie')
+  revalidatePath('/facturatie/eindafrekening')
+  return { success: true, factuurId: nieuw.id }
+}
+
 // Aanbetalings-facturen waarvoor (nog) geen rest-/volledige factuur is gemaakt
 // binnen 9 maanden bij dezelfde klant. Helpt om te zien welke klanten nog een
 // eindafrekening moeten krijgen.

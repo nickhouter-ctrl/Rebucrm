@@ -1,12 +1,14 @@
 'use client'
 import { useRouter } from 'next/navigation'
+import { useState } from 'react'
 import { type ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/ui/data-table'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, FileText, Loader2 } from 'lucide-react'
+import { maakEindafrekening } from '@/lib/actions'
 
 type Aanbetaling = {
   id: string
@@ -22,6 +24,16 @@ type Aanbetaling = {
 
 export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling[] }) {
   const router = useRouter()
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  async function handleMaak(id: string) {
+    if (!confirm('Concept-restbetaling aanmaken voor deze klant?')) return
+    setBusyId(id)
+    const res = await maakEindafrekening(id)
+    setBusyId(null)
+    if (res.error) { alert(res.error); return }
+    if (res.factuurId) router.push(`/facturatie/${res.factuurId}`)
+  }
 
   const columns: ColumnDef<Aanbetaling, unknown>[] = [
     { id: 'relatie', header: 'Klant', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
@@ -35,6 +47,19 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
       cell: ({ getValue }) => formatCurrency(getValue() as number),
     },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
+    {
+      id: 'actie', header: '',
+      cell: ({ row }) => (
+        <Button
+          size="sm"
+          onClick={(e) => { e.stopPropagation(); handleMaak(row.original.id) }}
+          disabled={busyId === row.original.id}
+        >
+          {busyId === row.original.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+          Maak eindafrekening
+        </Button>
+      ),
+    },
   ]
 
   return (
