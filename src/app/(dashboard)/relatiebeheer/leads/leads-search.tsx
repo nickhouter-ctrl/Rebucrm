@@ -94,9 +94,9 @@ export function LeadsSearch() {
         title="Leads zoeken"
         description="Zoek potentiële klanten op bedrijfsnaam, branche of locatie"
         actions={
-          <Button variant="ghost" onClick={() => router.push('/relatiebeheer')}>
-            <ArrowLeft className="h-4 w-4" />
-            Terug
+          <Button variant="ghost" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+              Terug
           </Button>
         }
       />

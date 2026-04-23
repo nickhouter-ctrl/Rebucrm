@@ -167,9 +167,9 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
       <PageHeader
         title={isNew ? 'Nieuwe relatie' : 'Relatie bewerken'}
         actions={
-          <Button variant="ghost" onClick={() => router.push('/relatiebeheer')}>
-            <ArrowLeft className="h-4 w-4" />
-            Terug
+          <Button variant="ghost" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+              Terug
           </Button>
         }
       />

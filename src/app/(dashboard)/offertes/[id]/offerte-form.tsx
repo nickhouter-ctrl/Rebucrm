@@ -568,7 +568,7 @@ function EditOfferteView({
         title={`Offerte ${offerte.offertenummer} v${versieNummer}`}
         actions={
           <div className="flex gap-2 flex-wrap">
-            <Button variant="ghost" onClick={() => router.push('/offertes')}>
+            <Button variant="ghost" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

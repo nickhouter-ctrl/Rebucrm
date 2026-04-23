@@ -40,16 +40,14 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filter = searchParams.get('filter')
+  const zonderOfferte = filter === 'zonder_offerte'
   const [statusFilter, setStatusFilter] = useState('actief')
 
-  let gefilterd = statusFilter === 'alle'
-    ? projecten
-    : projecten.filter(p => p.status === statusFilter)
-
-  // Extra filter via URL: ?filter=zonder_offerte
-  if (filter === 'zonder_offerte') {
-    gefilterd = projecten.filter(p => p.status === 'actief' && p.aantal_offertes === 0)
-  }
+  const gefilterd = zonderOfferte
+    ? projecten.filter(p => p.status === 'actief' && p.aantal_offertes === 0)
+    : statusFilter === 'alle'
+      ? projecten
+      : projecten.filter(p => p.status === statusFilter)
 
   async function handleDelete(e: React.MouseEvent, project: Project) {
     e.stopPropagation()
@@ -122,24 +120,35 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
 
   return (
     <div>
-      <PageHeader title="Verkoopkansen" description="Overzicht van alle verkoopkansen" actions={<Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>} />
+      <PageHeader
+        title={zonderOfferte ? 'Verkoopkansen zonder offerte' : 'Verkoopkansen'}
+        description={zonderOfferte ? `${gefilterd.length} actieve verkoopkansen zonder offerte` : 'Overzicht van alle verkoopkansen'}
+        actions={
+          zonderOfferte ? (
+            <Button variant="ghost" onClick={() => router.push('/projecten')}>Alle verkoopkansen</Button>
+          ) : (
+            <Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>
+          )
+        }
+      />
 
-      {/* Status filter knoppen */}
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        {counts.map(f => (
-          <button
-            key={f.value}
-            onClick={() => setStatusFilter(f.value)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-              statusFilter === f.value
-                ? 'bg-primary text-white shadow-sm'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {f.label} ({f.count})
-          </button>
-        ))}
-      </div>
+      {!zonderOfferte && (
+        <div className="flex flex-wrap gap-1.5 mb-4">
+          {counts.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
+                statusFilter === f.value
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {f.label} ({f.count})
+            </button>
+          ))}
+        </div>
+      )}
 
       {gefilterd.length === 0 && projecten.length > 0 ? (
         <EmptyState icon={FolderKanban} title="Geen verkoopkansen" description={`Geen verkoopkansen met status "${statusFilters.find(f => f.value === statusFilter)?.label}".`} />

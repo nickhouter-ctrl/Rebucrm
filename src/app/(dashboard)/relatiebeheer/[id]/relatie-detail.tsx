@@ -339,7 +339,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         description={`${relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)} ${relatie.plaats ? `- ${relatie.plaats}` : ''}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.push('/relatiebeheer')}>
+            <Button variant="ghost" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

@@ -150,7 +150,7 @@ export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: T
         description={`Lead ${config.label.toLowerCase()} — ${formatDateShort(lead.created_at)}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => router.push('/leads')}>
+            <Button variant="secondary" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

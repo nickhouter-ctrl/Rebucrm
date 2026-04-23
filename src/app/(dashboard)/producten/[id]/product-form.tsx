@@ -54,9 +54,9 @@ export function ProductForm({ product }: { product: ProductData | null }) {
       <PageHeader
         title={isNew ? 'Nieuw product' : 'Product bewerken'}
         actions={
-          <Button variant="ghost" onClick={() => router.push('/producten')}>
-            <ArrowLeft className="h-4 w-4" />
-            Terug
+          <Button variant="ghost" onClick={() => router.back()}>
+              <ArrowLeft className="h-4 w-4" />
+              Terug
           </Button>
         }
       />

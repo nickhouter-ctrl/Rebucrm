@@ -81,12 +81,10 @@ export function PlanningView({ medewerkers }: { medewerkers: Medewerker[] }) {
         title="Planning"
         description="Weekoverzicht medewerkers"
         actions={
-          <Link href="/medewerkers">
-            <Button variant="secondary" size="sm">
-              <ArrowLeft className="h-4 w-4 mr-1" />
-              Terug
-            </Button>
-          </Link>
+          <Button variant="secondary" size="sm" onClick={() => window.history.back()}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Terug
+          </Button>
         }
       />
 
