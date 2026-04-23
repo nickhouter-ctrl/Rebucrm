@@ -939,13 +939,50 @@ export async function maakEindafrekening(aanbetalingId: string) {
 
   let offerteSubtotaal = 0
   let offertenummer = ''
-  let offerteId = aanbet.offerte_id as string | null
+  const offerteId = aanbet.offerte_id as string | null
   if (offerteId) {
     const { data: off } = await supabase.from('offertes').select('subtotaal, totaal, offertenummer').eq('id', offerteId).single()
     if (off) { offerteSubtotaal = Number(off.subtotaal || 0); offertenummer = off.offertenummer }
   }
-  // Geen offerte gevonden? Schat: aanbetaling = 70% ⇒ rest = 30/70 van aanbet
-  if (!offerteSubtotaal) offerteSubtotaal = Number(aanbet.subtotaal || 0) / 0.7
+  // Ook via order: als offerte niet direct gekoppeld is, haal via order.offerte_id
+  if (!offerteSubtotaal && aanbet.order_id) {
+    const { data: order } = await supabase.from('orders').select('subtotaal, offerte:offertes(subtotaal, offertenummer)').eq('id', aanbet.order_id).single()
+    if (order) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const offVia = (order.offerte as any) as { subtotaal?: number; offertenummer?: string } | null
+      if (offVia?.subtotaal) { offerteSubtotaal = Number(offVia.subtotaal); offertenummer = offVia.offertenummer || '' }
+      else if (order.subtotaal) offerteSubtotaal = Number(order.subtotaal)
+    }
+  }
+  // Fallback via verkoopkans (project): zoek de meest recente geaccepteerde
+  // offerte van dezelfde klant vóór of rond de aanbetalingsdatum.
+  if (!offerteSubtotaal && aanbet.relatie_id) {
+    const windowDate = new Date(aanbet.datum || new Date())
+    const startDate = new Date(windowDate); startDate.setMonth(startDate.getMonth() - 3)
+    const endDate = new Date(windowDate); endDate.setDate(endDate.getDate() + 7)
+    const { data: kandidaatOff } = await supabase
+      .from('offertes')
+      .select('id, subtotaal, offertenummer, datum, project_id, status')
+      .eq('administratie_id', adminId)
+      .eq('relatie_id', aanbet.relatie_id)
+      .gte('datum', startDate.toISOString().slice(0, 10))
+      .lte('datum', endDate.toISOString().slice(0, 10))
+      .in('status', ['geaccepteerd', 'verzonden'])
+      .order('datum', { ascending: false })
+      .limit(1)
+    if (kandidaatOff?.[0]?.subtotaal) {
+      offerteSubtotaal = Number(kandidaatOff[0].subtotaal)
+      offertenummer = kandidaatOff[0].offertenummer
+    }
+  }
+  // Fallback: parse het aanbetaal-percentage uit het onderwerp ("Aanbetaling 70%"
+  // of "Aanbetaling 50%") en reken terug naar het offerte-totaal.
+  if (!offerteSubtotaal) {
+    const pctMatch = (aanbet.onderwerp || '').match(/(\d{1,3})\s*%/)
+    const pct = pctMatch ? parseInt(pctMatch[1]) : 70
+    const safePct = Math.min(Math.max(pct, 10), 95)
+    offerteSubtotaal = Number(aanbet.subtotaal || 0) / (safePct / 100)
+  }
 
   const restSubtotaal = Math.max(0, offerteSubtotaal - Number(aanbet.subtotaal || 0))
   const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
