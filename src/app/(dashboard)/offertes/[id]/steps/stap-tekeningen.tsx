@@ -175,7 +175,7 @@ export function StapTekeningen({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pageTextRaw = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
         // Strip control chars die sommige leveranciers tussen letters plaatsen
-        const pageText = pageTextRaw.replace(/[ --]/g, '')
+        const pageText = pageTextRaw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
         let headerMatch = pageText.match(elementHeaderPattern)
         const gealanNLMatch = !headerMatch ? pageText.match(gealanNLHeaderPattern) : null
         // Schüco encoded fallback: detecteer "1IVO%" (Merk A) → normaliseer naar "Merk A"
@@ -186,7 +186,7 @@ export function StapTekeningen({
             headerMatch = ['Merk ' + letter] as unknown as RegExpMatchArray
           }
         }
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|%%2>-',8&9-8/i.test(pageText)
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|%%2>-',8|1IVO\s*[%&'()*+,\-.]/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         let elementNaam: string | null = null
         if (headerMatch) {
