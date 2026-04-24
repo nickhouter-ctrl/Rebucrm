@@ -346,12 +346,15 @@ export function StapTekeningen({
           }
         }
 
-        // Detecteer blauwe/paarse Totalen-balken (Aluplast/Eko-Okna). Zelfde
-        // logica als groene balk maar voor lichtblauw (r≈220 g≈220 b≈250).
-        // Wis de balk + 80px eronder zodat ook de smalle gekleurde kolommetjes
-        // onder de Totalen-balk verdwijnen. Beperk tot onderste helft van pagina.
+        // Detecteer blauwe/paarse Totalen-balken (Aluplast/Eko-Okna).
+        // SKIP voor Schüco — daar heeft de 'Beschrijving | Kleur' specs-tabel
+        // header ook een lichtblauwe achtergrond die anders als Totalen-balk
+        // zou worden gedetecteerd en de hele specs-rij zou wegwissen.
+        const isSchucoPageEarly = /1IVO\s*[%&'()*+,\-.]|Sch[¿u]co|Brutopr|&VYXSTV/i.test(
+          textItems.map((t: { str: string }) => t.str).join(' ')
+        )
         const blueBarRows: boolean[] = new Array(h).fill(false)
-        for (let y = Math.floor(h * 0.4); y < h; y++) {
+        if (!isSchucoPageEarly) for (let y = Math.floor(h * 0.4); y < h; y++) {
           let blueCount = 0
           for (let x = 0; x < w; x += 2) {
             const idx = (y * w + x) * 4
@@ -492,11 +495,12 @@ export function StapTekeningen({
           }
         }
         if (brutoprItem) {
-          // Beperk tot 160px hoogte — de tabel heeft header + 2 regels + Totaal.
-          // Wis ook 140px naar LINKS van de kolom om de labels (Raam/Totaal) te dekken.
-          const wipeLeft = Math.max(0, brutoprItem.cx - 160)
-          const wipeTop = Math.max(0, brutoprItem.cy - 20)
-          const wipeH = 160
+          // Beperk tot 220px hoogte — de tabel heeft header + 2 regels + Totaal.
+          // Wis ook 220px naar LINKS van de kolom om de Raam/Totaal-labels én
+          // alle kolom-randen te dekken.
+          const wipeLeft = Math.max(0, brutoprItem.cx - 220)
+          const wipeTop = Math.max(0, brutoprItem.cy - 22)
+          const wipeH = 220
           ctx.fillStyle = '#FFFFFF'
           ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, wipeH)
         }
