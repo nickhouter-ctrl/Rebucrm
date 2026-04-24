@@ -484,8 +484,10 @@ export function StapTekeningen({
         // Schüco prijs-tabel ("Brutopr. Korting Netto prijs" + "Raam …" +
         // "Totaal …") — tolerant voor zowel normale als encoded tekst
         // (&VYXSTV = 'Brutopr' in Schüco-font). Wis alleen die tabel, NIET
-        // de specs eronder/erboven.
-        const brutoprItem = textItems.find((ti: { str: string }) => /^(Brutopr\.?|&VYXSTV\.?)$/i.test(ti.str))
+        // de specs eronder/erboven. Er kunnen MEERDERE zijn: de per-element
+        // tabel bovenaan + de globale Totalen-tabel op de laatste pagina.
+        const brutoprItems = textItems.filter((ti: { str: string }) => /^(Brutopr\.?|&VYXSTV\.?)$/i.test(ti.str))
+        const brutoprItem = brutoprItems[0]
         for (const ti of textItems) {
           if (ti.cy > h * 0.40 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
@@ -494,15 +496,24 @@ export function StapTekeningen({
             ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
           }
         }
-        if (brutoprItem) {
-          // Beperk tot 220px hoogte — de tabel heeft header + 2 regels + Totaal.
-          // Wis ook 220px naar LINKS van de kolom om de Raam/Totaal-labels én
-          // alle kolom-randen te dekken.
-          const wipeLeft = Math.max(0, brutoprItem.cx - 220)
-          const wipeTop = Math.max(0, brutoprItem.cy - 22)
+        // Wis ELK Brutopr-blok (per-element én de globale Totalen onderaan
+        // de laatste pagina, die alleen "Brutopr. / Netto totaal / Totaal /
+        // Korting: / BTW" bevat).
+        for (const bp of brutoprItems) {
+          const wipeLeft = Math.max(0, bp.cx - 220)
+          const wipeTop = Math.max(0, bp.cy - 22)
           const wipeH = 220
           ctx.fillStyle = '#FFFFFF'
           ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, wipeH)
+        }
+        // Extra: "Korting:" standalone (bij Totalen-tabel onderaan laatste
+        // pagina) — wis 200px breed × 120px hoog rondom.
+        const kortingItem = textItems.find((ti: { str: string }) => /^Korting:?$/i.test(ti.str))
+        if (kortingItem) {
+          const wipeLeft = Math.max(0, kortingItem.cx - 120)
+          const wipeTop = Math.max(0, kortingItem.cy - 22)
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, 140)
         }
 
         // AI VISION: vraag Claude welke regio's we WIT moeten maken (prijzen +
