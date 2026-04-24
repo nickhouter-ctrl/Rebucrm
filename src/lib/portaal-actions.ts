@@ -26,7 +26,6 @@ async function zorgVoorBetaallinkAdmin(factuurId: string, sb: any): Promise<stri
       description: `Factuur ${f.factuurnummer}`,
       redirectUrl: `${appUrl}/betaling/succes`,
       webhookUrl: `${appUrl}/api/mollie/webhook`,
-      metadata: { factuurId: f.id },
     })
     await sb.from('facturen').update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl }).eq('id', f.id)
     return payment.checkoutUrl
@@ -666,7 +665,6 @@ async function autoFacturerenNaAcceptatie(
       description: `Factuur ${factuurVolledig.factuurnummer}`,
       redirectUrl: `${appUrl}/betaling/succes`,
       webhookUrl: `${appUrl}/api/mollie/webhook`,
-      metadata: { factuurId: factuurIdToSend },
     })
 
     betaalLink = payment.checkoutUrl || null

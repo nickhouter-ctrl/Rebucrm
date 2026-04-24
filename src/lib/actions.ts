@@ -1417,7 +1417,6 @@ export async function getFactuurEmailDefaults(factuurId: string) {
         description: `Factuur ${factuur.factuurnummer}`,
         redirectUrl: `${appUrl}/betaling/succes`,
         webhookUrl: `${appUrl}/api/mollie/webhook`,
-        metadata: { factuurId },
       })
       betaalLink = payment.checkoutUrl
       await supabase
@@ -1503,7 +1502,6 @@ export async function sendFactuurEmail(factuurId: string, options: {
         description: `Factuur ${factuur.factuurnummer}`,
         redirectUrl: `${appUrl}/betaling/succes`,
         webhookUrl: `${appUrl}/api/mollie/webhook`,
-        metadata: { factuurId },
       })
       betaalLink = payment.checkoutUrl
       await supabase
@@ -1515,8 +1513,14 @@ export async function sendFactuurEmail(factuurId: string, options: {
     }
   }
 
-  // CTA knop: betaallink als die bestaat, anders geen knop
-  const ctaLink = betaalLink || undefined
+  // CTA knop: permanente Rebu-URL die bij klikken de actuele Mollie-link
+  // ophaalt (of een verse genereert als de huidige verlopen is). Zo blijft
+  // de mail-link altijd werken, ook weken later.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const publiekToken = (factuur as { publiek_token?: string | null }).publiek_token
+  const ctaLink = betaalLink && publiekToken
+    ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
+    : (betaalLink || undefined)
   const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
   const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
 
@@ -2014,7 +2018,6 @@ export async function zorgVoorBetaallink(factuurId: string): Promise<string | nu
       description: `Factuur ${factuur.factuurnummer}`,
       redirectUrl: `${appUrl}/betaling/succes`,
       webhookUrl: `${appUrl}/api/mollie/webhook`,
-      metadata: { factuurId: factuur.id as string },
     })
     await supabaseAdmin
       .from('facturen')
