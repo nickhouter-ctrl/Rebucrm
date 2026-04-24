@@ -1738,12 +1738,25 @@ export async function pushFactuurToSnelStart(factuurId: string) {
 
   if (!relatie) return { error: 'Factuur heeft geen relatie' }
 
-  const { findRelatieByEmail, findRelatieByNaam, createRelatie, createVerkoopboeking } = await import('@/lib/snelstart')
+  const { findRelatieByEmail, findRelatieByNaam, createRelatie, createVerkoopboeking, findVerkoopboekingByFactuurnummer, ensureRelatieIsKlant } = await import('@/lib/snelstart')
+
+  // 0. Eerst checken of factuurnummer al bestaat in SnelStart (bv. handmatig
+  //    aangemaakt of via een eerdere gefaalde push die toch doorging) —
+  //    dan alleen lokaal koppelen, niet opnieuw pushen.
+  try {
+    const bestaande = await findVerkoopboekingByFactuurnummer(factuur.factuurnummer)
+    if (bestaande) {
+      await supabaseAdmin
+        .from('facturen')
+        .update({ snelstart_boeking_id: bestaande.id, snelstart_synced_at: new Date().toISOString() })
+        .eq('id', factuurId)
+      return { success: true, boekingId: bestaande.id, alreadyInSnelStart: true }
+    }
+  } catch { /* proceed — search mag geen blocker zijn */ }
 
   // 1. Relatie opzoeken of aanmaken in SnelStart (alleen als nog niet gekoppeld)
   let snelstartRelatieId = relatie.snelstart_relatie_id
   if (!snelstartRelatieId) {
-    // Probeer bestaande SnelStart relatie te matchen op email of naam
     let existing = null
     if (relatie.email) existing = await findRelatieByEmail(relatie.email)
     if (!existing) existing = await findRelatieByNaam(relatie.bedrijfsnaam)
@@ -1769,6 +1782,12 @@ export async function pushFactuurToSnelStart(factuurId: string) {
       .from('relaties')
       .update({ snelstart_relatie_id: snelstartRelatieId, snelstart_synced_at: new Date().toISOString() })
       .eq('id', relatie.id)
+  }
+
+  // 1b. Zorg dat de gekoppelde SnelStart-relatie een Klant is (anders faalt
+  //     de verkoopboeking met "De opgegeven relatie is geen klant").
+  try { await ensureRelatieIsKlant(snelstartRelatieId!) } catch (err) {
+    console.warn('ensureRelatieIsKlant faalde:', err)
   }
 
   // 2. Verkoopboeking aanmaken

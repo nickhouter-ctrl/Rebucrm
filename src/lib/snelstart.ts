@@ -119,18 +119,55 @@ async function getAllSnelStartRelaties(): Promise<SnelStartRelatie[]> {
   return all
 }
 
+function isKlant(r: SnelStartRelatie): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const soort = (r as any).relatiesoort
+  if (Array.isArray(soort)) return soort.includes('Klant')
+  if (typeof soort === 'string') return soort === 'Klant'
+  return false
+}
+
 export async function findRelatieByEmail(email: string): Promise<SnelStartRelatie | null> {
   if (!email) return null
   const target = email.toLowerCase().trim()
   const all = await getAllSnelStartRelaties()
-  return all.find(r => (r.email || '').toLowerCase().trim() === target) || null
+  const matches = all.filter(r => (r.email || '').toLowerCase().trim() === target)
+  // Voorkeur voor klant-type; anders eerste match die we dan upgraden
+  return matches.find(isKlant) || matches[0] || null
 }
 
 export async function findRelatieByNaam(naam: string): Promise<SnelStartRelatie | null> {
   if (!naam) return null
   const target = naam.toLowerCase().trim()
   const all = await getAllSnelStartRelaties()
-  return all.find(r => (r.naam || '').toLowerCase().trim() === target) || null
+  const matches = all.filter(r => (r.naam || '').toLowerCase().trim() === target)
+  return matches.find(isKlant) || matches[0] || null
+}
+
+/** Voegt 'Klant' toe aan een bestaande SnelStart-relatie als die het nog niet is. */
+export async function ensureRelatieIsKlant(relatieId: string): Promise<void> {
+  const existing = await snelstartFetch<SnelStartRelatie>(`/relaties/${relatieId}`)
+  if (isKlant(existing)) return
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const huidigeSoorten = Array.isArray((existing as any).relatiesoort) ? (existing as any).relatiesoort as string[] : []
+  const nieuweSoorten = [...new Set([...huidigeSoorten, 'Klant'])]
+  await snelstartFetch(`/relaties/${relatieId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ ...existing, relatiesoort: nieuweSoorten }),
+  })
+}
+
+/** Zoekt een bestaande verkoopboeking op factuurnummer, zodat we 'bestaat al'
+ *  kunnen detecteren en alleen lokaal de koppeling hoeven te leggen. */
+export async function findVerkoopboekingByFactuurnummer(factuurnummer: string): Promise<{ id: string } | null> {
+  if (!factuurnummer) return null
+  try {
+    const encoded = `factuurnummer eq '${factuurnummer.replace(/'/g, "''")}'`
+    const res = await snelstartFetch<{ id: string }[]>(`/verkoopboekingen?$filter=${encodeURIComponent(encoded)}&$top=1`)
+    return Array.isArray(res) && res.length > 0 ? res[0] : null
+  } catch {
+    return null
+  }
 }
 
 export async function createRelatie(input: {
