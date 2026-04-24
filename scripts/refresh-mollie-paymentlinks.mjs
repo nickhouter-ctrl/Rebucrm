@@ -1,5 +1,6 @@
 import { createSupabaseAdmin } from './db.mjs'
-import createMollieClient from '@mollie/api-client'
+import mollieModule from '@mollie/api-client'
+const createMollieClient = mollieModule.default || mollieModule
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -66,7 +67,6 @@ for (const f of (facturen || [])) {
       redirectUrl: `${appUrl}/betaling/succes`,
       webhookUrl: `${appUrl}/api/mollie/webhook`,
       expiresAt: addDays(30),
-      metadata: { factuurId: f.id },
     })
     const paymentUrl = typeof link.getPaymentUrl === 'function' ? link.getPaymentUrl() : (link._links?.paymentLink?.href || link.paymentLink?.href)
     await sb

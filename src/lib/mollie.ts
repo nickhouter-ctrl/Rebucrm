@@ -34,6 +34,8 @@ export async function createMolliePayment(options: {
     .toISOString()
     .replace(/\.\d{3}Z$/, 'Z')
 
+  // NB: Mollie Payment Links accepteert geen `metadata` parameter — we
+  // koppelen facturen terug via de mollie_payment_id-kolom in onze DB.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const link: any = await (mollie as any).paymentLinks.create({
     amount: {
@@ -44,7 +46,6 @@ export async function createMolliePayment(options: {
     redirectUrl: options.redirectUrl,
     webhookUrl: options.webhookUrl,
     expiresAt,
-    metadata: options.metadata,
   })
 
   const paymentUrl = (typeof link.getPaymentUrl === 'function' ? link.getPaymentUrl() : null)
