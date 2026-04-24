@@ -587,8 +587,8 @@ export async function getArchiefFacturen() {
 // Projecten waarvan alle facturen zijn betaald (of credit-facturen erna zijn
 // gecompenseerd) worden automatisch op 'afgerond' gezet. Zo verdwijnen ze uit
 // de actieve verkoopkansen-lijst en duiken op in het archief.
-export async function autoArchiveerAfgerondeVerkoopkansen() {
-  const adminId = await getAdministratieId()
+export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: string) {
+  const adminId = administratieId || await getAdministratieId()
   if (!adminId) return { gearchiveerd: 0 }
   const supabase = createAdminClient()
   const { data: projecten } = await supabase
@@ -1911,6 +1911,25 @@ export async function syncSnelstartBetalingen() {
       else if (nieuweStatus === 'deels_betaald') deelsBetaaldNieuw++
       else if (nieuweStatus === 'vervallen') vervallenNieuw++
     }
+
+    // Bij transitie verzonden/deels_betaald → betaald: stuur betalingsbevestiging
+    // naar de klant. De helper is idempotent via betalingsbevestiging_verzonden_op
+    // zodat een volgende sync dezelfde factuur niet opnieuw mailt.
+    if (statusChanged && nieuweStatus === 'betaald' && f.status !== 'betaald') {
+      try {
+        const { sendBetalingsbevestiging } = await import('@/lib/betaling-bevestiging')
+        await sendBetalingsbevestiging(f.id)
+      } catch (err) {
+        console.warn('Betalingsbevestiging-mail na SnelStart sync mislukt:', err)
+      }
+    }
+  }
+
+  // Auto-archiveer verkoopkansen waar alle facturen betaald zijn
+  try {
+    await autoArchiveerAfgerondeVerkoopkansen()
+  } catch (err) {
+    console.warn('Auto-archivering na SnelStart sync mislukt:', err)
   }
 
   // Push CRM facturen die in SnelStart ontbreken (orphans) — zodat CRM én SS hetzelfde tonen.
