@@ -38,6 +38,10 @@ export async function updateSession(request: NextRequest) {
     request.nextUrl.pathname.startsWith(path)
   ) || request.nextUrl.pathname.match(/^\/offerte\/[^/]+$/)
   const isPortaalPath = request.nextUrl.pathname.startsWith('/portaal')
+  // API routes NOOIT redirecten — ze hebben hun eigen auth en moeten ook
+  // voor ingelogde admins normaal kunnen worden aangeroepen (bv. de
+  // betaal-redirect in een factuurmail die een admin tegenkomt).
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
@@ -57,7 +61,7 @@ export async function updateSession(request: NextRequest) {
 
     if (isKlant) {
       // Klant mag alleen /portaal/* bezoeken
-      if (!isPortaalPath && !isPublicPath) {
+      if (!isPortaalPath && !isPublicPath && !isApiRoute) {
         const url = request.nextUrl.clone()
         url.pathname = '/portaal'
         return NextResponse.redirect(url)
@@ -69,8 +73,10 @@ export async function updateSession(request: NextRequest) {
         url.pathname = '/'
         return NextResponse.redirect(url)
       }
-      // Bestaand gedrag: redirect weg van public paths (maar niet /offerte/ links)
-      if (isPublicPath && !request.nextUrl.pathname.startsWith('/offerte/')) {
+      // Bestaand gedrag: redirect weg van /login/registreren — maar NIET
+      // voor /api/* routes (die moeten gewoon hun werk doen) en niet voor
+      // /offerte/[token] publieke links.
+      if (isPublicPath && !isApiRoute && !request.nextUrl.pathname.startsWith('/offerte/')) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
         return NextResponse.redirect(url)
