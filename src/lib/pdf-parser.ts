@@ -42,10 +42,17 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // Gealan S9000NL / Hef-schuif: locatie-gebaseerde element namen (Zolder voorzijde li ...),
   // per-element sectie start met "Productie maten", prijzen in "Netto prijs / Raam / Totaal" tabel.
   const isGealanNL = !isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
-  const isGealan = !isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text)
+  const isGealan = !isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text)
+  // Schüco: "Merk A Aantal stuks:N Verbinding: :45 Systeem: Schüco Slide/Verdiept"
+  // Layout sterk vergelijkbaar met Gealan maar gebruikt "Aantal stuks" en "Brutopr. / Korting / Netto prijs" tabel.
+  // Detect tolerant op encoding (pdfjs kan "Schüco" als "Sch¿co" renderen).
+  const isSchuco = !isAluplast && !isGealanNL && !isGealan && (
+    /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
+    /Sch[üu¿\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(text)
+  )
   // Kochs: K-Vision (oud) of Primus MD + Premidoor (nieuw)
-  const isKochs = !isGealan && !isGealanNL && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text))
-  const isEkoOkna = !isGealan && !isGealanNL && !isKochs && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
+  const isKochs = !isGealan && !isGealanNL && !isSchuco && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text))
+  const isEkoOkna = !isGealan && !isGealanNL && !isKochs && !isSchuco && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
 
   // Extract totaal
   let totaal = 0
@@ -57,6 +64,16 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     }
   } else if (isGealan) {
     const totaalMatch = text.match(/Netto\s*totaal[\s\n]*Totaal\s*([\d.,]+)/)
+    if (totaalMatch) {
+      totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
+    }
+  } else if (isSchuco) {
+    // Schüco netto totaal (excl BTW): "Netto totaal 7.510,44" op laatste
+    // pagina, OF "Totaal 7.510,44" boven "Korting". We willen nooit de
+    // BTW-inclusieve "Totaal BTW inb." regel.
+    const m1 = text.match(/Netto\s*totaal[\s\n]*([\d.,]+)/i)
+    const m2 = !m1 ? text.match(/Totaal\s+([\d.,]+)[\s\n]+Korting/i) : null
+    const totaalMatch = m1 || m2
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
@@ -149,6 +166,30 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
         naam: 'Merk ' + match[1],
         hoeveelheid: parseInt(match[2]),
         systeem: match[3].trim().replace(/\n/g, ' '),
+        kleur: kleurMatch ? kleurMatch[1].trim() : '',
+        idx: match.index,
+        endIdx: match.index + match[0].length,
+      })
+    }
+  } else if (isSchuco) {
+    // Schüco header: "Merk A Aantal stuks:1 Verbinding: :45 Systeem: Schüco Slide"
+    // Systeem-naam kan over meerdere regels breken (bv. "Schüco\nVerdiept 15°").
+    // Encoding tolerance: "Sch¿co" of "Schüco" beide toegestaan.
+    const elementPattern = /Merk\s+([A-Z])\s+Aantal\s*stuks\s*:\s*(\d+)\s+Verbinding\s*:\s*:?\s*(\w+)\s+Systeem\s*:\s*([^\n]+(?:\n[^\n\d][^\n]*)?)/gi
+    while ((match = elementPattern.exec(text)) !== null) {
+      const nextPat = /Merk\s+[A-Z]\s+Aantal\s*stuks\s*:/gi
+      nextPat.lastIndex = match.index + match[0].length
+      const next = nextPat.exec(text)
+      const sectionEnd = next ? next.index : text.length
+      const section = text.substring(match.index, sectionEnd)
+      // Kleur ligt bij 'Kader' / eerste 'GLAD' voorkomen
+      const kleurMatch = section.match(/Kader[\s\S]{0,200}?(\d{4}\s*GLAD|\d{4}\s*\w+)/i)
+      // Afmeting: laatste "XXX x YYY" in de tekening-sectie, of "breedte\nhoogte"
+      headers.push({
+        naam: 'Merk ' + match[1].toUpperCase(),
+        hoeveelheid: parseInt(match[2]) || 1,
+        // Vervang "¿" (encoding) door "ü" zodat naam netjes is
+        systeem: match[4].replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/Sch[¿u]co/gi, 'Schüco').trim(),
         kleur: kleurMatch ? kleurMatch[1].trim() : '',
         idx: match.index,
         endIdx: match.index + match[0].length,
@@ -280,8 +321,8 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     let notesText: string
     let searchText: string
 
-    if (isGealan || isGealanNL) {
-      // In Gealan, all specs come AFTER the header (like Eko-Okna)
+    if (isGealan || isGealanNL || isSchuco) {
+      // Specs komen AFTER de header (zelfde als Gealan)
       const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
       searchText = text.substring(header.endIdx, nextIdx)
       specsText = searchText
@@ -324,6 +365,22 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       const gealanPriceMatch = searchText.match(/Netto\s*prijs[\s\n]+\w+?\s*([\d.,]+)/)
       if (gealanPriceMatch) {
         prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
+      }
+    } else if (isSchuco) {
+      // Schüco prijs-tabel per element:
+      //   Brutopr.  Korting   Netto prijs
+      //   Raam  4.165,92  0,00%  0,00
+      //                                4.165,92
+      //   Totaal  4.165,92  4.165,92
+      // In de tekst wordt "Raam" gevolgd door: bruto, korting%, korting€, netto.
+      // Het laatste getal is per-stuk netto prijs.
+      const m = searchText.match(/Raam[\s\n]+([\d.,]+)[\s\n]+[\d.,]+\s*%[\s\n]+[\d.,]+[\s\n]+([\d.,]+)/)
+      if (m) {
+        prijs = parseFloat(m[2].replace(/\./g, '').replace(',', '.'))
+      } else {
+        // Fallback: zoek "Totaal <x> <x>" waar beide getallen gelijk zijn
+        const tm = searchText.match(/Totaal[\s\n]+([\d.,]+)[\s\n]+([\d.,]+)/)
+        if (tm) prijs = parseFloat(tm[2].replace(/\./g, '').replace(',', '.'))
       }
     } else if (isKochs) {
       // K-Vision price format (from actual PDF text extraction):
