@@ -4152,7 +4152,7 @@ export async function getRelatieDetail(id: string) {
     supabase.from('relaties').select('*').eq('id', id).single(),
     supabase.from('offertes').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
     supabase.from('facturen').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
-    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, totaal, facturen:facturen(id, factuur_type, status))').eq('relatie_id', id).order('created_at', { ascending: false }),
+    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, facturen:facturen(id, factuur_type, status))').eq('relatie_id', id).order('created_at', { ascending: false }),
   ])
 
   const relatie = relatieRes.data
@@ -4535,8 +4535,15 @@ export async function sendOfferteEmail(offerteId: string, options: {
 
   // Log email in email_log
   const { data: { user } } = await supabase.auth.getUser()
-  const bijlagenMeta = attachments.map(a => ({ filename: a.filename }))
-  await supabaseAdmin.from('email_log').insert({
+  // Auto-gegenereerde bijlagen (Offerte PDF + Tekeningen PDF) krijgen alleen
+  // filename; die kunnen we altijd on-the-fly regenereren via /api/pdf/offerte/[id].
+  // User-uploads uit extraBijlagen archiveren we in storage zodat ze later
+  // terug te halen zijn via getEmailBijlageUrl.
+  const bijlagenMeta: { filename: string; storage_path?: string; kind: 'offerte_pdf' | 'tekeningen_pdf' | 'upload' }[] = attachments.map(a => ({
+    filename: a.filename,
+    kind: a.filename.startsWith('Offerte-') ? 'offerte_pdf' : a.filename.startsWith('Tekeningen-') ? 'tekeningen_pdf' : 'upload',
+  }))
+  const { data: emailLogRow } = await supabaseAdmin.from('email_log').insert({
     administratie_id: offerte.administratie_id,
     offerte_id: offerteId,
     relatie_id: offerte.relatie_id,
@@ -4545,7 +4552,27 @@ export async function sendOfferteEmail(offerteId: string, options: {
     body_html: emailHtml,
     bijlagen: bijlagenMeta,
     verstuurd_door: user?.id || null,
-  })
+  }).select('id').single()
+
+  // Archiveer user-upload bijlagen in storage zodat ze klikbaar blijven
+  if (emailLogRow?.id && options.extraBijlagen && options.extraBijlagen.length > 0) {
+    const updatedBijlagen = [...bijlagenMeta]
+    for (const bij of options.extraBijlagen) {
+      const idx = updatedBijlagen.findIndex(b => b.filename === bij.filename && b.kind === 'upload' && !b.storage_path)
+      if (idx < 0) continue
+      const safeName = bij.filename.replace(/[^\w.\-]/g, '_')
+      const path = `${emailLogRow.id}/${safeName}`
+      const { error: upErr } = await supabaseAdmin.storage
+        .from('email-bijlagen')
+        .upload(path, Buffer.from(bij.content, 'base64'), {
+          contentType: bij.filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+          upsert: true,
+        })
+      if (!upErr) updatedBijlagen[idx] = { ...updatedBijlagen[idx], storage_path: path }
+      else console.warn('bijlage upload failed:', bij.filename, upErr.message)
+    }
+    await supabaseAdmin.from('email_log').update({ bijlagen: updatedBijlagen }).eq('id', emailLogRow.id)
+  }
 
   // Auto-taak: "Offerte opvolgen" na 3 werkdagen
   try {

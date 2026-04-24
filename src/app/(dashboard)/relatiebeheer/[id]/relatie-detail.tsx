@@ -42,6 +42,7 @@ interface Offerte {
   offertenummer: string
   datum: string
   status: string
+  subtotaal: number
   totaal: number
   onderwerp: string | null
   versie_nummer: number | null
@@ -85,6 +86,7 @@ interface ProjectWithOffertes {
     versie_nummer: number | null
     datum: string
     status: string
+    subtotaal: number
     totaal: number
     facturen?: { id: string; factuur_type: string; status: string }[]
   }[]
@@ -838,7 +840,8 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
               const laatsteOfferte = sortedOffertes[0]
               const oudereVersies = sortedOffertes.slice(1)
-              const geoffreerd = laatsteOfferte?.totaal || 0
+              // Excl BTW — subtotaal is het bedrag exclusief BTW
+              const geoffreerd = laatsteOfferte?.subtotaal || 0
               const allFacturen = sortedOffertes.flatMap(o => o.facturen || [])
               const heeftOffertes = sortedOffertes.length > 0
               const heeftGeaccepteerd = sortedOffertes.some(o => o.status === 'geaccepteerd')
@@ -907,7 +910,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                             </td>
                             <td className="px-6 py-2.5 text-sm text-gray-600">{formatDateShort(laatsteOfferte.datum)}</td>
                             <td className="px-6 py-2.5"><Badge status={laatsteOfferte.status} /></td>
-                            <td className="px-6 py-2.5 text-sm text-right font-medium">{formatCurrency(laatsteOfferte.totaal)}</td>
+                            <td className="px-6 py-2.5 text-sm text-right font-medium">{formatCurrency(laatsteOfferte.subtotaal)}</td>
                           </tr>
                           {oudereVersies.length > 0 && (
                             <tr>
@@ -944,7 +947,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                               </td>
                               <td className="px-6 py-2.5 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
                               <td className="px-6 py-2.5"><Badge status={o.status} /></td>
-                              <td className="px-6 py-2.5 text-sm text-right font-medium text-gray-400">{formatCurrency(o.totaal)}</td>
+                              <td className="px-6 py-2.5 text-sm text-right font-medium text-gray-400">{formatCurrency(o.subtotaal)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1073,7 +1076,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                       <td className="px-6 py-3 text-sm text-gray-600">{formatDateShort(o.datum)}</td>
                       <td className="px-6 py-3 text-sm text-gray-600">{o.onderwerp || '-'}</td>
                       <td className="px-6 py-3"><Badge status={o.status} /></td>
-                      <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(o.totaal)}</td>
+                      <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(o.subtotaal)}</td>
                       <td className="px-6 py-3 text-right" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <a href={`/api/pdf/offerte/${o.id}`} target="_blank" rel="noopener noreferrer" title="PDF met prijzen">
