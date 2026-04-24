@@ -1474,25 +1474,19 @@ export async function hermailAlleOpenstaandeFacturen(overrideAdminId?: string) {
   if (!adminId) return { error: 'Niet ingelogd' }
   const sb = createAdminClient()
 
+  // Alleen facturen die eerder via dit systeem zijn verstuurd — herkenbaar
+  // aan mollie_payment_id (dat wordt alleen gevuld door sendFactuurEmail).
+  // Tribe-imports staan óók op status 'verzonden' maar hebben geen Mollie-id;
+  // die willen we niet alsnog in de klant-inbox droppen.
   const { data: facturen } = await sb
     .from('facturen')
     .select('id, factuurnummer, totaal, betaald_bedrag')
     .eq('administratie_id', adminId)
     .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
+    .not('mollie_payment_id', 'is', null)
     .order('factuurnummer')
 
   if (!facturen || facturen.length === 0) return { verzonden: 0, overgeslagen: 0, fouten: [] }
-
-  // Check welke facturen eerder al via dit systeem zijn gemaild (email_log).
-  // Facturen zonder eerder verstuurde mail (bv uit Tribe-import) slaan we over
-  // zodat we geen nooit-verzonden facturen alsnog in de inbox van een klant
-  // droppen.
-  const { data: logs } = await sb
-    .from('email_log')
-    .select('factuur_id')
-    .eq('administratie_id', adminId)
-    .not('factuur_id', 'is', null)
-  const eerderGemaildIds = new Set((logs || []).map(l => l.factuur_id as string))
 
   let verzonden = 0
   let overgeslagen = 0
@@ -1501,7 +1495,6 @@ export async function hermailAlleOpenstaandeFacturen(overrideAdminId?: string) {
   for (const f of facturen) {
     const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
     if (openstaand <= 0.01) { overgeslagen++; continue }
-    if (!eerderGemaildIds.has(f.id)) { overgeslagen++; continue }
     try {
       const defaults = await getFactuurEmailDefaults(f.id)
       if (defaults.error || !defaults.to) {
