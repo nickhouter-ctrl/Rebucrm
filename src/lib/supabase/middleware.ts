@@ -73,10 +73,43 @@ export async function updateSession(request: NextRequest) {
         url.pathname = '/'
         return NextResponse.redirect(url)
       }
+
+      // 2FA-check + inactiviteit uitlog (geldt alleen voor medewerkers, niet
+      // voor API-routes of /login). Medewerker moet elke 3 dagen opnieuw
+      // een 2FA code uit z'n mail invoeren. Ook als de tfa_verified cookie
+      // mist, of de last_activity meer dan 3 dagen oud is.
+      const isLoginPath = request.nextUrl.pathname.startsWith('/login')
+      if (!isApiRoute && !isLoginPath && !isPublicPath) {
+        const tfaCookie = request.cookies.get('tfa_verified')?.value
+        const activityCookie = request.cookies.get('last_activity')?.value
+        const INACTIEF_MS = 3 * 24 * 60 * 60 * 1000
+        const tfaOk = tfaCookie === user.id
+        const activityMs = activityCookie ? parseInt(activityCookie) : 0
+        const recent = activityMs > 0 && (Date.now() - activityMs) < INACTIEF_MS
+        if (!tfaOk || !recent) {
+          // Sessie verlopen door inactiviteit of geen 2FA → uitloggen en naar /login
+          await supabase.auth.signOut()
+          const url = request.nextUrl.clone()
+          url.pathname = '/login'
+          url.searchParams.set('reason', !tfaOk ? 'tfa_required' : 'inactief')
+          const redirectResponse = NextResponse.redirect(url)
+          redirectResponse.cookies.delete('tfa_verified')
+          redirectResponse.cookies.delete('last_activity')
+          return redirectResponse
+        }
+        // Activity bijwerken zodat de timer opnieuw begint bij elk verzoek
+        supabaseResponse.cookies.set('last_activity', String(Date.now()), {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 60 * 60 * 24 * 30,
+        })
+      }
+
       // Bestaand gedrag: redirect weg van /login/registreren — maar NIET
-      // voor /api/* routes (die moeten gewoon hun werk doen) en niet voor
-      // /offerte/[token] publieke links.
-      if (isPublicPath && !isApiRoute && !request.nextUrl.pathname.startsWith('/offerte/')) {
+      // voor /api/* routes en niet voor /offerte/[token] publieke links.
+      if (isPublicPath && !isApiRoute && !request.nextUrl.pathname.startsWith('/offerte/') && !isLoginPath) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
         return NextResponse.redirect(url)
