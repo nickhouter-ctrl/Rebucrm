@@ -1,50 +1,40 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useNavHistory } from './nav-history-provider'
 
 /**
- * Na opslaan/verwijderen navigeert deze hook terug naar de pagina waar de
- * gebruiker vandaan kwam. Werkt via een globale NavHistoryProvider die een
- * stack van niet-form URLs bijhoudt (document.referrer is onbetrouwbaar bij
- * Next.js client-side navigatie, en sessionStorage leidde tot stale data
- * tussen verschillende nieuwe entities).
+ * Na opslaan/verwijderen navigeert deze hook naar de meest recente
+ * niet-form URL uit de globale NavHistoryProvider stack (sessionStorage).
  *
- * Bij mount snapshotten we de huidige back-url zodat navigaties tijdens
- * het bewerken (bv. naar een ander detail-scherm) de target niet beïnvloeden.
+ * De back-URL wordt op het MOMENT van save gelezen — niet bij mount. Zo
+ * krijgt de gebruiker altijd de meest recent bezochte detail/lijst pagina
+ * als terug-doel, zonder dat 'n vroeg gesnaphot target vastroest.
  */
 export function useBackNav(_key: string) {
   const router = useRouter()
   const nav = useNavHistory()
-  const backUrlRef = useRef<string | null>(null)
-  const initialized = useRef(false)
-
-  useEffect(() => {
-    if (initialized.current) return
-    initialized.current = true
-    // 1) Probeer globale nav-history (client-side tracked stack)
-    const fromHistory = nav.getBackUrl()
-    if (fromHistory) { backUrlRef.current = fromHistory; return }
-    // 2) Fallback op document.referrer (bij hard-reload of externe opening)
-    if (typeof window === 'undefined') return
-    const ref = document.referrer
-    if (!ref) return
-    try {
-      const url = new URL(ref)
-      if (url.origin !== window.location.origin) return
-      const currentPath = window.location.pathname + window.location.search
-      const refPath = url.pathname + url.search
-      if (refPath === currentPath) return
-      if (url.pathname.endsWith('/nieuw')) return
-      backUrlRef.current = refPath
-    } catch { /* ignore */ }
-  }, [nav])
 
   function navigateBack(fallback: string) {
-    if (backUrlRef.current) {
-      router.push(backUrlRef.current)
+    const fromHistory = nav.getBackUrl()
+    if (fromHistory) {
+      router.push(fromHistory)
       return
+    }
+    // Fallback op document.referrer voor hard-reloads en externe navigatie
+    if (typeof window !== 'undefined') {
+      const ref = document.referrer
+      if (ref) {
+        try {
+          const url = new URL(ref)
+          const current = window.location.pathname + window.location.search
+          const refPath = url.pathname + url.search
+          if (url.origin === window.location.origin && refPath !== current && !url.pathname.endsWith('/nieuw')) {
+            router.push(refPath)
+            return
+          }
+        } catch { /* ignore */ }
+      }
     }
     router.push(fallback)
   }
