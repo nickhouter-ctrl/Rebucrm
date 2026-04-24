@@ -218,6 +218,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 <Button variant="secondary" size="sm" onClick={async () => { await setProjectStatus(project.id as string, 'vervallen'); router.refresh() }} className="!bg-gray-100 !text-gray-700 hover:!bg-gray-200">
                   Vervallen
                 </Button>
+                <Button variant="secondary" size="sm" onClick={async () => {
+                  if (!confirm('Deze verkoopkans archiveren als afgerond?')) return
+                  await setProjectStatus(project.id as string, 'afgerond')
+                  router.refresh()
+                }} className="!bg-sky-50 !text-sky-700 hover:!bg-sky-100">
+                  Archiveer
+                </Button>
               </>
             )}
             {projectStatus !== 'actief' && (

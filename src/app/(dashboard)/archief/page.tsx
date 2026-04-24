@@ -1,13 +1,22 @@
-import { getArchiefOffertes, getArchiefFacturen } from '@/lib/actions'
+import { getArchiefOffertes, getArchiefFacturen, getArchiefVerkoopkansen, autoArchiveerAfgerondeVerkoopkansen } from '@/lib/actions'
 import { ArchiefView } from './archief-view'
 
 export const revalidate = 30
 
 export default async function ArchiefPage() {
-  const [offertes, facturen] = await Promise.all([
+  // Probeer nog niet-gearchiveerde afgeronde verkoopkansen alsnog op te ruimen
+  // voor we de lijst tonen.
+  try { await autoArchiveerAfgerondeVerkoopkansen() } catch { /* ignore */ }
+  const [offertes, facturen, verkoopkansen] = await Promise.all([
     getArchiefOffertes(),
     getArchiefFacturen(),
+    getArchiefVerkoopkansen(),
   ])
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return <ArchiefView offertes={offertes as any} facturen={facturen as any} />
+  return <ArchiefView
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    offertes={offertes as any}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    facturen={facturen as any}
+    verkoopkansen={verkoopkansen}
+  />
 }

@@ -833,7 +833,10 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         </div>
       )}
 
-      {tab === 'projecten' && (
+      {tab === 'projecten' && (() => {
+        const activeProjecten = projecten.filter(p => p.status !== 'afgerond' && p.status !== 'geannuleerd')
+        const afgerondeProjecten = projecten.filter(p => p.status === 'afgerond')
+        return (
         <div className="space-y-4">
           {projecten.length === 0 ? (
             <Card>
@@ -843,7 +846,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               </CardContent>
             </Card>
           ) : (
-            projecten.map(p => {
+            activeProjecten.map(p => {
               const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
               const laatsteOfferte = sortedOffertes[0]
               const oudereVersies = sortedOffertes.slice(1)
@@ -1050,8 +1053,47 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               )
             })
           )}
+
+          {afgerondeProjecten.length > 0 && (
+            <details className="group">
+              <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-[#00a66e] flex items-center gap-2 py-2 select-none">
+                <ChevronDown className="h-4 w-4 text-gray-400 group-open:rotate-180 transition-transform" />
+                Afgeronde verkoopkansen ({afgerondeProjecten.length})
+              </summary>
+              <div className="space-y-3 mt-3">
+                {afgerondeProjecten.map(p => {
+                  const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+                  const laatsteOfferte = sortedOffertes[0]
+                  const geoffreerd = laatsteOfferte?.subtotaal || 0
+                  return (
+                    <Card key={p.id}
+                      className="cursor-pointer hover:border-gray-300 transition-colors opacity-80 hover:opacity-100"
+                      onClick={() => router.push(`/projecten/${p.id}`)}
+                    >
+                      <div className="px-6 py-3 flex items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <FolderKanban className="h-4 w-4 text-emerald-500 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{p.naam}</p>
+                            <p className="text-xs text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''} · Afgerond</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          {geoffreerd > 0 && (
+                            <span className="text-sm font-medium text-gray-700">{formatCurrency(geoffreerd)}</span>
+                          )}
+                          <Badge status="afgerond" />
+                        </div>
+                      </div>
+                    </Card>
+                  )
+                })}
+              </div>
+            </details>
+          )}
         </div>
-      )}
+        )
+      })()}
 
       {tab === 'offertes' && (
         <Card>
