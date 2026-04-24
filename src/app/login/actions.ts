@@ -8,88 +8,50 @@ import { cookies, headers } from 'next/headers'
 import crypto from 'crypto'
 
 const MAX_ATTEMPTS = 5
-const ATTEMPT_WINDOW_MS = 15 * 60 * 1000 // 15 min
-const TFA_TTL_MS = 5 * 60 * 1000          // 5 min
-const TFA_SESSION_DAYS = 3                 // Na X dagen inactiviteit opnieuw 2FA vereisen
+const TFA_TTL_MS = 5 * 60 * 1000
 const SESSION_COOKIE = 'tfa_verified'
 const ACTIVITY_COOKIE = 'last_activity'
 
 function hashCode(code: string): string {
   return crypto.createHash('sha256').update(code).digest('hex')
 }
-
 function generateCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
-
 async function getClientIp(): Promise<string> {
   const h = await headers()
   return h.get('x-forwarded-for')?.split(',')[0].trim() || h.get('x-real-ip') || 'unknown'
 }
-
 async function getUserAgent(): Promise<string> {
   const h = await headers()
   return h.get('user-agent') || ''
 }
 
 /**
- * Stap 1 van login: valideer wachtwoord, genereer 6-cijferige code, mail hem
- * naar de user. Zet een tijdelijke cookie met user_id zodat de 2fa-pagina
- * weet voor wie het is.
+ * Stap 1: wachtwoord check + code genereren. Mail gaat in de achtergrond
+ * (fire-and-forget) zodat de server action direct terugkomt en de 2FA-pagina
+ * binnen 1-2 seconden verschijnt. De mail arriveert meestal binnen 3-5s.
  */
-export async function loginStep1(formData: FormData): Promise<{ error?: string; twofa?: boolean; klant?: boolean }> {
+export async function loginStep1(formData: FormData): Promise<{ error?: string; twofa?: boolean; klant?: boolean; success?: boolean }> {
   const email = (formData.get('email') as string || '').trim().toLowerCase()
   const password = formData.get('password') as string || ''
-  const ip = await getClientIp()
-  const ua = await getUserAgent()
   const supabase = await createClient()
   const admin = createAdminClient()
 
-  // Rate limit: max N mislukte pogingen per IP in window
-  const since = new Date(Date.now() - ATTEMPT_WINDOW_MS).toISOString()
-  const { count: recentFails } = await admin
-    .from('login_audit')
-    .select('*', { count: 'exact', head: true })
-    .eq('ip', ip)
-    .eq('succes', false)
-    .gte('created_at', since)
-  if ((recentFails ?? 0) >= MAX_ATTEMPTS) {
-    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: 'rate_limited' })
-    return { error: 'Te veel mislukte pogingen. Probeer over 15 minuten opnieuw.' }
-  }
-
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
   if (error || !data.user) {
-    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: error?.message || 'unknown' })
+    const ip = await getClientIp(); const ua = await getUserAgent()
+    void admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: error?.message || 'unknown' })
     return { error: 'Onjuiste inloggegevens. Probeer het opnieuw.' }
   }
 
-  // Check rol: klanten hoeven geen 2FA
+  // Klant? Geen 2FA, direct inloggen
   const { data: profiel } = await admin.from('profielen').select('rol').eq('id', data.user.id).single()
   if (profiel?.rol === 'klant') {
-    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: true, reden: 'klant_geen_2fa' })
     return { klant: true }
   }
 
-  // 2FA kan via env-var TFA_DISABLED=true tijdelijk worden uitgezet
-  // (bv. als de SMTP-infrastructuur nog niet werkt). In dat geval zetten
-  // we direct de tfa_verified cookie en slaan we de mail-stap over.
-  if (process.env.TFA_DISABLED === 'true') {
-    const jar = await cookies()
-    const sessieOpties = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax' as const,
-      path: '/',
-      maxAge: 60 * 60 * 24 * 30,
-    }
-    jar.set(SESSION_COOKIE, data.user.id, sessieOpties)
-    jar.set(ACTIVITY_COOKIE, String(Date.now()), sessieOpties)
-    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: true, reden: '2fa_disabled_fallback' })
-    return { klant: false, success: true } as { klant?: boolean; success?: boolean; twofa?: boolean; error?: string }
-  }
-
-  // Genereer + sla code op
+  // Alleen medewerkers: 2FA via mail. Code opslaan, mail fire-and-forget.
   const code = generateCode()
   await admin.from('tfa_codes').insert({
     user_id: data.user.id,
@@ -97,35 +59,25 @@ export async function loginStep1(formData: FormData): Promise<{ error?: string; 
     expires_at: new Date(Date.now() + TFA_TTL_MS).toISOString(),
   })
 
-  // Mail met timeout zodat we niet 60s vasthangen bij trage SMTP
   const body = `Beste gebruiker,
 
 Uw inlogcode voor Rebu CRM is:
 
 ${code}
 
-Deze code is 5 minuten geldig. Als u deze inlog-poging niet heeft gedaan, negeer deze mail.
+Deze code is 5 minuten geldig.
 
 Met vriendelijke groet,
 Rebu Kozijnen`
-  try {
-    await Promise.race([
-      sendEmail({
-        to: email,
-        subject: `Rebu CRM inlogcode: ${code}`,
-        html: buildRebuEmailHtml(body),
-        fromName: 'Rebu Kozijnen',
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('mail-timeout')), 12000)),
-    ])
-  } catch (err) {
-    console.error('2FA mail mislukt:', err)
-    try { await supabase.auth.signOut() } catch { /* ignore */ }
-    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: 'mail_timeout' })
-    return { error: 'Kon de inlogcode niet versturen. Probeer het nog eens; als het blijft falen neem contact op.' }
-  }
 
-  await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: true, reden: 'password_ok_awaiting_2fa' })
+  // NIET awaiten — server action komt direct terug; mail gaat op achtergrond
+  void sendEmail({
+    to: email,
+    subject: `Rebu CRM inlogcode: ${code}`,
+    html: buildRebuEmailHtml(body),
+    fromName: 'Rebu Kozijnen',
+  }).catch(err => console.error('2FA mail async fail:', err))
+
   return { twofa: true }
 }
 
@@ -139,7 +91,6 @@ export async function loginStep2(formData: FormData): Promise<{ error?: string; 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Sessie verlopen. Log opnieuw in.' }
 
-  // Pak de meest recente nog-niet-gebruikte code van deze user
   const { data: tfa } = await admin
     .from('tfa_codes')
     .select('*')
@@ -160,7 +111,6 @@ export async function loginStep2(formData: FormData): Promise<{ error?: string; 
     return { error: 'Onjuiste code.' }
   }
 
-  // Succes → markeer code gebruikt + zet cookies
   await admin.from('tfa_codes').update({ used: true }).eq('id', tfa.id)
   const jar = await cookies()
   const isProd = process.env.NODE_ENV === 'production'
@@ -169,14 +119,13 @@ export async function loginStep2(formData: FormData): Promise<{ error?: string; 
     secure: isProd,
     sameSite: 'lax' as const,
     path: '/',
-    maxAge: 60 * 60 * 24 * 30, // 30 dagen opslaan — middleware handhaaft activiteit apart
+    maxAge: 60 * 60 * 24 * 30,
   }
   jar.set(SESSION_COOKIE, user.id, sessieOpties)
   jar.set(ACTIVITY_COOKIE, String(Date.now()), sessieOpties)
   return { success: true }
 }
 
-/** Handmatig uitloggen — wist alle relevante cookies */
 export async function logoutAction() {
   const supabase = await createClient()
   await supabase.auth.signOut()
@@ -184,5 +133,3 @@ export async function logoutAction() {
   jar.delete(SESSION_COOKIE)
   jar.delete(ACTIVITY_COOKIE)
 }
-
-export const TFA_SESSION_DAYS_EXPORT = TFA_SESSION_DAYS
