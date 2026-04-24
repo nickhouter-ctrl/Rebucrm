@@ -13,12 +13,20 @@ import {
   Package,
   FolderKanban,
   Calendar,
+  Pencil,
+  Trash2,
+  Check,
+  X,
 } from 'lucide-react'
 import type { TimelineItem } from '@/lib/actions'
 
 interface TimelineProps {
   items: TimelineItem[]
   onEmailClick?: (emailLogId: string) => void
+  onEdit?: (item: TimelineItem) => void
+  onDelete?: (item: TimelineItem) => void
+  // Voor inline-rename: alleen voor items waarvoor dit zinvol is (offertes)
+  onInlineRename?: (item: TimelineItem, nieuweTitel: string) => Promise<{ error?: string }>
 }
 
 type FilterTab = 'alles' | 'offertes' | 'emails' | 'facturen' | 'taken'
@@ -63,8 +71,38 @@ const typeLabels: Record<string, string> = {
   project_aangemaakt: 'PROJECT',
 }
 
-export function Timeline({ items, onEmailClick }: TimelineProps) {
+export function Timeline({ items, onEmailClick, onEdit, onDelete, onInlineRename }: TimelineProps) {
   const [activeTab, setActiveTab] = useState<FilterTab>('alles')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingTitel, setEditingTitel] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  function startInlineEdit(item: TimelineItem) {
+    setEditingId(item.id)
+    setEditingTitel(item.titel)
+  }
+  function cancelInlineEdit() {
+    setEditingId(null)
+    setEditingTitel('')
+  }
+  async function saveInlineEdit(item: TimelineItem) {
+    if (!onInlineRename) return
+    setEditSaving(true)
+    const result = await onInlineRename(item, editingTitel)
+    setEditSaving(false)
+    if (!result.error) cancelInlineEdit()
+  }
+
+  // Types die edit/delete krijgen (niet project_aangemaakt, dat is het
+  // verkoopkans-item zelf).
+  const SUPPORTS_ACTIONS = new Set([
+    'offerte_aangemaakt', 'offerte_verzonden', 'offerte_geaccepteerd', 'offerte_afgewezen',
+    'factuur_aangemaakt', 'factuur_verzonden', 'factuur_betaald',
+    'taak', 'email_verstuurd', 'order_aangemaakt',
+  ])
+  const SUPPORTS_RENAME = new Set([
+    'offerte_aangemaakt', 'offerte_verzonden', 'offerte_geaccepteerd', 'offerte_afgewezen',
+  ])
 
   const filteredItems = activeTab === 'alles'
     ? items
@@ -119,54 +157,111 @@ export function Timeline({ items, onEmailClick }: TimelineProps) {
               const config = iconConfig[item.type] || iconConfig.project_aangemaakt
               const Icon = config.icon
 
-              const content = (
-                <div className="flex items-start gap-3 group">
-                  {/* Icon node */}
+              const isClickableEmail = item.type === 'email_verstuurd' && onEmailClick && item.meta?.emailLogId
+              const showActions = SUPPORTS_ACTIONS.has(item.type) && (onEdit || onDelete || onInlineRename)
+              const supportsInlineRename = SUPPORTS_RENAME.has(item.type) && onInlineRename
+              const isEditing = editingId === item.id
+
+              function onCardClick() {
+                if (isEditing) return
+                if (item.link) { window.location.href = item.link; return }
+                if (isClickableEmail) onEmailClick!(item.meta!.emailLogId as string)
+              }
+
+              return (
+                <div key={item.id} className="flex items-start gap-3 group">
                   <div className={cn('w-10 h-10 rounded-full flex items-center justify-center shrink-0 relative z-10', config.color)}>
                     <Icon className="h-4 w-4" />
                   </div>
 
-                  {/* Card */}
-                  <div className={cn(
-                    'flex-1 bg-white border border-gray-200 rounded-lg px-4 py-3 min-w-0',
-                    item.link && 'hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer'
-                  )}>
+                  <div
+                    className={cn(
+                      'flex-1 bg-white border border-gray-200 rounded-lg px-4 py-3 min-w-0',
+                      (item.link || isClickableEmail) && !isEditing && 'hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer'
+                    )}
+                    onClick={onCardClick}
+                  >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-[10px] font-semibold tracking-wider text-gray-400">
                             {typeLabels[item.type]}
                           </span>
                           {item.status && <Badge status={item.status} />}
                         </div>
-                        <p className="text-sm font-medium text-gray-900 mt-0.5 truncate">{item.titel}</p>
-                        {item.ondertitel && (
-                          <p className="text-xs text-gray-500 mt-0.5 truncate">{item.ondertitel}</p>
+                        {isEditing ? (
+                          <div className="flex items-center gap-2 mt-1" onClick={e => e.stopPropagation()}>
+                            <input
+                              autoFocus
+                              value={editingTitel}
+                              onChange={e => setEditingTitel(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') saveInlineEdit(item)
+                                if (e.key === 'Escape') cancelInlineEdit()
+                              }}
+                              className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <button type="button" onClick={() => saveInlineEdit(item)} disabled={editSaving} className="p-1 text-[#00a66e] hover:bg-emerald-50 rounded" title="Opslaan">
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button type="button" onClick={cancelInlineEdit} className="p-1 text-gray-400 hover:bg-gray-100 rounded" title="Annuleren">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm font-medium text-gray-900 mt-0.5 truncate">{item.titel}</p>
+                            {item.ondertitel && (
+                              <p className="text-xs text-gray-500 mt-0.5 truncate">{item.ondertitel}</p>
+                            )}
+                          </>
                         )}
                       </div>
-                      <div className="flex flex-col items-end shrink-0">
-                        <span className="text-xs text-gray-400">{formatDateShort(item.datum)}</span>
-                        {item.bedrag != null && item.bedrag > 0 && (
-                          <span className="text-sm font-medium text-gray-900 mt-0.5">{formatCurrency(item.bedrag)}</span>
+                      <div className="flex items-start gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                        {showActions && !isEditing && (
+                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {supportsInlineRename && (
+                              <button
+                                type="button"
+                                onClick={() => startInlineEdit(item)}
+                                className="p-1.5 text-gray-400 hover:text-[#00a66e] hover:bg-emerald-50 rounded"
+                                title="Naam aanpassen"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {!supportsInlineRename && onEdit && (
+                              <button
+                                type="button"
+                                onClick={() => onEdit(item)}
+                                className="p-1.5 text-gray-400 hover:text-[#00a66e] hover:bg-emerald-50 rounded"
+                                title="Bewerken"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {onDelete && (
+                              <button
+                                type="button"
+                                onClick={() => onDelete(item)}
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                                title="Verwijderen"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
                         )}
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs text-gray-400">{formatDateShort(item.datum)}</span>
+                          {item.bedrag != null && item.bedrag > 0 && (
+                            <span className="text-sm font-medium text-gray-900 mt-0.5">{formatCurrency(item.bedrag)}</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              )
-
-              const isClickableEmail = item.type === 'email_verstuurd' && onEmailClick && item.meta?.emailLogId
-
-              return item.link ? (
-                <Link key={item.id} href={item.link} className="block">
-                  {content}
-                </Link>
-              ) : isClickableEmail ? (
-                <div key={item.id} className="cursor-pointer" onClick={() => onEmailClick(item.meta!.emailLogId as string)}>
-                  {content}
-                </div>
-              ) : (
-                <div key={item.id}>{content}</div>
               )
             })}
           </div>

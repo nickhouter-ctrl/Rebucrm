@@ -3,8 +3,10 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, duplicateOfferte, getEmailLogDetail, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans } from '@/lib/actions'
+import { saveProject, deleteProject, duplicateOfferte, deleteOfferte, deleteTaak, deleteFactuur, deleteEmailLog, updateOfferteOnderwerp, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans } from '@/lib/actions'
+import type { TimelineItem } from '@/lib/actions'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
+import { EmailLogDialog } from '@/components/email-log-dialog'
 import { Receipt } from 'lucide-react'
 import { showToast } from '@/components/ui/toast'
 import type { ProjectTimeline } from '@/lib/actions'
@@ -64,14 +66,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
   const { navigateBack } = useBackNav(`project-${(timeline?.project?.id as string) || 'nieuw'}`)
-  const [emailDetail, setEmailDetail] = useState<{
-    onderwerp: string | null
-    aan: string
-    verstuurd_op: string
-    body_html: string | null
-    bijlagen: { filename: string }[] | null
-  } | null>(null)
-  const [emailLoading, setEmailLoading] = useState(false)
+  const [openEmailLogId, setOpenEmailLogId] = useState<string | null>(null)
   const [inboxEmailDetail, setInboxEmailDetail] = useState<{
     onderwerp: string | null
     van: string
@@ -82,19 +77,30 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   } | null>(null)
   const [inboxEmailLoading, setInboxEmailLoading] = useState(false)
 
-  async function handleEmailClick(emailLogId: string) {
-    setEmailLoading(true)
-    const detail = await getEmailLogDetail(emailLogId)
-    if (detail) {
-      setEmailDetail({
-        onderwerp: detail.onderwerp,
-        aan: detail.aan,
-        verstuurd_op: detail.verstuurd_op,
-        body_html: detail.body_html,
-        bijlagen: detail.bijlagen as { filename: string }[] | null,
-      })
-    }
-    setEmailLoading(false)
+  function handleEmailClick(emailLogId: string) {
+    setOpenEmailLogId(emailLogId)
+  }
+
+  function handleTimelineEdit(item: TimelineItem) {
+    if (item.link) router.push(item.link)
+  }
+
+  async function handleTimelineDelete(item: TimelineItem) {
+    if (!confirm(`Weet je zeker dat je "${item.titel}" wilt verwijderen?`)) return
+    let result: { error?: string } = {}
+    if (item.type.startsWith('offerte_')) result = await deleteOfferte(item.id)
+    else if (item.type.startsWith('factuur_')) result = await deleteFactuur(item.id)
+    else if (item.type === 'taak') result = await deleteTaak(item.id)
+    else if (item.type === 'email_verstuurd' && item.meta?.emailLogId) result = await deleteEmailLog(item.meta.emailLogId as string)
+    if (result.error) setError(result.error)
+    else router.refresh()
+  }
+
+  async function handleTimelineInlineRename(item: TimelineItem, nieuweTitel: string) {
+    if (!item.type.startsWith('offerte_')) return { error: 'Alleen offertes kunnen hernoemd worden' }
+    const result = await updateOfferteOnderwerp(item.id, nieuweTitel)
+    if (!result.error) router.refresh()
+    return result
   }
 
   async function handleInboxEmailClick(em: ProjectEmail) {
@@ -403,7 +409,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
           </Card>
 
           {/* Timeline */}
-          <Timeline items={timeline.items} onEmailClick={handleEmailClick} />
+          <Timeline
+            items={timeline.items}
+            onEmailClick={handleEmailClick}
+            onEdit={handleTimelineEdit}
+            onDelete={handleTimelineDelete}
+            onInlineRename={handleTimelineInlineRename}
+          />
 
           {/* Verstuurde offerte-mails (via email_log, met bijlagen) */}
           {verstuurdeEmails.length > 0 && (
@@ -417,7 +429,11 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                   {verstuurdeEmails.map(e => {
                     const bijlagen = e.bijlagen || []
                     return (
-                      <div key={e.id} className="rounded-lg border border-gray-200 px-3 py-2 bg-white">
+                      <div
+                        key={e.id}
+                        className="rounded-lg border border-gray-200 px-3 py-2 bg-white hover:bg-gray-50 cursor-pointer transition-colors"
+                        onClick={() => setOpenEmailLogId(e.id)}
+                      >
                         <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
                           <ArrowUpRight className="h-3 w-3 text-green-500" />
                           <span>{formatDateShort(e.verstuurd_op)}</span>
@@ -520,36 +536,8 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
         </div>
       </div>
 
-      {/* Email log detail dialog (vanuit timeline) */}
-      {emailDetail && (
-        <Dialog open onClose={() => setEmailDetail(null)} title={emailDetail.onderwerp || 'E-mail'}>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4 text-sm text-gray-600">
-              <div className="flex items-center gap-1.5">
-                <Mail className="h-3.5 w-3.5" />
-                <span>Aan: {emailDetail.aan}</span>
-              </div>
-              <span>{new Date(emailDetail.verstuurd_op).toLocaleString('nl-NL')}</span>
-            </div>
-            {emailDetail.bijlagen && emailDetail.bijlagen.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {emailDetail.bijlagen.map((b, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                    <Paperclip className="h-3 w-3" />
-                    {b.filename}
-                  </span>
-                ))}
-              </div>
-            )}
-            {emailDetail.body_html && (
-              <div
-                className="border border-gray-200 rounded-lg p-4 bg-white text-sm overflow-auto max-h-[60vh]"
-                dangerouslySetInnerHTML={{ __html: emailDetail.body_html }}
-              />
-            )}
-          </div>
-        </Dialog>
-      )}
+      {/* Email log detail dialog (vanuit timeline én verstuurde-emails sectie) */}
+      <EmailLogDialog emailLogId={openEmailLogId} onClose={() => setOpenEmailLogId(null)} />
 
       {/* Inbox email detail dialog (vanuit gekoppelde emails) */}
       {inboxEmailLoading && (

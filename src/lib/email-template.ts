@@ -7,20 +7,23 @@ export function buildRebuEmailHtml(
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const logoUrl = `${baseUrl}/images/logo-rebu.png`
 
-  // Body opbouwen: lege regels → spacing, links detecteren, bullet-points
-  const bodyHtml = body
-    .split('\n')
-    .map(line => {
-      const l = line.trim()
-      if (l === '') return '<div style="height:10px;line-height:10px;">&nbsp;</div>'
-      // Auto-link
-      const withLinks = l.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" style="color:#00a66e;text-decoration:underline;">$1</a>')
-      if (/^[-•]\s/.test(l)) {
-        return `<p style="margin:0 0 6px 0;padding-left:18px;position:relative;font-size:15px;line-height:1.65;color:#1f2937;"><span style="position:absolute;left:0;color:#00a66e;font-weight:bold;">•</span>${withLinks.replace(/^[-•]\s/, '')}</p>`
-      }
-      return `<p style="margin:0 0 10px 0;font-size:15px;line-height:1.65;color:#1f2937;">${withLinks}</p>`
-    })
-    .join('\n')
+  // Body kan HTML (uit rich-text-editor) of plain text zijn.
+  // Detecteer HTML en laat het dan ongemoeid (met default font/kleur wrapper).
+  const isHtml = /<(p|br|div|b|i|u|ul|ol|span|font|strong|em)\b/i.test(body)
+  const bodyHtml = isHtml
+    ? `<div style="font-size:15px;line-height:1.65;color:#1f2937;">${body}</div>`
+    : body
+      .split('\n')
+      .map(line => {
+        const l = line.trim()
+        if (l === '') return '<div style="height:10px;line-height:10px;">&nbsp;</div>'
+        const withLinks = l.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" style="color:#00a66e;text-decoration:underline;">$1</a>')
+        if (/^[-•]\s/.test(l)) {
+          return `<p style="margin:0 0 6px 0;padding-left:18px;position:relative;font-size:15px;line-height:1.65;color:#1f2937;"><span style="position:absolute;left:0;color:#00a66e;font-weight:bold;">•</span>${withLinks.replace(/^[-•]\s/, '')}</p>`
+        }
+        return `<p style="margin:0 0 10px 0;font-size:15px;line-height:1.65;color:#1f2937;">${withLinks}</p>`
+      })
+      .join('\n')
 
   const ctaBlock = ctaLink ? `
         <tr>

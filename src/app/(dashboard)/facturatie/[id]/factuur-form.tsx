@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { saveFactuur, deleteFactuur, getFactuurEmailDefaults, sendFactuurEmail, generateBetaallink, crediteerFactuur } from '@/lib/actions'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
+import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -117,7 +118,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
       const defaults = await getFactuurEmailDefaults(factuur!.id as string)
       setEmailTo(defaults.to || '')
       setEmailSubject(defaults.subject || '')
-      setEmailBody(defaults.body || '')
+      setEmailBody(plainTextToHtml(defaults.body || ''))
       if (defaults.error) setError(defaults.error)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Kon email-defaults niet laden')
@@ -238,8 +239,8 @@ export function FactuurForm({ factuur, relaties, producten }: {
             <input id="email_subject" type="text" value={emailSubject} onChange={e => setEmailSubject(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
           </div>
           <div>
-            <label htmlFor="email_body" className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
-            <textarea id="email_body" value={emailBody} onChange={e => setEmailBody(e.target.value)} rows={14} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono leading-relaxed" />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
+            <RichTextEditor value={emailBody} onChange={setEmailBody} minHeight={260} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2"><Paperclip className="h-3.5 w-3.5 inline mr-1" />Bijlagen</label>

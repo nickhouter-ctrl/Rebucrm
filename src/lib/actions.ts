@@ -2688,12 +2688,13 @@ export async function getDashboardData() {
     zakelijk: relatiesData.filter(r => r.type === 'zakelijk').length,
   }
 
-  // Offertes per fase
+  // Offertes per fase — consistent met totaalOffertes (laatste per project).
+  // Zo klopt de noemer voor conversiegraad (geaccepteerd/totaal).
   const offerteFases = ['concept', 'verzonden', 'geaccepteerd', 'afgewezen', 'verlopen']
   const offertesPerFase = offerteFases.map(status => ({
     status,
-    aantal: offertesData.filter(o => o.status === status).length,
-    bedrag: offertesData.filter(o => o.status === status).reduce((sum, o) => sum + (o.totaal || 0), 0),
+    aantal: uniekOffertes.filter(o => o.status === status).length,
+    bedrag: uniekOffertes.filter(o => o.status === status).reduce((sum, o) => sum + (o.totaal || 0), 0),
   }))
 
   // Facturen per fase
@@ -4197,6 +4198,19 @@ export async function getRelatieDetail(id: string) {
   const geaccepteerdeOffertes = offertes.filter(o => o.status === 'geaccepteerd').length
   const conversiePercentage = offertes.length > 0 ? Math.round((geaccepteerdeOffertes / offertes.length) * 100) : 0
 
+  // Totaal geoffreerd: som van hoogste versie per groep (excl BTW = subtotaal).
+  // Geannuleerde/verlopen offertes en revisies tellen niet dubbel.
+  const latestPerGroep = new Map<string, typeof offertes[number]>()
+  for (const o of offertes) {
+    if (o.status === 'geannuleerd' || o.status === 'vervallen') continue
+    const key = (o.groep_id as string) || (o.id as string)
+    const existing = latestPerGroep.get(key)
+    if (!existing || (o.versie_nummer || 0) > (existing.versie_nummer || 0)) {
+      latestPerGroep.set(key, o)
+    }
+  }
+  const totaalGeoffreerd = Array.from(latestPerGroep.values()).reduce((sum, o) => sum + (o.subtotaal || 0), 0)
+
   return {
     relatie,
     offertes,
@@ -4206,6 +4220,7 @@ export async function getRelatieDetail(id: string) {
       totaleOmzet,
       openstaand,
       aantalOffertes: offertes.length,
+      totaalGeoffreerd,
       conversiePercentage,
     },
   }
@@ -4800,6 +4815,44 @@ export async function getFactuurEmailLog(factuurId: string) {
   return data || []
 }
 
+export async function deleteEmailLog(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('email_log').delete().eq('id', id)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+// Snelle update van offerte-onderwerp (voor inline-editing in timeline)
+export async function updateOfferteOnderwerp(id: string, onderwerp: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('offertes').update({ onderwerp }).eq('id', id)
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+// Signed URL voor een geüploade bijlage in het email_log
+export async function getEmailBijlageUrl(emailLogId: string, filename: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabase = createAdminClient()
+  const { data: log } = await supabase
+    .from('email_log')
+    .select('id, administratie_id, bijlagen')
+    .eq('id', emailLogId)
+    .eq('administratie_id', adminId)
+    .single()
+  if (!log) return { error: 'Email niet gevonden' }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bijlagen = (log.bijlagen as any[]) || []
+  const match = bijlagen.find(b => b.filename === filename)
+  if (!match?.storage_path) return { error: 'Bijlage niet gearchiveerd' }
+  const { data: signed } = await supabase.storage
+    .from('email-bijlagen')
+    .createSignedUrl(match.storage_path, 300)
+  if (!signed?.signedUrl) return { error: 'Signed URL mislukt' }
+  return { url: signed.signedUrl }
+}
+
 // === EMAIL LOG DETAIL ===
 export async function getEmailLogDetail(id: string) {
   const supabase = await createClient()
@@ -4808,7 +4861,7 @@ export async function getEmailLogDetail(id: string) {
 
   const { data } = await supabase
     .from('email_log')
-    .select('id, aan, onderwerp, body_html, bijlagen, verstuurd_op')
+    .select('id, aan, onderwerp, body_html, bijlagen, verstuurd_op, offerte_id, factuur_id, order_id')
     .eq('id', id)
     .eq('administratie_id', adminId)
     .single()
@@ -5521,6 +5574,10 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
       .from('offertes')
       .select('id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, onderwerp, created_at, facturen:facturen(id, factuurnummer, datum, status, subtotaal, totaal, betaald_bedrag, factuur_type, created_at), email_log:email_log(id, aan, onderwerp, verstuurd_op), berichten:berichten(id, tekst, afzender_type, afzender_naam, created_at)')
       .eq('project_id', projectId)
+      // Eerst op datum (laatst verstuurde offerte bovenaan), dan versie_nummer
+      // als tie-breaker. Zo krijgt de sidebar "Geoffreerd" altijd de meest
+      // recente offerte, ook als er meerdere offerte-groepen in dit project zijn.
+      .order('datum', { ascending: false })
       .order('versie_nummer', { ascending: false }),
     supabase
       .from('taken')

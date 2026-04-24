@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { getOfferteEmailDefaults, sendOfferteEmail } from '@/lib/actions'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
 import { Send, Download, Mail, Paperclip, Plus, X, Loader2, CheckCircle, Link2, ArrowLeft, FileText } from 'lucide-react'
 
 export function StapVersturen({
@@ -34,7 +35,7 @@ export function StapVersturen({
       } else {
         setEmailTo(defaults.to || '')
         setEmailSubject(defaults.subject || '')
-        setEmailBody(defaults.body || '')
+        setEmailBody(plainTextToHtml(defaults.body || ''))
       }
       setLoading(false)
     })
@@ -224,14 +225,8 @@ export function StapVersturen({
           </div>
 
           <div>
-            <label htmlFor="email_body" className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
-            <textarea
-              id="email_body"
-              value={emailBody}
-              onChange={e => setEmailBody(e.target.value)}
-              rows={12}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono leading-relaxed"
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
+            <RichTextEditor value={emailBody} onChange={setEmailBody} minHeight={240} />
             <p className="text-xs text-gray-400 mt-1">De acceptatielink en handtekening worden automatisch onder het bericht geplaatst.</p>
           </div>
 

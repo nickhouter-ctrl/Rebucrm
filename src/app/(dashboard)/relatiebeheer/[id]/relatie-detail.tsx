@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie } from '@/lib/actions'
+import { EmailLogDialog } from '@/components/email-log-dialog'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -146,6 +147,7 @@ interface Props {
       totaleOmzet: number
       openstaand: number
       aantalOffertes: number
+      totaalGeoffreerd?: number
       conversiePercentage: number
     }
   }
@@ -156,6 +158,9 @@ interface Props {
   relatieEmails?: RelatieEmail[]
   verstuurdeEmails?: VerstuurdeEmail[]
 }
+
+// Uitgebreide stats met totaalGeoffreerd — cast naar lokaal type zodat geen
+// externe types hoeven te worden geraakt.
 
 export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [], verstuurdeEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
@@ -249,6 +254,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [showNotitieForm, setShowNotitieForm] = useState(false) // legacy, unused
   const [gereedOpen, setGereedOpen] = useState(false)
   const [expandedTaakNotities, setExpandedTaakNotities] = useState<Set<string>>(new Set())
+  const [openEmailLogId, setOpenEmailLogId] = useState<string | null>(null)
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -257,6 +263,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const statCards = [
     { label: 'Totale omzet', waarde: formatCurrency(stats.totaleOmzet), icon: DollarSign, kleur: 'text-green-600 bg-green-50', tab: 'facturen' as const },
     { label: 'Openstaand', waarde: formatCurrency(stats.openstaand), icon: Receipt, kleur: 'text-orange-600 bg-orange-50', tab: 'facturen' as const },
+    { label: 'Totaal geoffreerd', waarde: formatCurrency(stats.totaalGeoffreerd || 0), icon: FileText, kleur: 'text-sky-600 bg-sky-50', tab: 'offertes' as const },
     { label: 'Offertes', waarde: String(stats.aantalOffertes), icon: FileText, kleur: 'text-blue-600 bg-blue-50', tab: 'offertes' as const },
     { label: 'Conversie', waarde: `${stats.conversiePercentage}%`, icon: TrendingUp, kleur: 'text-purple-600 bg-purple-50', tab: 'projecten' as const },
   ]
@@ -439,7 +446,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
       {tab === 'overzicht' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {statCards.map(s => (
               <Card key={s.label} className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all" onClick={() => setTab(s.tab)}>
                 <CardContent className="flex items-center gap-4">
@@ -788,7 +795,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                     const bijlagen = e.bijlagen || []
                     const offerteId = e.offerte?.id
                     return (
-                      <div key={e.id} className={`rounded-lg border border-gray-200 px-3 py-2 bg-white ${offerteId ? 'hover:bg-gray-50 cursor-pointer' : ''}`} onClick={offerteId ? () => router.push(`/offertes/${offerteId}`) : undefined}>
+                      <div key={e.id} className="rounded-lg border border-gray-200 px-3 py-2 bg-white hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => setOpenEmailLogId(e.id)}>
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
@@ -1543,6 +1550,8 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
           </div>
         </Dialog>
       )}
+
+      <EmailLogDialog emailLogId={openEmailLogId} onClose={() => setOpenEmailLogId(null)} />
     </div>
   )
 }

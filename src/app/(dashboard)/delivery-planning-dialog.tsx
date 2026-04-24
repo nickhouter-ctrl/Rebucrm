@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { getDeliveryEmailDefaults, planDelivery } from '@/lib/actions'
+import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
 import { Send, Loader2, Mail, CalendarDays } from 'lucide-react'
 import { getISOWeek, startOfISOWeek, addWeeks, addDays, format } from 'date-fns'
 import { nl } from 'date-fns/locale'
@@ -215,15 +216,8 @@ export function DeliveryPlanningDialog({ open, onClose, order }: {
           </div>
 
           <div>
-            <label htmlFor="delivery_email_body" className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
-            <textarea
-              id="delivery_email_body"
-              value={emailBody}
-              onChange={e => setEmailBody(e.target.value)}
-              rows={10}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent font-mono leading-relaxed"
-              placeholder="Selecteer eerst een week en dag..."
-            />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bericht</label>
+            <RichTextEditor value={emailBody ? plainTextToHtml(emailBody) : ''} onChange={setEmailBody} minHeight={220} placeholder="Selecteer eerst een week en dag..." />
             <p className="text-xs text-gray-400 mt-1">De handtekening wordt automatisch onder het bericht geplaatst.</p>
           </div>
 
