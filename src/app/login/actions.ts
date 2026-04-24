@@ -7,6 +7,11 @@ import { buildRebuEmailHtml } from '@/lib/email-template'
 import { cookies, headers } from 'next/headers'
 import crypto from 'crypto'
 
+// waitUntil: laat Vercel een async taak afmaken nádat de response al naar
+// de client is gestuurd. Zonder dit wordt 'void sendEmail(...)' direct
+// gekilled door de serverless runtime en komt de mail nooit binnen.
+import { waitUntil } from '@vercel/functions'
+
 const MAX_ATTEMPTS = 5
 const TFA_TTL_MS = 5 * 60 * 1000
 const SESSION_COOKIE = 'tfa_verified'
@@ -70,13 +75,26 @@ Deze code is 5 minuten geldig.
 Met vriendelijke groet,
 Rebu Kozijnen`
 
-  // NIET awaiten — server action komt direct terug; mail gaat op achtergrond
-  void sendEmail({
+  // Gebruik waitUntil: response wordt direct naar de client gestuurd,
+  // Vercel houdt de function levend tot de mail écht verzonden is.
+  // Vereist @vercel/functions ≥ 1.5; fallback wordt gewoon await.
+  const mailPromise = sendEmail({
     to: email,
     subject: `Rebu CRM inlogcode: ${code}`,
     html: buildRebuEmailHtml(body),
     fromName: 'Rebu Kozijnen',
-  }).catch(err => console.error('2FA mail async fail:', err))
+  })
+  try {
+    // Max 6s wachten — als de mail daarvoor klaar is, weet de user zeker
+    // dat hij binnenkomt. Daarna delegeren aan waitUntil zodat de function
+    // niet geforced afkapt.
+    await Promise.race([
+      mailPromise,
+      new Promise(r => setTimeout(r, 6000)),
+    ])
+  } finally {
+    waitUntil(mailPromise.catch(err => console.error('2FA mail async fail:', err)))
+  }
 
   return { twofa: true }
 }
