@@ -163,22 +163,31 @@ export function StapTekeningen({
       setProgress(`Tekeningen extraheren (0/${parsed.aantalElementen})...`)
 
       // Scan all pages for element names and drawing markers
-      // Match element headers — Positie must be followed by exactly 3 digits and then non-digit (prevents matching "908" from prices like "908,16")
       const elementHeaderPattern = /(?:Gekoppeld\s+element|Deur|Element)\s+\d{3}(?:\/\d+)?|Merk\s+[\dA-Z]+|Positie\s*\d{3}(?!\d|[.,]\d)/i
-      // Gealan S9000NL: "Productie maten <Element-naam> Aantal:N Verbinding:XX Systeem: Gealan ..."
       const gealanNLHeaderPattern = /Productie\s+maten\s+([\s\S]+?)\s+Aantal\s*:\s*\d+\s+Verbinding\s*:/i
+      // Schüco: encoded "1IVO" + letter (%=A, &=B, ...)
+      const schucoEncodedPattern = /1IVO\s*([%&'()*+,\-.])/i
       const standaloneProductPattern = /\b(Rolluik|Rolladen|Rollo|Zonwering|Screen|Hor(?:re)?|Insecten\s*hor|Fly\s*screen)\b/i
       const allPageScans: { pageNum: number; naam: string | null; hasDrawing: boolean; isStandaloneProduct: boolean }[] = []
       for (let pageNum = 2; pageNum <= totalPages; pageNum++) {
         const page = await pdf.getPage(pageNum)
         const textContent = await page.getTextContent()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pageText = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
-        const headerMatch = pageText.match(elementHeaderPattern)
+        const pageTextRaw = textContent.items.map((item: any) => ('str' in item ? item.str : '')).join(' ')
+        // Strip control chars die sommige leveranciers tussen letters plaatsen
+        const pageText = pageTextRaw.replace(/[ --]/g, '')
+        let headerMatch = pageText.match(elementHeaderPattern)
         const gealanNLMatch = !headerMatch ? pageText.match(gealanNLHeaderPattern) : null
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN/i.test(pageText)
+        // Schüco encoded fallback: detecteer "1IVO%" (Merk A) → normaliseer naar "Merk A"
+        if (!headerMatch && !gealanNLMatch) {
+          const schucoMatch = pageText.match(schucoEncodedPattern)
+          if (schucoMatch) {
+            const letter = String.fromCharCode(schucoMatch[1].charCodeAt(0) + 28)
+            headerMatch = ['Merk ' + letter] as unknown as RegExpMatchArray
+          }
+        }
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|%%2>-',8&9-8/i.test(pageText)
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
-        // Normalize Kochs "Positie" format to match parsed element names
         let elementNaam: string | null = null
         if (headerMatch) {
           elementNaam = headerMatch[0].replace(/Positie\s*(\d{3})/, 'Positie $1')

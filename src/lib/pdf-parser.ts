@@ -228,11 +228,18 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       const sectionEnd = next ? next.index : text.length
       const section = text.substring(match.index, sectionEnd)
       const kleurMatch = section.match(/Kader[\s\S]{0,200}?(\d{4}\s*GLAD|\d{4}\s*\w+)/i)
-      const systeemRaw = match[3].replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/Sch[¿u]co/gi, 'Schüco').replace(/[%&'()*+,\-./0-9][A-Z2-9\s>',\-]*$/, '').trim()
+      // Systeem-naam is altijd een van de bekende Schüco varianten — extraheer
+      // gericht zodat encoded residu (%%2>-',8&9-8 = 'AANZICHT: BUITEN') niet
+      // meekomt.
+      let systeem = 'Schüco'
+      const sysSlide = /Schüco\s*Slide/i.exec(match[3])
+      const sysVerdiept = /Schüco[\s\S]{0,20}?Verdiept\s*(\d+°)?/i.exec(match[3])
+      if (sysSlide) systeem = 'Schüco Slide'
+      else if (sysVerdiept) systeem = 'Schüco Verdiept' + (sysVerdiept[1] ? ' ' + sysVerdiept[1] : '')
       headers.push({
         naam: 'Merk ' + match[1].toUpperCase(),
         hoeveelheid: parseInt(match[2]) || 1,
-        systeem: systeemRaw || 'Schüco',
+        systeem,
         kleur: kleurMatch ? kleurMatch[1].trim() : '',
         idx: match.index,
         endIdx: match.index + match[0].length,
