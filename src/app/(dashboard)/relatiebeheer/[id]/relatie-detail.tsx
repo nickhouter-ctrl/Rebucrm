@@ -396,7 +396,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
     { key: 'documenten' as const, label: 'Documenten' },
     { key: 'taken' as const, label: `Taken (${relatieTaken.filter(t => t.status !== 'afgerond').length})` },
-    { key: 'notities' as const, label: `Notities (${notities.length})` },
+    { key: 'notities' as const, label: `Notities (${notities.filter(n => !n.taak).length})` },
     { key: 'portaal' as const, label: `Portaal (${klantAccounts.length})` },
     { key: 'gegevens' as const, label: 'Gegevens' },
   ]
@@ -1423,17 +1423,21 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </CardContent>
           </Card>
 
-          {/* Notities tijdlijn */}
-          {notities.length === 0 ? (
-            <Card>
-              <CardContent className="py-8 text-center text-gray-500 text-sm">
-                <MessageSquare className="h-8 w-8 mx-auto mb-2 text-gray-300" />
-                Nog geen notities voor deze relatie
-              </CardContent>
-            </Card>
-          ) : (
+          {/* Notities tijdlijn — alleen directe klant-notities. Taak-notities
+              horen bij hun taak en staan op de taak-detailpagina zelf. */}
+          {(() => {
+            const klantNotities = notities.filter(n => !n.taak)
+            if (klantNotities.length === 0) return (
+              <Card>
+                <CardContent className="py-8 text-center text-gray-500 text-sm">
+                  <MessageSquare className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                  Nog geen notities voor deze relatie
+                </CardContent>
+              </Card>
+            )
+            return (
             <div className="space-y-2">
-              {notities.map(n => {
+              {klantNotities.map(n => {
                 const datum = new Date(n.created_at)
                 const datumStr = format(datum, "d MMMM yyyy 'om' HH:mm", { locale: nl })
                 const isTaak = !!n.taak
@@ -1487,7 +1491,8 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                 )
               })}
             </div>
-          )}
+            )
+          })()}
         </div>
       )}
 
