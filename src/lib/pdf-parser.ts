@@ -61,11 +61,14 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
   } else if (isKochs) {
-    // Primus MD: "Totaal offerte/order : 2.253,13 EUR" (zonder TZ toeslag),
-    // anders "Netto Totaal : X,XX EUR". Element-prijs = totaal zonder TZ-marge.
-    const totaalMatch = text.match(/Totaal\s*offerte\/order\s*:\s*([\d.,]+)\s*EUR/)
-      || text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/)
-      || text.match(/Eind\s*totaal\s*:\s*([\d.,]+)\s*EUR/)
+    // Kochs Primus MD / Premidoor: de regel "Totaal offerte/order" is EXCL de
+    // TZ-toeslag (doorgaans 32%, leveranciersmarge — geen BTW). Onder deze
+    // regel komt "Netto Totaal" waar de TZ al bij opgeteld is. Dat is de
+    // échte inkoopprijs. Eerst Netto/Eind totaal proberen, dan pas de lagere
+    // Totaal offerte/order regel als fallback.
+    const totaalMatch = text.match(/Eind\s*totaal\s*:\s*([\d.,]+)\s*EUR/i)
+      || text.match(/Netto\s*Totaal\s*:\s*([\d.,]+)\s*EUR/i)
+      || text.match(/Totaal\s*offerte\/order\s*:\s*([\d.,]+)\s*EUR/i)
     if (totaalMatch) {
       totaal = parseFloat(totaalMatch[1].replace(/\./g, '').replace(',', '.'))
     }
@@ -177,21 +180,19 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
       })
     }
   } else if (isEkoOkna) {
-    // Vind element-headers: "Element NNN" / "Deur NNN" / "Gekoppeld Element NNN"
-    // aan begin van regel, gevolgd door echte element-velden (Hoev.:, Systeem:,
-    // Buitenkader, Aluprof) binnen ~1500 chars — voorkomt false positives van
-    // losstaande "element NNN" verwijzingen in spec-teksten.
-    const headerPattern = /(?:^|\n)[\t ]*((?:Gekoppeld\s+)?(?:Element|ELEMENT|Deur|DEUR)\s+(\d{3})(?:\/\d+)?)(?=\s)/g
+    // Vind element-headers: "Element NNN" / "Deur NNN" / "Gekoppeld Element NNN".
+    // Accepteer match ongeacht begin-of-line (sommige PDF-extractors strippen
+    // newlines), maar valideer binnen 80 chars dat "Hoev." of "Systeem" volgt —
+    // dat is het signaal voor een echte element-header. Filtert losse tekstuele
+    // verwijzingen als "element 557" in "Prijs van het element 557,80 E".
+    const headerPattern = /((?:Gekoppeld\s+)?(?:Element|ELEMENT|Deur|DEUR)\s+(\d{3})(?:\/\d+)?)\b/g
     const headerMatches: { naam: string; idx: number }[] = []
     let hm
     while ((hm = headerPattern.exec(text)) !== null) {
-      const offset = hm[0].indexOf(hm[1])
-      const absIdx = hm.index + offset
-      // Validate: real element sections have Hoev./Systeem:/Buitenkader nearby
-      const lookahead = text.substring(absIdx, absIdx + 1500)
-      const hasFields = /Hoev\.\s*:|Systeem\s*:|Buitenkader|Aluprof/.test(lookahead)
+      const absIdx = hm.index
+      const immediate = text.substring(absIdx, absIdx + 80)
+      const hasFields = /Hoev\.\s*:\s*\d|Systeem\s*:/i.test(immediate)
       if (!hasFields) continue
-      // Dedupe close matches
       if (headerMatches.some(x => Math.abs(x.idx - absIdx) < 50)) continue
       headerMatches.push({ naam: hm[1].trim(), idx: absIdx })
     }
