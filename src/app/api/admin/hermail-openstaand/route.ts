@@ -16,11 +16,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Pak de (enige) administratie-id — voor deze deployment is dat er één.
+  // Pak de Rebu Kozijnen administratie — de DB heeft stub-administraties
+  // van andere accounts. We filteren op de administratie met openstaande
+  // facturen zodat we zeker het juiste pakken.
   const sb = createAdminClient()
-  const { data: admin } = await sb.from('administraties').select('id').limit(1).single()
-  if (!admin) return NextResponse.json({ error: 'geen administratie gevonden' }, { status: 500 })
+  const { data: factuurRow } = await sb
+    .from('facturen')
+    .select('administratie_id')
+    .not('mollie_payment_id', 'is', null)
+    .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
+    .limit(1)
+    .maybeSingle()
+  if (!factuurRow) return NextResponse.json({ verzonden: 0, overgeslagen: 0, fouten: [], note: 'geen openstaande facturen met mollie_payment_id' })
 
-  const result = await hermailAlleOpenstaandeFacturen(admin.id as string)
+  const result = await hermailAlleOpenstaandeFacturen(factuurRow.administratie_id as string)
   return NextResponse.json(result)
 }
