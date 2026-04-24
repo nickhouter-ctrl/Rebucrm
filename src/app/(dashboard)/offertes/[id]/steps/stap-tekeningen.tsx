@@ -261,6 +261,8 @@ export function StapTekeningen({
             cx: Math.round(item.transform[4] * 2),
             cy: Math.round(h - item.transform[5] * 2),
           }))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pageTextAll = (textContent.items as any[]).map((i: any) => ('str' in i ? i.str : '')).join(' ')
 
         // Find ALL element-header items op de pagina (Element/Deur/Merk/Positie/Productie maten).
         // Op pagina's waar twee elementen samen staan (staart van element A + begin element B)
@@ -476,11 +478,11 @@ export function StapTekeningen({
         // de rechterkant (vanaf midden) zodat aanzicht-tekeningen links intact
         // blijven. Tabellen met totalen lopen vaak door tot onder = wipe tot h.
         const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+(?:van\s+het|gekoppeld)\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak|\+\d+\s*\w*)$/i
-        // Schüco prijs-tabel ("Brutopr. Korting Netto prijs" + rijen "Raam …"
-        // en "Totaal …") staat vaak midden-centraal op de pagina en moet
-        // volledig wit — ook de linker kolom met labels. Detecteer een van
-        // die headers en wis een brede centrale band tot aan de rechter rand.
-        const brutoprItem = textItems.find((ti: { str: string }) => /^Brutopr\.?$/i.test(ti.str))
+        // Schüco prijs-tabel ("Brutopr. Korting Netto prijs" + "Raam …" +
+        // "Totaal …") — tolerant voor zowel normale als encoded tekst
+        // (&VYXSTV = 'Brutopr' in Schüco-font). Wis alleen die tabel, NIET
+        // de specs eronder/erboven.
+        const brutoprItem = textItems.find((ti: { str: string }) => /^(Brutopr\.?|&VYXSTV\.?)$/i.test(ti.str))
         for (const ti of textItems) {
           if (ti.cy > h * 0.40 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
@@ -490,17 +492,23 @@ export function StapTekeningen({
           }
         }
         if (brutoprItem) {
-          // Wis alles vanaf ~120px links van de Brutopr-header tot rand
-          const wipeLeft = Math.max(0, brutoprItem.cx - 140)
-          const wipeTop = Math.max(0, brutoprItem.cy - 18)
+          // Beperk tot 160px hoogte — de tabel heeft header + 2 regels + Totaal.
+          // Wis ook 140px naar LINKS van de kolom om de labels (Raam/Totaal) te dekken.
+          const wipeLeft = Math.max(0, brutoprItem.cx - 160)
+          const wipeTop = Math.max(0, brutoprItem.cy - 20)
+          const wipeH = 160
           ctx.fillStyle = '#FFFFFF'
-          ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
+          ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, wipeH)
         }
 
         // AI VISION: vraag Claude welke regio's we WIT moeten maken (prijzen +
         // "Geen garantie"). We croppen NIET — de tekening + specs moeten altijd
         // volledig zichtbaar blijven. Alleen aangewezen regio's worden wit.
+        // Skip AI Vision voor Schüco: daar doen regex-wipes al goed werk
+        // en Vision had specs verwijderd die eigenlijk moesten blijven.
+        const isSchucoPage = !!brutoprItem || /1IVO\s*[%&'()*+,\-.]|Sch[¿u]co/i.test(pageTextAll)
         try {
+          if (isSchucoPage) throw new Error('skip-ai-for-schuco')
           const previewScale = 0.5
           const pw = Math.round(w * previewScale)
           const ph = Math.round(h * previewScale)
