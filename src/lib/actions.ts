@@ -1488,6 +1488,17 @@ export async function hermailAlleOpenstaandeFacturen(overrideAdminId?: string) {
 
   if (!facturen || facturen.length === 0) return { verzonden: 0, overgeslagen: 0, fouten: [] }
 
+  // Sluit facturen uit die een credit-nota gekoppeld hebben (gerelateerde_factuur_id
+  // verwijst dan naar de originele factuur). Ook al staan ze nog op 'vervallen'
+  // omdat de sync ze niet heeft teruggezet — ze zijn netto 0 en mogen niet gemaild.
+  const { data: creditNotas } = await sb
+    .from('facturen')
+    .select('gerelateerde_factuur_id')
+    .eq('administratie_id', adminId)
+    .eq('factuur_type', 'credit')
+    .not('gerelateerde_factuur_id', 'is', null)
+  const gecrediteerdeIds = new Set((creditNotas || []).map(c => c.gerelateerde_factuur_id as string))
+
   let verzonden = 0
   let overgeslagen = 0
   const fouten: { factuurnummer: string; error: string }[] = []
@@ -1495,6 +1506,7 @@ export async function hermailAlleOpenstaandeFacturen(overrideAdminId?: string) {
   for (const f of facturen) {
     const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
     if (openstaand <= 0.01) { overgeslagen++; continue }
+    if (gecrediteerdeIds.has(f.id)) { overgeslagen++; continue }
     try {
       const defaults = await getFactuurEmailDefaults(f.id)
       if (defaults.error || !defaults.to) {
