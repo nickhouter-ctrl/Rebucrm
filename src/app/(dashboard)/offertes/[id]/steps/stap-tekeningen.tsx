@@ -475,16 +475,26 @@ export function StapTekeningen({
         // Wis prijs-tabel-headers in onderste helft. Wipe bereikt hier alleen
         // de rechterkant (vanaf midden) zodat aanzicht-tekeningen links intact
         // blijven. Tabellen met totalen lopen vaak door tot onder = wipe tot h.
-        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+(?:van\s+het|gekoppeld)\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak)$/i
+        const bottomBlockPattern = /^(NETTO|BRUTO|BTW|Producten|Artikelen|Profielen|Diensten|Extra\s*kosten|Totaal\s*netto|Totaal\s*bruto|Totalen|Netto\s*prijs|Netto\s*totaal|Netto\s*Totaal|Prijs\s*TOT|Deurprijs|Cena\s*netto|Cena\s*brutto|Kosztorys|Razem|Suma\s+\w+|Preis|Gesamt|Vullingen|Prijs\s+(?:van\s+het|gekoppeld)\s+element|Totaal\s*elementen|Totaal\s*offerte(?:\/order)?|Eind\s*totaal|Betaling\b|TZ\s*\d|\+\d+\s*stojak|\+\d+\s*\w*)$/i
+        // Schüco prijs-tabel ("Brutopr. Korting Netto prijs" + rijen "Raam …"
+        // en "Totaal …") staat vaak midden-centraal op de pagina en moet
+        // volledig wit — ook de linker kolom met labels. Detecteer een van
+        // die headers en wis een brede centrale band tot aan de rechter rand.
+        const brutoprItem = textItems.find((ti: { str: string }) => /^Brutopr\.?$/i.test(ti.str))
         for (const ti of textItems) {
-          // Drempel verlaagd naar 40% zodat "Totalen"-balk halverwege/onderin
-          // de pagina ook getriggerd wordt. Links-beveiliging blijft actief.
           if (ti.cy > h * 0.40 && bottomBlockPattern.test(ti.str)) {
             const wipeTop = Math.max(0, ti.cy - 18)
             const wipeLeft = Math.max(Math.floor(w * 0.48), ti.cx - 40)
             ctx.fillStyle = '#FFFFFF'
             ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
           }
+        }
+        if (brutoprItem) {
+          // Wis alles vanaf ~120px links van de Brutopr-header tot rand
+          const wipeLeft = Math.max(0, brutoprItem.cx - 140)
+          const wipeTop = Math.max(0, brutoprItem.cy - 18)
+          ctx.fillStyle = '#FFFFFF'
+          ctx.fillRect(wipeLeft, wipeTop, w - wipeLeft, h - wipeTop)
         }
 
         // AI VISION: vraag Claude welke regio's we WIT moeten maken (prijzen +
