@@ -1784,10 +1784,52 @@ export async function pushFactuurToSnelStart(factuurId: string) {
       .eq('id', relatie.id)
   }
 
-  // 1b. Zorg dat de gekoppelde SnelStart-relatie een Klant is (anders faalt
-  //     de verkoopboeking met "De opgegeven relatie is geen klant").
-  try { await ensureRelatieIsKlant(snelstartRelatieId!) } catch (err) {
-    console.warn('ensureRelatieIsKlant faalde:', err)
+  // 1b. Zorg dat de gekoppelde SnelStart-relatie een Klant is. Als
+  //     SnelStart de soort niet via API laat wijzigen (error REL-0064):
+  //     probeer een andere klant-relatie voor dezelfde organisatie te
+  //     vinden, anders maak een nieuwe aan en update onze DB-koppeling.
+  try {
+    await ensureRelatieIsKlant(snelstartRelatieId!)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('RelatieSoort') || msg.includes('REL-0064')) {
+      console.warn('Relatiesoort niet wijzigbaar — zoek of maak klant-relatie')
+      const { findRelatieByEmail: findByEmail, findRelatieByNaam: findByNaam, createRelatie: mkRelatie } = await import('@/lib/snelstart')
+      let klantRelatie = null
+      if (relatie.email) klantRelatie = await findByEmail(relatie.email)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isKlantSoort = (r: any) => {
+        const s = r?.relatiesoort
+        return Array.isArray(s) ? s.includes('Klant') : s === 'Klant'
+      }
+      if (!klantRelatie || !isKlantSoort(klantRelatie) || klantRelatie.id === snelstartRelatieId) {
+        klantRelatie = await findByNaam(relatie.bedrijfsnaam)
+      }
+      if (!klantRelatie || !isKlantSoort(klantRelatie) || klantRelatie.id === snelstartRelatieId) {
+        // Nieuwe klant-relatie aanmaken
+        const created = await mkRelatie({
+          naam: relatie.bedrijfsnaam,
+          email: relatie.email,
+          contactpersoon: relatie.contactpersoon,
+          adres: relatie.adres,
+          postcode: relatie.postcode,
+          plaats: relatie.plaats,
+          btw_nummer: relatie.btw_nummer,
+          kvk_nummer: relatie.kvk_nummer,
+          iban: relatie.iban,
+        })
+        snelstartRelatieId = created.id
+      } else {
+        snelstartRelatieId = klantRelatie.id
+      }
+      // Update onze DB zodat volgende syncs direct de juiste id gebruiken
+      await supabaseAdmin
+        .from('relaties')
+        .update({ snelstart_relatie_id: snelstartRelatieId })
+        .eq('id', relatie.id)
+    } else {
+      console.warn('ensureRelatieIsKlant onverwachte fout:', err)
+    }
   }
 
   // 2. Verkoopboeking aanmaken
