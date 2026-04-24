@@ -4830,6 +4830,40 @@ export async function updateOfferteOnderwerp(id: string, onderwerp: string) {
   return { success: true }
 }
 
+// Archiveer een lokaal bestand als bijlage op een bestaande email_log rij.
+// Nodig voor mails die vóór de storage-migratie zijn verstuurd en waar de
+// user-uploaded PDFs niet zijn opgeslagen — nu kan de gebruiker ze alsnog
+// aan de mail koppelen zodat ze openbaar vanuit de CRM te openen zijn.
+export async function archiveBijlageFromUpload(emailLogId: string, filename: string, base64: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabase = createAdminClient()
+  const { data: log } = await supabase
+    .from('email_log')
+    .select('id, administratie_id, bijlagen')
+    .eq('id', emailLogId)
+    .eq('administratie_id', adminId)
+    .single()
+  if (!log) return { error: 'Email niet gevonden' }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bijlagen = ((log.bijlagen as any[]) || []).slice()
+  const idx = bijlagen.findIndex(b => b.filename === filename)
+  if (idx < 0) return { error: 'Bijlage niet in mail gevonden' }
+  const safeName = filename.replace(/[^\w.\-]/g, '_')
+  const path = `${emailLogId}/${safeName}`
+  const { error: upErr } = await supabase.storage
+    .from('email-bijlagen')
+    .upload(path, Buffer.from(base64, 'base64'), {
+      contentType: filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+      upsert: true,
+    })
+  if (upErr) return { error: upErr.message }
+  bijlagen[idx] = { ...bijlagen[idx], storage_path: path, kind: bijlagen[idx].kind || 'upload' }
+  const { error: updErr } = await supabase.from('email_log').update({ bijlagen }).eq('id', emailLogId)
+  if (updErr) return { error: updErr.message }
+  return { success: true }
+}
+
 // Signed URL voor een geüploade bijlage in het email_log
 export async function getEmailBijlageUrl(emailLogId: string, filename: string) {
   const adminId = await getAdministratieId()

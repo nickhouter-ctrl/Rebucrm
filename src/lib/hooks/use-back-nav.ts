@@ -4,25 +4,22 @@ import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 /**
- * Onthoud de pagina waar de gebruiker vandaan kwam zodat we na opslaan/verwijderen
- * exact daarheen kunnen navigeren. Slaat op in sessionStorage per `key` zodat de
- * opgeslagen URL blijft werken ook na page-refresh of meerdere saves.
+ * Onthoud de pagina waar de gebruiker vandaan kwam (document.referrer bij mount)
+ * zodat we na opslaan/verwijderen daarheen kunnen navigeren.
  *
- * router.back() bleek onbetrouwbaar: Next.js pusht soms extra history-entries bij
- * client-side navigatie waardoor je te ver teruggaat.
+ * We gebruiken BEWUST geen sessionStorage: dat zorgt voor stale hergebruik
+ * tussen verschillende instanties (bv. "nieuwe" taken of nieuwe offerte-versies
+ * die dezelfde key deelden), waardoor je bij iemand anders uitkwam.
+ *
+ * Gevolg: page-refresh halverwege het bewerken resette de back-url. Dat is
+ * acceptabel — in dat geval valt navigateBack terug op de fallback.
  */
-export function useBackNav(key: string) {
+export function useBackNav(_key: string) {
   const router = useRouter()
   const backUrlRef = useRef<string | null>(null)
-  const storageKey = `back-nav-${key}`
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const stored = sessionStorage.getItem(storageKey)
-    if (stored) {
-      backUrlRef.current = stored
-      return
-    }
     const ref = document.referrer
     if (!ref) return
     try {
@@ -31,18 +28,16 @@ export function useBackNav(key: string) {
       const currentPath = window.location.pathname + window.location.search
       const refPath = url.pathname + url.search
       if (refPath === currentPath) return
+      // Nooit teruggaan naar een "nieuw" pagina — daar komt de gebruiker nooit
+      // heen willen.
+      if (url.pathname.endsWith('/nieuw')) return
       backUrlRef.current = refPath
-      sessionStorage.setItem(storageKey, refPath)
-    } catch {
-      // ignore
-    }
-  }, [storageKey])
+    } catch { /* ignore */ }
+  }, [])
 
   function navigateBack(fallback: string) {
     if (typeof window !== 'undefined' && backUrlRef.current) {
-      const target = backUrlRef.current
-      sessionStorage.removeItem(storageKey)
-      router.push(target)
+      router.push(backUrlRef.current)
       return
     }
     router.push(fallback)
