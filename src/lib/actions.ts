@@ -2624,17 +2624,24 @@ export async function getDashboardData() {
 
   const supabaseAdmin = createAdminClient()
 
-  // Grote tabellen pagineren (Supabase max-rows = 1000)
+  // Grote tabellen beperken tot wat het dashboard echt nodig heeft:
+  // - Facturen: laatste 13 maanden (grafieken tonen 12 mnd) + alle openstaande
+  //   ongeacht datum (achterstallige moeten ook oudere betreffen).
+  // - Offertes: laatste 13 maanden (grafieken tonen 12 mnd).
+  // - Taken: alle niet-afgeronde + recent-afgeronde voor dashboard teller.
+  const grens = new Date()
+  grens.setMonth(grens.getMonth() - 13)
+  const grensStr = grens.toISOString().slice(0, 10)
   const [facturenData, offertesData, takenData] = await Promise.all([
-    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type').eq('administratie_id', adminId).range(from, to)),
-    fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).range(from, to)),
-    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type').eq('administratie_id', adminId).or(`datum.gte.${grensStr},status.in.(concept,verzonden,deels_betaald,vervallen)`).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).gte('datum', grensStr).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).or(`status.neq.afgerond,deadline.gte.${grensStr}`).range(from, to)),
   ])
 
   const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
     supabase.from('relaties').select('type', { count: 'exact' }).eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }).limit(200),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),

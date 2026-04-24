@@ -3,9 +3,12 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { Header } from '@/components/layout/header'
 import { ToastContainer } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NavHistoryProvider } from '@/lib/hooks/nav-history-provider'
 
-export const dynamic = 'force-dynamic'
+// Geen 'force-dynamic' meer: Supabase's createClient leest cookies en maakt
+// de layout automatisch dynamisch. Een expliciete flag geeft geen extra
+// zekerheid maar voorkomt wel mogelijke render-optimalisaties.
 
 export default async function DashboardLayout({
   children,
@@ -16,7 +19,10 @@ export default async function DashboardLayout({
   const { data: { user } } = await supabase.auth.getUser()
   let rol = 'gebruiker'
   if (user) {
-    const { data: profiel } = await supabase
+    // Admin-client bypassed RLS en is daardoor merkbaar sneller dan de
+    // user-client voor deze kleine lookup (geen policy-evaluatie nodig).
+    const supabaseAdmin = createAdminClient()
+    const { data: profiel } = await supabaseAdmin
       .from('profielen')
       .select('rol')
       .eq('id', user.id)
