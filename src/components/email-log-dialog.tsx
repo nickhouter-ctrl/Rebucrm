@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { getEmailLogDetail, getEmailBijlageUrl, archiveBijlageFromUpload } from '@/lib/actions'
-import { Mail, Paperclip, Loader2, ExternalLink, Upload } from 'lucide-react'
+import { getEmailLogDetail, getEmailBijlageUrl } from '@/lib/actions'
+import { Mail, Paperclip, Loader2, ExternalLink } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 
@@ -31,13 +31,7 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState<EmailLogDetail | null>(null)
   const [bijlageLoading, setBijlageLoading] = useState<string | null>(null)
-  const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [error, setError] = useState('')
-
-  async function reloadDetail(id: string) {
-    const d = await getEmailLogDetail(id)
-    setDetail(d as EmailLogDetail | null)
-  }
 
   useEffect(() => {
     if (!emailLogId) { setDetail(null); return }
@@ -48,27 +42,6 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
       setLoading(false)
     })
   }, [emailLogId])
-
-  async function handleReupload(filename: string, file: File) {
-    if (!detail) return
-    setUploadingFor(filename)
-    setError('')
-    try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve((reader.result as string).split(',')[1])
-        reader.onerror = () => reject(reader.error)
-        reader.readAsDataURL(file)
-      })
-      const result = await archiveBijlageFromUpload(detail.id, filename, base64)
-      if (result.error) setError(result.error)
-      else await reloadDetail(detail.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload mislukt')
-    } finally {
-      setUploadingFor(null)
-    }
-  }
 
   async function openBijlage(b: BijlageMeta) {
     if (!detail) return
@@ -151,52 +124,40 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
               <div className="space-y-1.5">
                 {bijlagen.map((b: BijlageMeta, i: number) => {
                   const loadingThis = bijlageLoading === b.filename
-                  const uploadingThis = uploadingFor === b.filename
                   const canOpen = !!b.storage_path
                     || b.kind === 'offerte_pdf' || b.kind === 'tekeningen_pdf' || b.kind === 'factuur_pdf'
                     || (b.filename.startsWith('Offerte-') && detail.offerte_id)
                     || (b.filename.startsWith('Tekeningen-') && detail.offerte_id)
                     || (b.filename.startsWith('Factuur-') && detail.factuur_id)
                   return (
-                    <div key={i} className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md text-sm">
-                      <Paperclip className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                      <span className="text-blue-800 flex-1 truncate">{b.filename}</span>
-                      {canOpen ? (
-                        <button
-                          type="button"
-                          onClick={() => openBijlage(b)}
-                          disabled={loadingThis}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 rounded transition-colors"
-                          title="Bijlage openen"
-                        >
-                          {loadingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
-                          Openen
-                        </button>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => canOpen && openBijlage(b)}
+                      disabled={!canOpen || loadingThis}
+                      className={`w-full flex items-center gap-2 px-3 py-2 border rounded-md text-sm text-left transition-colors ${
+                        canOpen
+                          ? 'bg-blue-50 hover:bg-blue-100 border-blue-200 cursor-pointer'
+                          : 'bg-gray-50 border-gray-200 cursor-not-allowed'
+                      }`}
+                      title={canOpen ? 'Bijlage openen' : 'Bijlage niet beschikbaar (oude mail, nog niet gearchiveerd)'}
+                    >
+                      <Paperclip className={`h-4 w-4 flex-shrink-0 ${canOpen ? 'text-blue-600' : 'text-gray-400'}`} />
+                      <span className={`flex-1 truncate ${canOpen ? 'text-blue-800' : 'text-gray-500'}`}>{b.filename}</span>
+                      {loadingThis ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      ) : canOpen ? (
+                        <ExternalLink className="h-3.5 w-3.5 text-blue-600" />
                       ) : (
-                        <label className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded cursor-pointer transition-colors ${uploadingThis ? 'text-blue-400 bg-blue-100' : 'text-blue-700 hover:bg-blue-100'}`} title="Alsnog archiveren">
-                          {uploadingThis ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                          {uploadingThis ? 'Uploaden...' : 'Uploaden'}
-                          <input
-                            type="file"
-                            accept=".pdf,.png,.jpg,.jpeg"
-                            className="hidden"
-                            disabled={uploadingThis}
-                            onChange={e => {
-                              const file = e.target.files?.[0]
-                              e.target.value = ''
-                              if (file) handleReupload(b.filename, file)
-                            }}
-                          />
-                        </label>
+                        <span className="text-xs text-gray-400">Niet beschikbaar</span>
                       )}
-                    </div>
+                    </button>
                   )
                 })}
               </div>
               {bijlagen.some((b: BijlageMeta) => !b.storage_path && !b.filename.startsWith('Offerte-') && !b.filename.startsWith('Tekeningen-') && !b.filename.startsWith('Factuur-')) && (
                 <p className="text-xs text-gray-500 mt-2">
-                  Niet gearchiveerde bijlagen komen uit mails verstuurd vóór de CRM-update.
-                  Kies hetzelfde bestand opnieuw om het alsnog op te slaan.
+                  Deze mail is verstuurd vóór de archivering actief werd. Vanaf nu wordt elke verstuurde bijlage automatisch bewaard.
                 </p>
               )}
             </div>

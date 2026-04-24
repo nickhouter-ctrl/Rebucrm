@@ -584,6 +584,77 @@ export async function getArchiefFacturen() {
   return data
 }
 
+// Projecten waarvan alle facturen zijn betaald (of credit-facturen erna zijn
+// gecompenseerd) worden automatisch op 'afgerond' gezet. Zo verdwijnen ze uit
+// de actieve verkoopkansen-lijst en duiken op in het archief.
+export async function autoArchiveerAfgerondeVerkoopkansen() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { gearchiveerd: 0 }
+  const supabase = createAdminClient()
+  const { data: projecten } = await supabase
+    .from('projecten')
+    .select(`
+      id, status,
+      offertes:offertes(id, status, facturen:facturen(id, status, factuur_type))
+    `)
+    .eq('administratie_id', adminId)
+    .in('status', ['actief', 'on_hold'])
+  if (!projecten) return { gearchiveerd: 0 }
+
+  const archiveerIds: string[] = []
+  for (const p of projecten) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offertes = ((p as any).offertes as any[]) || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const facturen = offertes.flatMap((o: any) => (o.facturen as any[]) || [])
+    if (facturen.length === 0) continue
+    // Negeer concept-facturen (nog niet verstuurd) en credit-facturen bij de "alle betaald" check
+    const relevant = facturen.filter(f => f.status !== 'concept' && f.factuur_type !== 'credit')
+    if (relevant.length === 0) continue
+    // Er moet minstens 1 niet-aanbetaling factuur zijn — anders is de klus nog niet klaar
+    // (alleen aanbetaling betaald betekent nog restbetaling open)
+    const heeftRestOfVolledig = relevant.some(f => f.factuur_type === 'restbetaling' || f.factuur_type === 'volledig' || f.factuur_type === null)
+    if (!heeftRestOfVolledig) continue
+    const alleBetaald = relevant.every(f => f.status === 'betaald' || f.status === 'gecrediteerd')
+    if (alleBetaald) archiveerIds.push(p.id)
+  }
+
+  if (archiveerIds.length > 0) {
+    await supabase.from('projecten').update({ status: 'afgerond' }).in('id', archiveerIds)
+  }
+  return { gearchiveerd: archiveerIds.length }
+}
+
+// Afgeronde verkoopkansen voor in archief-overzicht
+export async function getArchiefVerkoopkansen() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('projecten')
+    .select('id, naam, status, updated_at, created_at, relatie:relaties(id, bedrijfsnaam), offertes:offertes(id, subtotaal, totaal, facturen:facturen(id, totaal, betaald_bedrag, status, factuur_type))')
+    .eq('administratie_id', adminId)
+    .eq('status', 'afgerond')
+    .order('updated_at', { ascending: false })
+  return (data || []).map(p => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offertes = ((p as any).offertes as any[]) || []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const facturen = offertes.flatMap((o: any) => (o.facturen as any[]) || [])
+    const totaalGefactureerd = facturen.reduce((s, f) => s + (f.totaal || 0), 0)
+    const totaalBetaald = facturen.reduce((s, f) => s + (f.betaald_bedrag || 0), 0)
+    return {
+      id: p.id as string,
+      naam: p.naam as string,
+      updated_at: p.updated_at as string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      relatie: (p as any).relatie as { id: string; bedrijfsnaam: string } | null,
+      totaalGefactureerd,
+      totaalBetaald,
+    }
+  })
+}
+
 export async function getConceptOffertes() {
   const supabase = await createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1502,11 +1573,14 @@ export async function sendFactuurEmail(factuurId: string, options: {
     }
   }
 
-  // Log email
+  // Log email + archiveer bijlagen
   const { data: { user } } = await supabase.auth.getUser()
-  const bijlagenMeta = attachments.map(a => ({ filename: a.filename }))
+  const bijlagenMeta: { filename: string; storage_path?: string; kind: 'factuur_pdf' | 'upload' }[] = attachments.map(a => ({
+    filename: a.filename,
+    kind: a.filename.startsWith('Factuur-') ? 'factuur_pdf' : 'upload',
+  }))
   const supabaseAdmin = createAdminClient()
-  await supabaseAdmin.from('email_log').insert({
+  const { data: emailLogRow } = await supabaseAdmin.from('email_log').insert({
     administratie_id: factuur.administratie_id,
     factuur_id: factuurId,
     relatie_id: factuur.relatie_id,
@@ -1515,7 +1589,27 @@ export async function sendFactuurEmail(factuurId: string, options: {
     body_html: emailHtml,
     bijlagen: bijlagenMeta,
     verstuurd_door: user?.id || null,
-  })
+  }).select('id').single()
+
+  // Archiveer user-upload bijlagen in storage zodat ze later openbaar zijn
+  if (emailLogRow?.id && options.extraBijlagen && options.extraBijlagen.length > 0) {
+    const updatedBijlagen = [...bijlagenMeta]
+    for (const bij of options.extraBijlagen) {
+      const idx = updatedBijlagen.findIndex(b => b.filename === bij.filename && b.kind === 'upload' && !b.storage_path)
+      if (idx < 0) continue
+      const safeName = bij.filename.replace(/[^\w.\-]/g, '_')
+      const path = `${emailLogRow.id}/${safeName}`
+      const { error: upErr } = await supabaseAdmin.storage
+        .from('email-bijlagen')
+        .upload(path, Buffer.from(bij.content, 'base64'), {
+          contentType: bij.filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream',
+          upsert: true,
+        })
+      if (!upErr) updatedBijlagen[idx] = { ...updatedBijlagen[idx], storage_path: path }
+      else console.warn('factuur bijlage upload failed:', bij.filename, upErr.message)
+    }
+    await supabaseAdmin.from('email_log').update({ bijlagen: updatedBijlagen }).eq('id', emailLogRow.id)
+  }
 
   // SnelStart sync — alleen voor NIEUWE facturen (nog niet eerder gesynchroniseerd)
   // Bestaande facturen hebben snelstart_synced_at = '1900-01-01' (gezet in migratie 023)
