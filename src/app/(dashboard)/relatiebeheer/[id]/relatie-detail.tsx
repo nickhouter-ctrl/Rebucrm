@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil, Paperclip } from 'lucide-react'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -125,6 +125,15 @@ interface Contactpersoon {
   opmerkingen: string | null
 }
 
+interface VerstuurdeEmail {
+  id: string
+  aan: string
+  onderwerp: string | null
+  bijlagen: { filename: string }[] | null
+  verstuurd_op: string
+  offerte?: { id: string; offertenummer: string } | null
+}
+
 interface Props {
   detail: {
     relatie: RelatieData
@@ -143,9 +152,10 @@ interface Props {
   klantAccounts: KlantAccount[]
   relatieTaken?: RelatieTaak[]
   relatieEmails?: RelatieEmail[]
+  verstuurdeEmails?: VerstuurdeEmail[]
 }
 
-export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [] }: Props) {
+export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [], verstuurdeEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
   type TabKey = 'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
@@ -236,6 +246,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [editProjectNotitieText, setEditProjectNotitieText] = useState('')
   const [showNotitieForm, setShowNotitieForm] = useState(false) // legacy, unused
   const [gereedOpen, setGereedOpen] = useState(false)
+  const [expandedTaakNotities, setExpandedTaakNotities] = useState<Set<string>>(new Set())
   const [notitieText, setNotitieText] = useState('')
   const [notitieHerinnering, setNotitieHerinnering] = useState(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
@@ -612,7 +623,65 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               )}
             </div>
 
-            {/* Gereed: notities + afgeronde taken, op datum — standaard ingeklapt */}
+            {/* Notities (altijd zichtbaar, los van taken) */}
+            {(() => {
+              const losseNotities = notities.filter(n => !n.taak)
+              if (losseNotities.length === 0) return null
+              return (
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-amber-500" />
+                    Notities
+                    <span className="text-xs font-normal text-gray-400">({losseNotities.length})</span>
+                  </h3>
+                  <div className="space-y-2">
+                    {losseNotities.map(n => {
+                      const datumStr = format(new Date(n.created_at), "d MMMM yyyy 'om' HH:mm", { locale: nl })
+                      const isEditing = editNotitieId === n.id
+                      return (
+                        <div key={n.id} className="flex items-start gap-2 group">
+                          <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-amber-50 text-amber-500">
+                            <MessageSquare className="h-3.5 w-3.5" />
+                          </div>
+                          <div className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-amber-50 border-amber-100">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <span className="font-semibold text-amber-900 text-xs">Notitie</span>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-xs text-gray-400 mr-1">{datumStr}</span>
+                                {!isEditing && (
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                    <button onClick={() => startEdit(n)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button onClick={() => handleDeleteNotitie(n.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-xs text-gray-500 mb-1">{n.gebruiker?.naam || 'Onbekend'}</div>
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <textarea value={editNotitieText} onChange={e => setEditNotitieText(e.target.value)} rows={3} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]" />
+                                <div className="flex gap-2 justify-end">
+                                  <Button variant="ghost" size="sm" onClick={() => { setEditNotitieId(null); setEditNotitieText('') }}>Annuleren</Button>
+                                  <Button size="sm" onClick={() => handleEditNotitie(n.id)}>Opslaan</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap text-amber-900">{n.tekst}</p>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Gereed: alleen afgeronde taken — notities zijn ingeklapt onder hun taak */}
             <div>
               <button
                 onClick={() => setGereedOpen(!gereedOpen)}
@@ -620,88 +689,71 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               >
                 {gereedOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronUp className="h-4 w-4 text-gray-400 rotate-180" />}
                 Gereed
-                <span className="text-xs font-normal text-gray-400">({notities.length + relatieTaken.filter(t => t.status === 'afgerond').length})</span>
+                <span className="text-xs font-normal text-gray-400">({relatieTaken.filter(t => t.status === 'afgerond').length})</span>
               </button>
               {gereedOpen && (() => {
-                type Item = { id: string; datum: string; kind: 'notitie' | 'taak'; data: Notitie | RelatieTaak }
-                const items: Item[] = [
-                  ...notities.map(n => ({ id: 'n-' + n.id, datum: n.created_at, kind: 'notitie' as const, data: n })),
-                  ...relatieTaken.filter(t => t.status === 'afgerond').map(t => ({ id: 't-' + t.id, datum: t.deadline || '', kind: 'taak' as const, data: t })),
-                ]
-                items.sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
-                if (items.length === 0) return <p className="text-sm text-gray-400 italic">Nog niets afgerond</p>
+                const afgerondeTaken = [...relatieTaken.filter(t => t.status === 'afgerond')]
+                  .sort((a, b) => new Date(b.deadline || 0).getTime() - new Date(a.deadline || 0).getTime())
+                if (afgerondeTaken.length === 0) return <p className="text-sm text-gray-400 italic">Nog niets afgerond</p>
+                // Groepeer taak-notities per taak-id zodat ze ingeklapt kunnen worden onder hun taak
+                const taakNotitiesMap = new Map<string, Notitie[]>()
+                for (const n of notities) {
+                  if (!n.taak?.id) continue
+                  const list = taakNotitiesMap.get(n.taak.id) || []
+                  list.push(n)
+                  taakNotitiesMap.set(n.taak.id, list)
+                }
                 return (
                   <div className="space-y-2">
-                    {items.map(item => {
-                      if (item.kind === 'notitie') {
-                        const n = item.data as Notitie
-                        const isTaakNot = !!n.taak
-                        const datumStr = format(new Date(n.created_at), "d MMMM yyyy 'om' HH:mm", { locale: nl })
-                        const isEditing = editNotitieId === n.id
-                        return (
-                          <div key={item.id} className="flex items-start gap-2 group">
-                            {isTaakNot && n.taak?.id ? (
-                              <Link href={`/taken/${n.taak.id}`} className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-gray-100 text-gray-500">
-                                <CheckSquare className="h-3.5 w-3.5" />
-                              </Link>
-                            ) : (
-                              <div className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-amber-50 text-amber-500">
-                                <MessageSquare className="h-3.5 w-3.5" />
-                              </div>
-                            )}
-                            <div className={`flex-1 min-w-0 rounded-lg px-4 py-3 border ${isTaakNot ? 'bg-gray-50 border-gray-200' : 'bg-amber-50 border-amber-100'}`}>
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
-                                  <span className={`font-semibold ${isTaakNot ? 'text-gray-700' : 'text-amber-900'}`}>{isTaakNot ? 'Taak' : 'Notitie'}</span>
-                                  {isTaakNot && n.taak?.titel && (
-                                    <Link href={`/taken/${n.taak.id}`} className="text-gray-600 font-medium hover:text-[#00a66e]">· {n.taak.titel}</Link>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <span className="text-xs text-gray-400 mr-1">{datumStr}</span>
-                                  {!isEditing && (
-                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                      <button onClick={() => startEdit(n)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button onClick={() => handleDeleteNotitie(n.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="text-xs text-gray-500 mb-1">{n.gebruiker?.naam || 'Onbekend'}</div>
-                              {isEditing ? (
-                                <div className="space-y-2">
-                                  <textarea value={editNotitieText} onChange={e => setEditNotitieText(e.target.value)} rows={3} className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e]" />
-                                  <div className="flex gap-2 justify-end">
-                                    <Button variant="ghost" size="sm" onClick={() => { setEditNotitieId(null); setEditNotitieText('') }}>Annuleren</Button>
-                                    <Button size="sm" onClick={() => handleEditNotitie(n.id)}>Opslaan</Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                !isTaakNot && <p className="text-sm whitespace-pre-wrap text-amber-900">{n.tekst}</p>
-                              )}
-                            </div>
-                          </div>
-                        )
-                      } else {
-                        const t = item.data as RelatieTaak
-                        return (
-                          <div key={item.id} className="flex items-start gap-2 group">
+                    {afgerondeTaken.map(t => {
+                      const taakNotities = taakNotitiesMap.get(t.id) || []
+                      const isExpanded = expandedTaakNotities.has(t.id)
+                      return (
+                        <div key={t.id} className="group">
+                          <div className="flex items-start gap-2">
                             <Link href={`/taken/${t.id}`} className="h-7 w-7 rounded-md flex items-center justify-center shrink-0 mt-0.5 bg-emerald-50 text-emerald-600">
                               <CheckSquare className="h-3.5 w-3.5" />
                             </Link>
-                            <Link href={`/taken/${t.id}`} className="flex-1 min-w-0 rounded-lg px-4 py-3 border bg-emerald-50/40 border-emerald-100">
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
-                                  <span className="font-semibold text-emerald-700">Taak afgerond</span>
-                                  <span className="text-gray-600 font-medium">· {t.titel}</span>
+                            <div className="flex-1 min-w-0 rounded-lg border bg-emerald-50/40 border-emerald-100">
+                              <Link href={`/taken/${t.id}`} className="block px-4 py-3">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="flex items-baseline gap-2 flex-wrap text-xs text-gray-500">
+                                    <span className="font-semibold text-emerald-700">Taak afgerond</span>
+                                    <span className="text-gray-600 font-medium">· {t.titel}</span>
+                                  </div>
+                                  {t.deadline && <span className="text-xs text-gray-400 shrink-0">{formatDateShort(t.deadline)}</span>}
                                 </div>
-                                {t.deadline && <span className="text-xs text-gray-400 shrink-0">{formatDateShort(t.deadline)}</span>}
-                              </div>
-                            </Link>
+                              </Link>
+                              {taakNotities.length > 0 && (
+                                <div className="border-t border-emerald-100 px-4 py-2" onClick={e => e.stopPropagation()}>
+                                  <button
+                                    onClick={() => setExpandedTaakNotities(prev => {
+                                      const next = new Set(prev)
+                                      if (next.has(t.id)) next.delete(t.id); else next.add(t.id)
+                                      return next
+                                    })}
+                                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                                  >
+                                    <MessageSquare className="h-3.5 w-3.5" />
+                                    {taakNotities.length} notitie{taakNotities.length !== 1 ? 's' : ''}
+                                    {isExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                                  </button>
+                                  {isExpanded && (
+                                    <div className="mt-2 space-y-1.5">
+                                      {taakNotities.map(n => (
+                                        <div key={n.id} className="rounded bg-white border border-emerald-100 px-3 py-2 text-sm">
+                                          <div className="flex items-center gap-2 text-xs text-gray-500 mb-1">
+                                            <span className="font-medium">{n.gebruiker?.naam || 'Onbekend'}</span>
+                                            <span>· {format(new Date(n.created_at), "d MMM yyyy HH:mm", { locale: nl })}</span>
+                                          </div>
+                                          <p className="text-sm whitespace-pre-wrap text-gray-700">{n.tekst}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">
                               <button onClick={() => router.push(`/taken/${t.id}`)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
                                 <Pencil className="h-3.5 w-3.5" />
@@ -711,14 +763,64 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                               </button>
                             </div>
                           </div>
-                        )
-                      }
+                        </div>
+                      )
                     })}
                   </div>
                 )
               })()}
             </div>
           </div>
+
+          {/* Verstuurde e-mails (offertes + facturen) inclusief bijlagen */}
+          {verstuurdeEmails.length > 0 && (
+            <Card>
+              <CardContent className="pt-4 pb-3">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <Mail className="h-4 w-4 text-gray-400" />
+                  Verstuurde e-mails ({verstuurdeEmails.length})
+                </h3>
+                <div className="space-y-2">
+                  {verstuurdeEmails.map(e => {
+                    const datumStr = format(new Date(e.verstuurd_op), 'd MMM yyyy HH:mm', { locale: nl })
+                    const bijlagen = e.bijlagen || []
+                    const offerteId = e.offerte?.id
+                    return (
+                      <div key={e.id} className={`rounded-lg border border-gray-200 px-3 py-2 bg-white ${offerteId ? 'hover:bg-gray-50 cursor-pointer' : ''}`} onClick={offerteId ? () => router.push(`/offertes/${offerteId}`) : undefined}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
+                              <ArrowUpRight className="h-3 w-3 text-gray-400" />
+                              <span>{datumStr}</span>
+                              <span>·</span>
+                              <span className="truncate">naar {e.aan}</span>
+                              {e.offerte?.offertenummer && (
+                                <>
+                                  <span>·</span>
+                                  <span className="text-primary font-medium">{e.offerte.offertenummer}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="text-sm font-medium text-gray-900 truncate">{e.onderwerp || '(geen onderwerp)'}</div>
+                            {bijlagen.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                {bijlagen.map((b, i) => (
+                                  <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">
+                                    <Paperclip className="h-3 w-3" />
+                                    {b.filename}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 

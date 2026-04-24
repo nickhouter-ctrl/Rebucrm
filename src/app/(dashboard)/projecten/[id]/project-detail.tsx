@@ -42,12 +42,22 @@ interface ProjectDocument {
   created_at: string
 }
 
-export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [] }: {
+interface VerstuurdeEmail {
+  id: string
+  aan: string
+  onderwerp: string | null
+  bijlagen: { filename: string }[] | null
+  verstuurd_op: string
+  offertenummer?: string | null
+}
+
+export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [], verstuurdeEmails = [] }: {
   timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
   isNew: boolean
   emails?: ProjectEmail[]
   documenten?: ProjectDocument[]
+  verstuurdeEmails?: VerstuurdeEmail[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -394,6 +404,50 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
 
           {/* Timeline */}
           <Timeline items={timeline.items} onEmailClick={handleEmailClick} />
+
+          {/* Verstuurde offerte-mails (via email_log, met bijlagen) */}
+          {verstuurdeEmails.length > 0 && (
+            <Card>
+              <CardContent className="pt-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Mail className="h-4 w-4 text-gray-400" />
+                  <h3 className="text-sm font-semibold text-gray-900">Verstuurde offerte-mails ({verstuurdeEmails.length})</h3>
+                </div>
+                <div className="space-y-2">
+                  {verstuurdeEmails.map(e => {
+                    const bijlagen = e.bijlagen || []
+                    return (
+                      <div key={e.id} className="rounded-lg border border-gray-200 px-3 py-2 bg-white">
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
+                          <ArrowUpRight className="h-3 w-3 text-green-500" />
+                          <span>{formatDateShort(e.verstuurd_op)}</span>
+                          <span>·</span>
+                          <span className="truncate">naar {e.aan}</span>
+                          {e.offertenummer && (
+                            <>
+                              <span>·</span>
+                              <span className="text-primary font-medium">{e.offertenummer}</span>
+                            </>
+                          )}
+                        </div>
+                        <div className="text-sm font-medium text-gray-900 truncate">{e.onderwerp || '(geen onderwerp)'}</div>
+                        {bijlagen.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            {bijlagen.map((b, i) => (
+                              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded border border-blue-200">
+                                <Paperclip className="h-3 w-3" />
+                                {b.filename}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Gekoppelde emails */}
           {emails.length > 0 && (

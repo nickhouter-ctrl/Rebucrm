@@ -4720,6 +4720,45 @@ export async function getOfferteEmailLog(offerteId: string) {
   return data || []
 }
 
+// Alle verzonden e-mails (met bijlagen) voor een relatie — offerte én factuur
+export async function getEmailLogByRelatie(relatieId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const { data } = await supabase
+    .from('email_log')
+    .select('id, aan, onderwerp, bijlagen, verstuurd_op, offerte_id, order_id, offerte:offertes(id, offertenummer)')
+    .eq('relatie_id', relatieId)
+    .eq('administratie_id', adminId)
+    .order('verstuurd_op', { ascending: false })
+  return data || []
+}
+
+// Alle verzonden e-mails voor een verkoopkans (project) — via offertes van het project
+export async function getEmailLogByProject(projectId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  // Eerst offerte-ids van dit project
+  const { data: offertes } = await supabase
+    .from('offertes')
+    .select('id, offertenummer')
+    .eq('project_id', projectId)
+  const offerteIds = (offertes || []).map(o => o.id)
+  if (offerteIds.length === 0) return []
+  const offerteMap = new Map(offertes!.map(o => [o.id as string, o.offertenummer as string]))
+  const { data } = await supabase
+    .from('email_log')
+    .select('id, aan, onderwerp, bijlagen, verstuurd_op, offerte_id')
+    .in('offerte_id', offerteIds)
+    .eq('administratie_id', adminId)
+    .order('verstuurd_op', { ascending: false })
+  return (data || []).map(e => ({
+    ...e,
+    offertenummer: offerteMap.get(e.offerte_id as string) || null,
+  }))
+}
+
 // Alle verzonden e-mails (met bijlagen) voor een factuur
 export async function getFactuurEmailLog(factuurId: string) {
   const supabase = await createClient()
