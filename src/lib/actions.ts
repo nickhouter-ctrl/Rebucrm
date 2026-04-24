@@ -1379,8 +1379,10 @@ export async function deleteFactuur(id: string) {
 
 export async function getFactuurEmailDefaults(factuurId: string) {
   const supabase = await createClient()
+  // Admin-client voor reads zodat deze defaults ook werken bij admin bulk calls
+  const adminSb = createAdminClient()
 
-  const { data: factuur } = await supabase
+  const { data: factuur } = await adminSb
     .from('facturen')
     .select('*, relatie:relaties(*)')
     .eq('id', factuurId)
@@ -1461,15 +1463,69 @@ ${medewerkerNaam}`
   }
 }
 
+/**
+ * Verstuurt in bulk een herinnerings-mail voor alle openstaande facturen.
+ * Wordt alleen de mail opnieuw gegenereerd (met de nieuwe, 30-dagen geldige
+ * Mollie Payment Link + permanente Rebu-URL). SnelStart wordt NIET opnieuw
+ * aangeroepen (skipSnelStart=true in sendFactuurEmail).
+ */
+export async function hermailAlleOpenstaandeFacturen(overrideAdminId?: string) {
+  const adminId = overrideAdminId || await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+
+  const { data: facturen } = await sb
+    .from('facturen')
+    .select('id, factuurnummer, totaal, betaald_bedrag')
+    .eq('administratie_id', adminId)
+    .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
+    .order('factuurnummer')
+
+  if (!facturen || facturen.length === 0) return { verzonden: 0, overgeslagen: 0, fouten: [] }
+
+  let verzonden = 0
+  let overgeslagen = 0
+  const fouten: { factuurnummer: string; error: string }[] = []
+
+  for (const f of facturen) {
+    const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
+    if (openstaand <= 0.01) { overgeslagen++; continue }
+    try {
+      const defaults = await getFactuurEmailDefaults(f.id)
+      if (defaults.error || !defaults.to) {
+        fouten.push({ factuurnummer: f.factuurnummer, error: defaults.error || 'geen e-mailadres' })
+        continue
+      }
+      const result = await sendFactuurEmail(f.id, {
+        to: defaults.to,
+        subject: defaults.subject!,
+        body: defaults.body!,
+        skipSnelStart: true,
+      })
+      if (result.error) fouten.push({ factuurnummer: f.factuurnummer, error: result.error })
+      else verzonden++
+    } catch (err) {
+      fouten.push({ factuurnummer: f.factuurnummer, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
+  return { verzonden, overgeslagen, fouten }
+}
+
 export async function sendFactuurEmail(factuurId: string, options: {
   to: string
   subject: string
   body: string
   extraBijlagen?: { filename: string; content: string }[]
+  skipSnelStart?: boolean
 }) {
   const supabase = await createClient()
+  const supabaseAdmin2 = createAdminClient()
 
-  const { data: factuur } = await supabase
+  // Lezen via admin-client zodat deze functie ook werkt zonder user-sessie
+  // (gebruikt vanuit admin bulk-hermail endpoint). RLS wordt bypast; schrijven
+  // gebeurt verderop nog gewoon via de user-scope waar mogelijk.
+  const { data: factuur } = await supabaseAdmin2
     .from('facturen')
     .select('*, relatie:relaties(*), regels:factuur_regels(*)')
     .eq('id', factuurId)
@@ -1479,7 +1535,6 @@ export async function sendFactuurEmail(factuurId: string, options: {
   if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
   // Medewerker-info voor mail-footer + Reply-To
-  const supabaseAdmin2 = createAdminClient()
   const { data: { user: currentUser } } = await supabase.auth.getUser()
   let mwInfo: { naam?: string; email?: string; telefoon?: string } | undefined
   if (currentUser) {
@@ -1616,16 +1671,20 @@ export async function sendFactuurEmail(factuurId: string, options: {
   }
 
   // SnelStart sync — alleen voor NIEUWE facturen (nog niet eerder gesynchroniseerd)
-  // Bestaande facturen hebben snelstart_synced_at = '1900-01-01' (gezet in migratie 023)
-  try {
-    const { isSnelStartEnabled } = await import('@/lib/snelstart')
-    if (isSnelStartEnabled() && !factuur.snelstart_synced_at && !factuur.snelstart_boeking_id) {
-      await pushFactuurToSnelStart(factuurId).catch(err => {
-        console.error('SnelStart push mislukt voor factuur', factuurId, err)
-      })
+  // Bestaande facturen hebben snelstart_synced_at = '1900-01-01' (gezet in migratie 023).
+  // skipSnelStart wordt gezet door bulk-hermail zodat we al-gesynchroniseerde
+  // facturen zeker niet opnieuw pushen.
+  if (!options.skipSnelStart) {
+    try {
+      const { isSnelStartEnabled } = await import('@/lib/snelstart')
+      if (isSnelStartEnabled() && !factuur.snelstart_synced_at && !factuur.snelstart_boeking_id) {
+        await pushFactuurToSnelStart(factuurId).catch(err => {
+          console.error('SnelStart push mislukt voor factuur', factuurId, err)
+        })
+      }
+    } catch (err) {
+      console.error('SnelStart integratie fout:', err)
     }
-  } catch (err) {
-    console.error('SnelStart integratie fout:', err)
   }
 
   revalidatePath('/facturatie')
