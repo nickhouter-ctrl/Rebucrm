@@ -10,7 +10,8 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { SearchSelect } from '@/components/ui/search-select'
-import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw, Pencil } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw, Pencil, Phone, Mail, User } from 'lucide-react'
+import Link from 'next/link'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { RecentTracker } from '@/components/layout/recent-tracker'
@@ -26,7 +27,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string; relatie_id?: string }[]
   medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
-  relaties: { id: string; bedrijfsnaam: string }[]
+  relaties: { id: string; bedrijfsnaam: string; email?: string | null; telefoon?: string | null; contactpersoon?: string | null }[]
   offertes: { id: string; offertenummer: string; relatie_id: string }[]
   notities?: Notitie[]
   defaultRelatieId?: string
@@ -186,6 +187,33 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
         />
       )}
       <PageHeader title={isNew ? 'Nieuwe taak' : 'Taak bewerken'} actions={<Button variant="ghost" onClick={() => navigateAfterSave((taak?.id as string) || undefined)}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+      {/* Klant-contactstrip: email + telefoon snel bij de hand zodra er een
+          relatie gekoppeld is aan deze taak. */}
+      {trackerRelatie && (trackerRelatie.email || trackerRelatie.telefoon || trackerRelatie.contactpersoon) && (
+        <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+          <Link href={`/relatiebeheer/${trackerRelatie.id}`} className="font-medium text-gray-900 hover:text-[#00a66e]">
+            {trackerRelatie.bedrijfsnaam}
+          </Link>
+          {trackerRelatie.contactpersoon && (
+            <span className="inline-flex items-center gap-1.5">
+              <User className="h-3.5 w-3.5 text-gray-400" />
+              {trackerRelatie.contactpersoon}
+            </span>
+          )}
+          {trackerRelatie.telefoon && (
+            <a href={`tel:${trackerRelatie.telefoon}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
+              <Phone className="h-3.5 w-3.5 text-gray-400" />
+              {trackerRelatie.telefoon}
+            </a>
+          )}
+          {trackerRelatie.email && (
+            <a href={`mailto:${trackerRelatie.email}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
+              <Mail className="h-3.5 w-3.5 text-gray-400" />
+              {trackerRelatie.email}
+            </a>
+          )}
+        </div>
+      )}
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit}>
         <Card>

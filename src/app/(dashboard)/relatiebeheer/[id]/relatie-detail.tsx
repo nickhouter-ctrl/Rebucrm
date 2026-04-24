@@ -429,6 +429,37 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         }
       />
 
+      {/* Contact-strip altijd zichtbaar onder de naam — ook bij andere tabs
+          heb je zo mail + telefoon direct onder handbereik. */}
+      {(relatie.contactpersoon || relatie.email || relatie.telefoon || relatie.adres) && (
+        <div className="-mt-2 mb-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-gray-600">
+          {relatie.contactpersoon && (
+            <span className="inline-flex items-center gap-1.5">
+              <UserPlus className="h-3.5 w-3.5 text-gray-400" />
+              {relatie.contactpersoon}
+            </span>
+          )}
+          {relatie.telefoon && (
+            <a href={`tel:${relatie.telefoon}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
+              <Phone className="h-3.5 w-3.5 text-gray-400" />
+              {relatie.telefoon}
+            </a>
+          )}
+          {relatie.email && (
+            <a href={`mailto:${relatie.email}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
+              <Mail className="h-3.5 w-3.5 text-gray-400" />
+              {relatie.email}
+            </a>
+          )}
+          {(relatie.adres || relatie.postcode || relatie.plaats) && (
+            <span className="inline-flex items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 text-gray-400" />
+              {[relatie.adres, [relatie.postcode, relatie.plaats].filter(Boolean).join(' ')].filter(Boolean).join(', ')}
+            </span>
+          )}
+        </div>
+      )}
+
       {success && <div className="bg-green-50 text-green-600 text-sm p-3 rounded-md mb-4">{success}</div>}
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
 
