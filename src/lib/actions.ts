@@ -1744,13 +1744,13 @@ export async function pushFactuurToSnelStart(factuurId: string) {
   //    aangemaakt of via een eerdere gefaalde push die toch doorging) —
   //    dan alleen lokaal koppelen, niet opnieuw pushen.
   try {
-    const bestaande = await findVerkoopboekingByFactuurnummer(factuur.factuurnummer)
-    if (bestaande) {
+    const bestaandeId = await findVerkoopboekingByFactuurnummer(factuur.factuurnummer)
+    if (bestaandeId) {
       await supabaseAdmin
         .from('facturen')
-        .update({ snelstart_boeking_id: bestaande.id, snelstart_synced_at: new Date().toISOString() })
+        .update({ snelstart_boeking_id: bestaandeId, snelstart_synced_at: new Date().toISOString() })
         .eq('id', factuurId)
-      return { success: true, boekingId: bestaande.id, alreadyInSnelStart: true }
+      return { success: true, boekingId: bestaandeId, alreadyInSnelStart: true }
     }
   } catch { /* proceed — search mag geen blocker zijn */ }
 

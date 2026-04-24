@@ -157,18 +157,6 @@ export async function ensureRelatieIsKlant(relatieId: string): Promise<void> {
   })
 }
 
-/** Zoekt een bestaande verkoopboeking op factuurnummer, zodat we 'bestaat al'
- *  kunnen detecteren en alleen lokaal de koppeling hoeven te leggen. */
-export async function findVerkoopboekingByFactuurnummer(factuurnummer: string): Promise<{ id: string } | null> {
-  if (!factuurnummer) return null
-  try {
-    const encoded = `factuurnummer eq '${factuurnummer.replace(/'/g, "''")}'`
-    const res = await snelstartFetch<{ id: string }[]>(`/verkoopboekingen?$filter=${encodeURIComponent(encoded)}&$top=1`)
-    return Array.isArray(res) && res.length > 0 ? res[0] : null
-  } catch {
-    return null
-  }
-}
 
 export async function createRelatie(input: {
   naam: string
