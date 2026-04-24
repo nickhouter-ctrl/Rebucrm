@@ -391,7 +391,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   const tabs = [
     { key: 'overzicht' as const, label: 'Overzicht' },
-    { key: 'projecten' as const, label: `Verkoopkansen (${projecten.length})` },
+    { key: 'projecten' as const, label: `Verkoopkansen (${projecten.filter(p => p.status !== 'geannuleerd' && p.status !== 'verloren' && p.status !== 'vervallen').length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
     { key: 'documenten' as const, label: 'Documenten' },
