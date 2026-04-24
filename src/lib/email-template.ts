@@ -25,12 +25,21 @@ export function buildRebuEmailHtml(
       })
       .join('\n')
 
+  // Gebruik een <table>-based button met bgcolor-attribuut zodat Outlook,
+  // iOS Mail en webmail-previews (die linear-gradient en box-shadow strippen)
+  // altijd een groene klikbare knop tonen in plaats van een lege witte rechthoek.
   const ctaBlock = ctaLink ? `
         <tr>
-          <td style="padding:4px 40px 32px 40px;text-align:center;">
-            <a href="${ctaLink}" style="display:inline-block;background:linear-gradient(135deg,#00a66e 0%,#008f5f 100%);color:#ffffff;padding:14px 40px;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;letter-spacing:0.2px;box-shadow:0 4px 12px rgba(0,166,110,0.3);">
-              ${ctaLabel || 'Bekijken'}
-            </a>
+          <td align="center" style="padding:4px 40px 32px 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+              <tr>
+                <td bgcolor="#00a66e" align="center" style="background-color:#00a66e;background:#00a66e;background:linear-gradient(135deg,#00a66e 0%,#008f5f 100%);border-radius:10px;">
+                  <a href="${ctaLink}" target="_blank" style="display:inline-block;background-color:#00a66e;color:#ffffff !important;padding:14px 40px;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;letter-spacing:0.2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;mso-padding-alt:0;">
+                    <!--[if mso]>&nbsp;&nbsp;&nbsp;&nbsp;<![endif]--><span style="color:#ffffff;">${ctaLabel || 'Bekijken'}</span><!--[if mso]>&nbsp;&nbsp;&nbsp;&nbsp;<![endif]-->
+                  </a>
+                </td>
+              </tr>
+            </table>
           </td>
         </tr>` : ''
 
