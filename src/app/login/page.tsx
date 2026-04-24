@@ -26,6 +26,9 @@ export default function LoginPage() {
     if (result.error) { setError(result.error); return }
     if (result.klant) { router.push('/portaal'); router.refresh(); return }
     if (result.twofa) { setStep(2); return }
+    // Fallback: als 2FA is uitgeschakeld via env-var, krijgen we success en
+    // moeten we direct doorsturen.
+    if (result.success) { router.push('/'); router.refresh(); return }
   }
 
   async function handleStep2(e: React.FormEvent) {

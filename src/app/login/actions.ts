@@ -71,6 +71,24 @@ export async function loginStep1(formData: FormData): Promise<{ error?: string; 
     return { klant: true }
   }
 
+  // 2FA kan via env-var TFA_DISABLED=true tijdelijk worden uitgezet
+  // (bv. als de SMTP-infrastructuur nog niet werkt). In dat geval zetten
+  // we direct de tfa_verified cookie en slaan we de mail-stap over.
+  if (process.env.TFA_DISABLED === 'true') {
+    const jar = await cookies()
+    const sessieOpties = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax' as const,
+      path: '/',
+      maxAge: 60 * 60 * 24 * 30,
+    }
+    jar.set(SESSION_COOKIE, data.user.id, sessieOpties)
+    jar.set(ACTIVITY_COOKIE, String(Date.now()), sessieOpties)
+    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: true, reden: '2fa_disabled_fallback' })
+    return { klant: false, success: true } as { klant?: boolean; success?: boolean; twofa?: boolean; error?: string }
+  }
+
   // Genereer + sla code op
   const code = generateCode()
   await admin.from('tfa_codes').insert({
@@ -102,7 +120,6 @@ Rebu Kozijnen`
     ])
   } catch (err) {
     console.error('2FA mail mislukt:', err)
-    // Sessie weer afbreken zodat user opnieuw kan proberen
     try { await supabase.auth.signOut() } catch { /* ignore */ }
     await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: 'mail_timeout' })
     return { error: 'Kon de inlogcode niet versturen. Probeer het nog eens; als het blijft falen neem contact op.' }
