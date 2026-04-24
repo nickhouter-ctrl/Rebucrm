@@ -35,6 +35,48 @@ export interface KozijnElement {
 export function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
+  // Schüco PDF-fonts worden soms door pdfjs niet correct gedecoded — elke
+  // letter is shift -28 van ASCII ('M'→'1', 'e'→'I', 'r'→'V', enz.) en er
+  // zitten onzichtbare control-chars tussen (- etc). Eerst die
+  // strippen, dan detecteren via "1IVO" (encoded "Merk") en shift toepassen.
+  text = text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+  if (/1IVO\s*[%&'()*]/.test(text) && !/Merk\s+[A-Z]\s+Aantal/i.test(text)) {
+    // Schüco-offertes hebben een mix van encoded (shift -28) headers en
+    // normale ASCII specs. Universeel shiften breekt de normale delen, dus
+    // we vervangen alleen de bekende encoded labels per-string.
+    const repl: [string | RegExp, string][] = [
+      ['4VSHYGXMIQEXIR', 'Productie maten'],
+      ['1IVO', 'Merk'],
+      ['%ERXEPWXYOW', 'Aantal stuks'],
+      [':IVFMRHMRK', 'Verbinding'],
+      ['7]WXIIQ', 'Systeem'],
+      [/7GL[¿ü]GS/g, 'Schüco'],
+      ['7PMHI', 'Slide'],
+      [':IVHMITXs', 'Verdiept 15°'],
+      [':IVHMITX', 'Verdiept'],
+      ['&IWGLVMNZMRK', 'Beschrijving'],
+      ['/PIYV', 'Kleur'],
+      ['2IXXS', 'Netto'],
+      ['TVMNW', 'prijs'],
+      ['XSXEEP', 'totaal'],
+      ['&VYXSTV', 'Brutopr'],
+      ['/SVXMRK', 'Korting'],
+      ['6EEQ', 'Raam'],
+      ['8SXEEP', 'Totaal'],
+    ]
+    for (const [from, to] of repl) {
+      if (typeof from === 'string') text = text.split(from).join(to)
+      else text = text.replace(from, to)
+    }
+    // Merk-letter kan direct aan 'Merk' geplakt zijn (geen spatie) — A=%, B=&, enz.
+    text = text.replace(/Merk\s*([%&'()*+,\-./])/g, (_, ch) => 'Merk ' + String.fromCharCode(ch.charCodeAt(0) + 28))
+    // Spatie tussen 'Systeem' en 'Schüco' herstellen voor regex-match
+    text = text.replace(/Systeem([A-Z])/g, 'Systeem: $1')
+    // Lossen 'Aantal stuks' zonder getal op: plaats ':1' zodat bestaande
+    // Schüco pattern matcht (Schüco-PDF toont aantal zelden, vrijwel altijd 1).
+    text = text.replace(/(Merk\s+[A-Z])\s+Aantal\s+stuks(?!\s*:)/g, '$1 Aantal stuks:1')
+  }
+
   // Detect format - flexible whitespace to handle different PDF text extractors
   // Belangrijk: Aluplast/Deur-Element format (originele) eerst testen. Gealan-detectie
   // was te breed en ving ook Aluplast PDFs waar 'Merk A Aantal: 1' toevallig voorkomt.
@@ -175,21 +217,22 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
     // Schüco header: "Merk A Aantal stuks:1 Verbinding: :45 Systeem: Schüco Slide"
     // Systeem-naam kan over meerdere regels breken (bv. "Schüco\nVerdiept 15°").
     // Encoding tolerance: "Sch¿co" of "Schüco" beide toegestaan.
-    const elementPattern = /Merk\s+([A-Z])\s+Aantal\s*stuks\s*:\s*(\d+)\s+Verbinding\s*:\s*:?\s*(\w+)\s+Systeem\s*:\s*([^\n]+(?:\n[^\n\d][^\n]*)?)/gi
+    // Schüco-decoder heeft soms geen getal voor 'Aantal stuks' en geen colons.
+    // Patroon is flexibel: Merk-letter, Aantal stuks (optionele :N), Verbinding
+    // (tot iets dat lijkt op Systeem), dan Systeem-naam tot EOL.
+    const elementPattern = /Merk\s+([A-Z])\s+Aantal\s*stuks\s*:?\s*(\d*)[\s\S]{0,40}?Systeem\s*:?\s*([^\n]+(?:\n(?!Merk|Productie)[^\n]+)?)/gi
     while ((match = elementPattern.exec(text)) !== null) {
-      const nextPat = /Merk\s+[A-Z]\s+Aantal\s*stuks\s*:/gi
+      const nextPat = /Merk\s+[A-Z]\s+Aantal\s*stuks/gi
       nextPat.lastIndex = match.index + match[0].length
       const next = nextPat.exec(text)
       const sectionEnd = next ? next.index : text.length
       const section = text.substring(match.index, sectionEnd)
-      // Kleur ligt bij 'Kader' / eerste 'GLAD' voorkomen
       const kleurMatch = section.match(/Kader[\s\S]{0,200}?(\d{4}\s*GLAD|\d{4}\s*\w+)/i)
-      // Afmeting: laatste "XXX x YYY" in de tekening-sectie, of "breedte\nhoogte"
+      const systeemRaw = match[3].replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/Sch[¿u]co/gi, 'Schüco').replace(/[%&'()*+,\-./0-9][A-Z2-9\s>',\-]*$/, '').trim()
       headers.push({
         naam: 'Merk ' + match[1].toUpperCase(),
         hoeveelheid: parseInt(match[2]) || 1,
-        // Vervang "¿" (encoding) door "ü" zodat naam netjes is
-        systeem: match[4].replace(/\n/g, ' ').replace(/\s+/g, ' ').replace(/Sch[¿u]co/gi, 'Schüco').trim(),
+        systeem: systeemRaw || 'Schüco',
         kleur: kleurMatch ? kleurMatch[1].trim() : '',
         idx: match.index,
         endIdx: match.index + match[0].length,
