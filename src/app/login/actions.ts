@@ -79,7 +79,7 @@ export async function loginStep1(formData: FormData): Promise<{ error?: string; 
     expires_at: new Date(Date.now() + TFA_TTL_MS).toISOString(),
   })
 
-  // Mail
+  // Mail met timeout zodat we niet 60s vasthangen bij trage SMTP
   const body = `Beste gebruiker,
 
 Uw inlogcode voor Rebu CRM is:
@@ -91,15 +91,21 @@ Deze code is 5 minuten geldig. Als u deze inlog-poging niet heeft gedaan, negeer
 Met vriendelijke groet,
 Rebu Kozijnen`
   try {
-    await sendEmail({
-      to: email,
-      subject: `Rebu CRM inlogcode: ${code}`,
-      html: buildRebuEmailHtml(body),
-      fromName: 'Rebu Kozijnen',
-    })
+    await Promise.race([
+      sendEmail({
+        to: email,
+        subject: `Rebu CRM inlogcode: ${code}`,
+        html: buildRebuEmailHtml(body),
+        fromName: 'Rebu Kozijnen',
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('mail-timeout')), 12000)),
+    ])
   } catch (err) {
     console.error('2FA mail mislukt:', err)
-    return { error: 'Kon de inlogcode niet versturen. Controleer je e-mailadres.' }
+    // Sessie weer afbreken zodat user opnieuw kan proberen
+    try { await supabase.auth.signOut() } catch { /* ignore */ }
+    await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: false, reden: 'mail_timeout' })
+    return { error: 'Kon de inlogcode niet versturen. Probeer het nog eens; als het blijft falen neem contact op.' }
   }
 
   await admin.from('login_audit').insert({ email, ip, user_agent: ua, succes: true, reden: 'password_ok_awaiting_2fa' })

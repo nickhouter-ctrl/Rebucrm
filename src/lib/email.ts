@@ -1,5 +1,8 @@
 import nodemailer from 'nodemailer'
 
+// Strakke timeouts zodat de request niet 60+ seconden blijft hangen als SMTP
+// traag/niet bereikbaar is (bv. bij een login-flow waar de user onmiddellijke
+// feedback nodig heeft).
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: parseInt(process.env.SMTP_PORT || '587'),
@@ -8,6 +11,9 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
   },
+  connectionTimeout: 10000, // 10s voor TCP-connect
+  greetingTimeout: 10000,   // 10s voor EHLO/HELO
+  socketTimeout: 15000,     // 15s voor data-transfer
 })
 
 export async function sendEmail(options: {
