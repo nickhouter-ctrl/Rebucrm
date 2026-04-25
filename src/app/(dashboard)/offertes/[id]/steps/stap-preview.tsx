@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
-import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X, FileText, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState } from '@/lib/actions'
 import type { ParsedPdfResult, RenderedTekening, WipedRegion } from './stap-tekeningen'
@@ -64,6 +64,67 @@ function BulkBtn({ label, onClick, danger }: { label: string; onClick: () => voi
     >
       {label}
     </button>
+  )
+}
+
+// Toont 1 gerenderde tekening uit de blob — prijzen weggewist, tekening + specs intact.
+function TekeningPreview({ tek, idx }: { tek: RenderedTekening; idx: number }) {
+  const [url, setUrl] = useState<string>('')
+  useEffect(() => {
+    const u = URL.createObjectURL(tek.blob)
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [tek.blob])
+  return (
+    <div className="border border-gray-200 rounded overflow-hidden bg-white">
+      <div className="px-2 py-1 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-[10px]">
+        <span className="font-medium text-gray-700 truncate">
+          {tek.naam}{tek.totalPages > 1 && <span className="text-gray-400 ml-1">({tek.pageIndex + 1}/{tek.totalPages})</span>}
+        </span>
+        <span className="text-gray-400">p{tek.pageNum}</span>
+      </div>
+      {url ? (
+        <img src={url} alt={`Tekening ${idx + 1}`} className="w-full h-auto block" />
+      ) : (
+        <div className="aspect-[4/3] bg-gray-100" />
+      )}
+    </div>
+  )
+}
+
+// Compacte spec-lijst per element die straks in de offerte komt.
+function ElementSpecs({ el }: { el: ParsedPdfResult['elementen'][0] }) {
+  const items: { label: string; value: string }[] = []
+  const push = (label: string, v?: string) => { if (v && v.trim()) items.push({ label, value: v.trim() }) }
+  push('Systeem', el.systeem)
+  push('Afmetingen', el.afmetingen)
+  push('Kleur', el.kleur)
+  push('Type', el.type)
+  push('Glas', el.glasType)
+  push('Beslag', el.beslag)
+  push('Uw-waarde', el.uwWaarde)
+  push('Dorpel', el.dorpel)
+  push('Sluiting', el.sluiting)
+  push('Scharnieren', el.scharnieren)
+  push('Drairichting', el.drapirichting)
+  push('Gewicht', el.gewicht)
+  push('Omtrek', el.omtrek)
+  if (items.length === 0) return null
+  return (
+    <details className="border border-gray-200 rounded text-xs">
+      <summary className="px-2 py-1.5 cursor-pointer hover:bg-gray-50 font-medium text-gray-900 flex items-center justify-between">
+        <span>{el.naam} <span className="text-gray-500 font-normal">— {items.length} specs</span></span>
+        <span className="text-gray-400 text-[10px]">{el.hoeveelheid}× {formatCurrency(el.prijs)}</span>
+      </summary>
+      <div className="px-2 py-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 border-t border-gray-100">
+        {items.map(it => (
+          <div key={it.label} className="flex gap-1.5">
+            <span className="text-gray-500 w-20 flex-shrink-0">{it.label}:</span>
+            <span className="text-gray-900 truncate" title={it.value}>{it.value}</span>
+          </div>
+        ))}
+      </div>
+    </details>
   )
 }
 
@@ -233,6 +294,108 @@ export function StapPreview({
   }
 
   const [bulkOpen, setBulkOpen] = useState(false)
+
+  // ---- Live offerte-PDF preview ----
+  const [rightTab, setRightTab] = useState<'edit' | 'pdf'>('edit')
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string>('')
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState('')
+  const pdfUrlRef = useRef<string>('')
+
+  async function buildPdfPreview() {
+    setPdfLoading(true)
+    setPdfError('')
+    try {
+      const fd = new FormData()
+      // Per element: bouw lijst van tekening-file-keys en voeg de blobs toe
+      const elementen = parsedPdfResult.elementen.map(el => {
+        const tekeningen = renderedTekeningen.filter(t => t.naam === el.naam).sort((a, b) => a.pageIndex - b.pageIndex)
+        const tekeningKeys: string[] = []
+        for (let i = 0; i < tekeningen.length; i++) {
+          const key = `tek_${el.naam.replace(/[^a-z0-9]/gi, '_')}_${i}`
+          tekeningKeys.push(key)
+          fd.append(key, tekeningen[i].blob, `${key}.jpg`)
+        }
+        return {
+          naam: el.naam,
+          hoeveelheid: el.hoeveelheid,
+          systeem: el.systeem,
+          kleur: el.kleur,
+          afmetingen: el.afmetingen,
+          type: el.type,
+          prijs: el.prijs * (1 + ((elementMarges[el.naam] ?? margePercentage) / 100)),
+          glasType: el.glasType,
+          beslag: el.beslag,
+          uwWaarde: el.uwWaarde,
+          drapirichting: el.drapirichting,
+          dorpel: el.dorpel,
+          sluiting: el.sluiting,
+          scharnieren: el.scharnieren,
+          gewicht: el.gewicht,
+          omtrek: el.omtrek,
+          paneel: el.paneel,
+          commentaar: el.commentaar,
+          hoekverbinding: el.hoekverbinding,
+          montageGaten: el.montageGaten,
+          afwatering: el.afwatering,
+          scharnierenKleur: el.scharnierenKleur,
+          lakKleur: el.lakKleur,
+          sluitcilinder: el.sluitcilinder,
+          aantalSleutels: el.aantalSleutels,
+          gelijksluitend: el.gelijksluitend,
+          krukBinnen: el.krukBinnen,
+          krukBuiten: el.krukBuiten,
+          tekeningKeys,
+          verborgen: !!zichtbaarheid[el.naam]?.hidden || verwijderdeElementen.has(el.naam),
+        }
+      })
+      const meta = {
+        offertenummer: (offerte?.offertenummer as string) || 'CONCEPT',
+        datum: new Date().toISOString().slice(0, 10),
+        geldig_tot: null,
+        onderwerp: onderwerp || null,
+        versie_nummer: (offerte?.versie_nummer as number) || 1,
+        relatie: { bedrijfsnaam: relatieName || 'Klant' },
+        regels: regels.map(r => ({
+          omschrijving: r.omschrijving,
+          aantal: numVal(r.aantal),
+          prijs: numVal(r.prijs),
+          btw_percentage: r.btw_percentage,
+        })),
+        elementen,
+      }
+      fd.append('meta', JSON.stringify(meta))
+
+      const res = await fetch('/api/pdf/offerte-live-preview', { method: 'POST', body: fd })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || `PDF render mislukt (${res.status})`)
+      }
+      const blob = await res.blob()
+      // Cleanup vorige URL
+      if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current)
+      const url = URL.createObjectURL(blob)
+      pdfUrlRef.current = url
+      setPdfPreviewUrl(url)
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : 'PDF render mislukt')
+    } finally {
+      setPdfLoading(false)
+    }
+  }
+
+  // Bouw PDF zodra gebruiker naar pdf-tab schakelt en hij is leeg
+  useEffect(() => {
+    if (rightTab === 'pdf' && !pdfPreviewUrl && !pdfLoading) {
+      buildPdfPreview()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rightTab])
+
+  // Cleanup blob-url op unmount
+  useEffect(() => () => {
+    if (pdfUrlRef.current) URL.revokeObjectURL(pdfUrlRef.current)
+  }, [])
 
   // ---- Contextmenu / correctie-stack ----
   function openContextMenu(e: React.MouseEvent, target: string, targetType: ContextMenuState['targetType']) {
@@ -629,12 +792,35 @@ export function StapPreview({
         {/* RECHTS: concept */}
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: 500 }}>
           <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between sticky top-0">
-            <span className="text-xs font-medium text-gray-700">Concept-offerte</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setRightTab('edit')}
+                className={`px-2 py-1 text-xs font-medium rounded ${rightTab === 'edit' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Bewerken
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightTab('pdf')}
+                className={`px-2 py-1 text-xs font-medium rounded flex items-center gap-1 ${rightTab === 'pdf' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                <FileText className="h-3 w-3" />
+                Eigen offerte (PDF)
+              </button>
+            </div>
             <div className="relative">
+              {rightTab === 'pdf' ? (
+                <Button size="sm" variant="ghost" onClick={buildPdfPreview} disabled={pdfLoading}>
+                  {pdfLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                  Vernieuwen
+                </Button>
+              ) : (
               <Button size="sm" variant="ghost" onClick={() => setBulkOpen(o => !o)}>
                 <Percent className="h-3 w-3" />
                 Bulk-acties
               </Button>
+              )}
               {bulkOpen && (
                 <div
                   className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg py-1 text-xs z-20 min-w-[220px]"
@@ -651,6 +837,28 @@ export function StapPreview({
               )}
             </div>
           </div>
+          {rightTab === 'pdf' ? (
+            <div className="flex-1 bg-gray-100 relative">
+              {pdfLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-100/80 z-10">
+                  <Loader2 className="h-6 w-6 animate-spin text-gray-500" />
+                  <span className="ml-2 text-sm text-gray-600">Eigen offerte renderen…</span>
+                </div>
+              )}
+              {pdfError && (
+                <div className="absolute inset-x-3 top-3 bg-red-50 border border-red-200 text-red-700 text-xs p-2 rounded z-20">{pdfError}</div>
+              )}
+              {pdfPreviewUrl ? (
+                <iframe src={pdfPreviewUrl} className="w-full h-full border-0" title="Offerte preview" />
+              ) : (
+                !pdfLoading && (
+                  <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                    Klik <strong className="mx-1">Vernieuwen</strong> om de offerte te genereren
+                  </div>
+                )
+              )}
+            </div>
+          ) : (
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Onderwerp</label>
@@ -792,7 +1000,42 @@ export function StapPreview({
                 </table>
               </div>
             </div>
+
+            {/* Tekeningen-bijlage zoals klant hem ziet — gewist door regex+AI Vision */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                  Tekeningen-bijlage <span className="text-[10px] text-green-700 normal-case">(zoals klant hem ziet — tekeningen + specs intact, alleen leverancier-prijzen verborgen)</span>
+                </h3>
+                <span className="text-[10px] text-gray-400">{renderedTekeningen.filter(t => !zichtbaarheid[t.naam]?.hidden && !verwijderdeElementen.has(t.naam)).length} stuks</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {renderedTekeningen
+                  .filter(t => !zichtbaarheid[t.naam]?.hidden && !verwijderdeElementen.has(t.naam))
+                  .map((t, idx) => (
+                    <TekeningPreview key={`${t.naam}-${t.pageNum}`} tek={t} idx={idx} />
+                  ))}
+                {renderedTekeningen.length === 0 && (
+                  <div className="col-span-2 text-center text-xs text-gray-400 py-4 border border-dashed border-gray-200 rounded">
+                    Geen tekeningen geëxtraheerd
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Specs per element die in de offerte komen */}
+            <div>
+              <h3 className="text-xs font-medium text-gray-600 mb-1.5 uppercase tracking-wide">
+                Specificaties per element <span className="text-[10px] text-gray-400 normal-case">(zo verschijnen ze in de offerte)</span>
+              </h3>
+              <div className="space-y-1.5">
+                {parsedPdfResult.elementen
+                  .filter(el => !zichtbaarheid[el.naam]?.hidden && !verwijderdeElementen.has(el.naam))
+                  .map(el => <ElementSpecs key={el.naam} el={el} />)}
+              </div>
+            </div>
           </div>
+          )}
         </div>
       </div>
 
