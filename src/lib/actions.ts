@@ -745,6 +745,17 @@ export async function saveOfferte(formData: FormData) {
   const statusRaw = formData.get('status') as string | null
   const status = statusRaw && allowedStatus.has(statusRaw) ? statusRaw : 'concept'
 
+  // Onderwerp: als FormData leeg is, val terug op verkoopkans-naam
+  let onderwerp = formData.get('onderwerp') as string || null
+  if ((!onderwerp || !onderwerp.trim()) && projectId) {
+    const { data: project } = await supabase
+      .from('projecten')
+      .select('naam')
+      .eq('id', projectId)
+      .maybeSingle()
+    if (project?.naam) onderwerp = project.naam
+  }
+
   // Last-resort offertenummer-garantie (mag NIET null zijn in DB).
   // Coerce alle falsy waarden, ongeacht hoe ze ontstaan zijn.
   const ensureOffertenummer = async (): Promise<string> => {
@@ -765,7 +776,7 @@ export async function saveOfferte(formData: FormData) {
     datum,
     geldig_tot: geldigTot,
     status,
-    onderwerp: formData.get('onderwerp') as string || null,
+    onderwerp,
     inleiding: formData.get('inleiding') as string || null,
     subtotaal,
     btw_totaal: btwTotaal,
@@ -4661,7 +4672,7 @@ export async function getOfferteEmailDefaults(offerteId: string) {
 
   const { data: offerte } = await supabase
     .from('offertes')
-    .select('*, relatie:relaties(*)')
+    .select('*, relatie:relaties(*), project:projecten(naam)')
     .eq('id', offerteId)
     .single()
 
@@ -4680,8 +4691,10 @@ export async function getOfferteEmailDefaults(offerteId: string) {
     if (profiel?.naam) medewerkerNaam = profiel.naam
   }
 
+  // Verkoopkans-naam heeft voorrang als onderwerp
+  const verkoopkansNaam = (offerte.project as { naam?: string } | null)?.naam || ''
   const klantNaam = offerte.relatie?.contactpersoon || offerte.relatie?.bedrijfsnaam || ''
-  const projectNaam = offerte.onderwerp || offerte.relatie?.bedrijfsnaam || ''
+  const projectNaam = verkoopkansNaam || offerte.onderwerp || offerte.relatie?.bedrijfsnaam || ''
 
   const body = `Beste ${klantNaam},
 
@@ -4697,9 +4710,15 @@ Indien u aanvullende vragen heeft of wanneer u aanpassingen wilt op de offerte, 
 Met vriendelijke groet,
 ${medewerkerNaam}`
 
+  // Email-onderwerp bevat verkoopkans-naam zodat klant/medewerker direct
+  // kan zien om welke aanvraag het gaat
+  const subject = projectNaam
+    ? `Offerte ${offerte.offertenummer} - ${projectNaam}`
+    : `Offerte ${offerte.offertenummer} - Rebu Kozijnen`
+
   return {
     to: offerte.relatie?.email || '',
-    subject: `Offerte ${offerte.offertenummer} - Rebu Kozijnen`,
+    subject,
     body,
   }
 }
