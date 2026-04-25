@@ -693,7 +693,7 @@ export async function saveOfferte(formData: FormData) {
 
   // Auto-generate offertenummer for new offertes (hergebruik nummer bij zelfde project)
   const projectId = formData.get('project_id') as string || null
-  let offertenummer = id ? (formData.get('offertenummer') as string) : ''
+  let offertenummer = id ? (formData.get('offertenummer') as string || '') : ''
   let versieNummer = 1
   let groepId: string | null = null
 
@@ -715,6 +715,21 @@ export async function saveOfferte(formData: FormData) {
     }
   } else if (!id) {
     offertenummer = await getVolgendeNummer('offerte')
+  } else if (id && !offertenummer) {
+    // Bestaande offerte maar nummer niet meegegeven in FormData → uit DB halen
+    const { data: bestaand } = await supabase
+      .from('offertes')
+      .select('offertenummer, versie_nummer, groep_id')
+      .eq('id', id)
+      .maybeSingle()
+    if (bestaand?.offertenummer) {
+      offertenummer = bestaand.offertenummer
+      versieNummer = bestaand.versie_nummer || 1
+      groepId = bestaand.groep_id || null
+    } else {
+      // Geen bestaande offerte gevonden — toch nummer genereren
+      offertenummer = await getVolgendeNummer('offerte')
+    }
   }
 
   // Datum is NOT NULL in DB — als client hem niet meegeeft, fallback naar vandaag
