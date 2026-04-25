@@ -1,13 +1,32 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { parseLeverancierPdfText } from '@/lib/pdf-parser'
+import { parseLeverancierPdfText, type LeverancierKey } from '@/lib/pdf-parser'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Upload, FileText, Trash2, ArrowRight, Loader2, CheckCircle } from 'lucide-react'
+import { Dialog } from '@/components/ui/dialog'
+import { ArrowLeft, Upload, FileText, Trash2, ArrowRight, Loader2, CheckCircle, AlertTriangle, Plus, Building2 } from 'lucide-react'
+import { getBekendeLeveranciers, addBekendeLeverancier, bevestigLeverancierDetectie } from '@/lib/actions'
+
+interface DetectieResultaat {
+  leverancier: string
+  display_naam: string
+  profiel: string
+  confidence: number
+  reden: string
+  regex_hint?: string | null
+}
+
+interface BekendeLeverancier {
+  naam: string
+  display_naam: string
+  parser_key: string
+  profielen: string[] | null
+  validated_count: number
+}
 
 export interface ParsedPdfResult {
   totaal: number
-  elementen: { naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type: string; prijs: number; glasType: string; beslag: string; uwWaarde: string; drapirichting: string; dorpel: string; sluiting: string; scharnieren: string; gewicht: string; omtrek: string; paneel: string; commentaar: string; hoekverbinding: string; montageGaten: string; afwatering: string; scharnierenKleur: string; sluitcilinder: string; aantalSleutels: string; gelijksluitend: string; krukBinnen: string; krukBuiten: string; lakKleur: string }[]
+  elementen: { naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type: string; prijs: number; glasType: string; beslag: string; uwWaarde: string; drapirichting: string; dorpel: string; sluiting: string; scharnieren: string; gewicht: string; omtrek: string; paneel: string; commentaar: string; hoekverbinding: string; montageGaten: string; afwatering: string; scharnierenKleur: string; sluitcilinder: string; aantalSleutels: string; gelijksluitend: string; krukBinnen: string; krukBuiten: string; lakKleur: string; confidence?: number; confidence_reden?: string }[]
   aantalElementen: number
 }
 
@@ -19,12 +38,28 @@ export interface RenderedTekening {
   totalPages: number   // total number of pages for this element
 }
 
+// Per origineel-PDF-pagina de regio's die zijn weggewist (door regex of AI Vision).
+// Doorgegeven aan de PDF.js viewer in de preview voor rode-arcering overlay.
+export interface WipedRegion {
+  pageNum: number
+  // pixel-coordinaten in PDF page native size (scale=1) — de viewer rekent
+  // ze zelf om naar de huidige render-scale.
+  x: number
+  y: number
+  w: number
+  h: number
+  reden?: 'regex' | 'ai' | 'header'
+}
+
 export function StapTekeningen({
   pendingPdfFile,
   parsedPdfResult,
   renderedTekeningen,
+  detectedLeverancier,
+  offerteId,
   onUploadPdf,
   onPdfProcessed,
+  onLeverancierDetected,
   onRemovePdf,
   onSkip,
   onNext,
@@ -33,8 +68,11 @@ export function StapTekeningen({
   pendingPdfFile: File | null
   parsedPdfResult: ParsedPdfResult | null
   renderedTekeningen: RenderedTekening[]
+  detectedLeverancier: DetectieResultaat | null
+  offerteId?: string | null
   onUploadPdf: (file: File) => void
-  onPdfProcessed: (result: ParsedPdfResult, tekeningen: RenderedTekening[]) => void
+  onPdfProcessed: (result: ParsedPdfResult, tekeningen: RenderedTekening[], wipedRegions?: WipedRegion[]) => void
+  onLeverancierDetected: (det: DetectieResultaat) => void
   onRemovePdf: () => void
   onSkip: () => void
   onNext: () => void
@@ -44,6 +82,21 @@ export function StapTekeningen({
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
   const processedFileRef = useRef<string | null>(null)
+  const [bekendeLijst, setBekendeLijst] = useState<BekendeLeverancier[]>([])
+  const [showLevModal, setShowLevModal] = useState(false)
+  const [pendingDetectie, setPendingDetectie] = useState<DetectieResultaat | null>(null)
+  const [pendingFullText, setPendingFullText] = useState<string>('')
+  const [pendingPdf, setPendingPdf] = useState<unknown | null>(null)
+  const [pendingTotalPages, setPendingTotalPages] = useState(0)
+  const [modalKeuze, setModalKeuze] = useState('')
+  const [nieuweLevNaam, setNieuweLevNaam] = useState('')
+  const [nieuweLevProfiel, setNieuweLevProfiel] = useState('')
+  const [savingLev, setSavingLev] = useState(false)
+
+  // Load bekende leveranciers list once
+  useEffect(() => {
+    getBekendeLeveranciers().then(setBekendeLijst).catch(() => setBekendeLijst([]))
+  }, [])
 
   // Auto-process when a file is present but not yet processed
   useEffect(() => {
@@ -56,12 +109,14 @@ export function StapTekeningen({
     }
   }, [pendingPdfFile, parsedPdfResult]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Fase A: PDF inladen + tekst extraheren + leverancier detecteren.
+  // Bij hoge confidence (>= 0.7) gaat hij meteen door naar fase B.
+  // Bij lage confidence of 'onbekend' tonen we de modal eerst.
   async function processUploadedPdf(file: File) {
     setProcessing(true)
     setError('')
 
     try {
-      // Step 1: Load PDF with pdfjs (used for text extraction + tekening rendering)
       setProgress('PDF laden...')
       const pdfjsLib = await import('pdfjs-dist')
       pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
@@ -70,8 +125,6 @@ export function StapTekeningen({
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
       const totalPages = pdf.numPages
 
-      // Step 2: Extract text from all pages with proper line breaks
-      // Uses pdfjs directly (instead of server-side unpdf) for consistent text format
       setProgress('PDF tekst analyseren...')
       let fullText = ''
       for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
@@ -93,8 +146,57 @@ export function StapTekeningen({
         fullText += pageText + '\n\n'
       }
 
-      // Step 3: Parse leverancier text client-side (consistent with pdfjs extraction)
-      const { totaal, elementen } = parseLeverancierPdfText(fullText)
+      // Stap A.1: detect leverancier via Haiku 4.5
+      setProgress('Leverancier herkennen...')
+      let detectie: DetectieResultaat
+      try {
+        const res = await fetch('/api/ai/detect-leverancier', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: fullText.slice(0, 8000), offerteId: offerteId || undefined }),
+        })
+        if (res.ok) {
+          detectie = await res.json() as DetectieResultaat
+        } else {
+          detectie = { leverancier: 'onbekend', display_naam: '', profiel: '', confidence: 0, reden: 'AI-detectie faalde' }
+        }
+      } catch {
+        detectie = { leverancier: 'onbekend', display_naam: '', profiel: '', confidence: 0, reden: 'AI-detectie faalde' }
+      }
+
+      // Bij onzekerheid: pauzeer en vraag de gebruiker
+      if (detectie.leverancier === 'onbekend' || detectie.confidence < 0.7) {
+        setPendingDetectie(detectie)
+        setPendingFullText(fullText)
+        setPendingPdf(pdf)
+        setPendingTotalPages(totalPages)
+        setModalKeuze(detectie.leverancier !== 'onbekend' ? detectie.leverancier : '')
+        setNieuweLevNaam(detectie.display_naam || '')
+        setNieuweLevProfiel(detectie.profiel || '')
+        setShowLevModal(true)
+        setProgress('')
+        // Niet stoppen met processing — modal-confirm pakt het op
+        return
+      }
+
+      // Hoge confidence → meteen door
+      onLeverancierDetected(detectie)
+      await runScanFase(file, fullText, pdf, totalPages, detectie.leverancier as LeverancierKey, detectie.display_naam || detectie.leverancier)
+    } catch (err) {
+      console.error('PDF processing error:', err)
+      setError(`Fout bij verwerken van PDF: ${err instanceof Error ? err.message : String(err)}`)
+      setProcessing(false)
+      setProgress('')
+    }
+  }
+
+  // Fase B: parse met leverancier-hint + AI extract + tekeningen renderen.
+  // Wordt aangeroepen vanuit fase A (auto) of vanuit modal-bevestiging.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async function runScanFase(file: File, fullText: string, pdf: any, totalPages: number, leverancierKey: LeverancierKey, leverancierDisplay: string) {
+    try {
+      // Step 3: Parse leverancier text met hint (deterministisch)
+      const { totaal, elementen } = parseLeverancierPdfText(fullText, leverancierKey)
 
       // Step 3b: AI validatie — Claude controleert de lijst, corrigeert fouten,
       // voegt gemiste elementen toe (Deur 008/010) en filtert ghost-referenties.
@@ -107,6 +209,8 @@ export function StapTekeningen({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             text: fullText,
+            leverancier: leverancierDisplay,
+            profiel: undefined,
             regexResult: {
               totaal,
               elementen: elementen.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
@@ -114,14 +218,19 @@ export function StapTekeningen({
           }),
         })
         if (aiRes.ok) {
-          const ai = await aiRes.json() as { elementen?: Array<{ naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type?: string; prijs: number; glasType?: string; beslag?: string; uwWaarde?: string; drapirichting?: string; dorpel?: string; sluiting?: string; scharnieren?: string; gewicht?: string; omtrek?: string }>; totaal?: number }
+          const ai = await aiRes.json() as { elementen?: Array<{ naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type?: string; prijs: number; glasType?: string; beslag?: string; uwWaarde?: string; drapirichting?: string; dorpel?: string; sluiting?: string; scharnieren?: string; gewicht?: string; omtrek?: string; confidence?: number; confidence_reden?: string }>; totaal?: number }
           if (ai.elementen && ai.elementen.length > 0) {
             // Merge AI per naam met regex (regex heeft meer spec-velden)
             const regexByNaam = new Map(elementen.map(e => [e.naam, e]))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             finaleElementen = ai.elementen.map(a => {
               const r = regexByNaam.get(a.naam)
+              const conf: { confidence?: number; confidence_reden?: string } = {
+                confidence: a.confidence ?? 1,
+                confidence_reden: a.confidence_reden ?? '',
+              }
               return r
-                ? { ...r, prijs: a.prijs, hoeveelheid: a.hoeveelheid, afmetingen: a.afmetingen || r.afmetingen, systeem: a.systeem || r.systeem }
+                ? { ...r, prijs: a.prijs, hoeveelheid: a.hoeveelheid, afmetingen: a.afmetingen || r.afmetingen, systeem: a.systeem || r.systeem, ...conf }
                 : {
                     naam: a.naam, hoeveelheid: a.hoeveelheid, systeem: a.systeem, kleur: a.kleur || '',
                     afmetingen: a.afmetingen || '', type: a.type || '', prijs: a.prijs,
@@ -133,8 +242,9 @@ export function StapTekeningen({
                     afwatering: '', scharnierenKleur: '', lakKleur: '',
                     sluitcilinder: '', aantalSleutels: '', gelijksluitend: '',
                     krukBinnen: '', krukBuiten: '',
-                  }
-            })
+                    ...conf,
+                  } as typeof r extends undefined ? never : NonNullable<typeof r>
+            }) as typeof finaleElementen
             finaalTotaal = ai.totaal ?? finaleElementen.reduce((s, e) => s + e.prijs * e.hoeveelheid, 0)
           }
         }
@@ -144,18 +254,23 @@ export function StapTekeningen({
 
       const parsed: ParsedPdfResult = {
         totaal: finaalTotaal,
-        elementen: finaleElementen.map(e => ({
-          naam: e.naam, hoeveelheid: e.hoeveelheid, systeem: e.systeem, kleur: e.kleur,
-          afmetingen: e.afmetingen, type: e.type, prijs: e.prijs, glasType: e.glasType,
-          beslag: e.beslag, uwWaarde: e.uwWaarde, drapirichting: e.drapirichting,
-          dorpel: e.dorpel, sluiting: e.sluiting, scharnieren: e.scharnieren,
-          gewicht: e.gewicht, omtrek: e.omtrek, paneel: e.paneel, commentaar: e.commentaar,
-          hoekverbinding: e.hoekverbinding, montageGaten: e.montageGaten,
-          afwatering: e.afwatering, scharnierenKleur: e.scharnierenKleur,
-          lakKleur: e.lakKleur, sluitcilinder: e.sluitcilinder,
-          aantalSleutels: e.aantalSleutels, gelijksluitend: e.gelijksluitend,
-          krukBinnen: e.krukBinnen, krukBuiten: e.krukBuiten,
-        })),
+        elementen: finaleElementen.map(e => {
+          const ec = e as typeof e & { confidence?: number; confidence_reden?: string }
+          return {
+            naam: e.naam, hoeveelheid: e.hoeveelheid, systeem: e.systeem, kleur: e.kleur,
+            afmetingen: e.afmetingen, type: e.type, prijs: e.prijs, glasType: e.glasType,
+            beslag: e.beslag, uwWaarde: e.uwWaarde, drapirichting: e.drapirichting,
+            dorpel: e.dorpel, sluiting: e.sluiting, scharnieren: e.scharnieren,
+            gewicht: e.gewicht, omtrek: e.omtrek, paneel: e.paneel, commentaar: e.commentaar,
+            hoekverbinding: e.hoekverbinding, montageGaten: e.montageGaten,
+            afwatering: e.afwatering, scharnierenKleur: e.scharnierenKleur,
+            lakKleur: e.lakKleur, sluitcilinder: e.sluitcilinder,
+            aantalSleutels: e.aantalSleutels, gelijksluitend: e.gelijksluitend,
+            krukBinnen: e.krukBinnen, krukBuiten: e.krukBuiten,
+            confidence: ec.confidence,
+            confidence_reden: ec.confidence_reden,
+          }
+        }),
         aantalElementen: finaleElementen.length,
       }
 
@@ -237,6 +352,11 @@ export function StapTekeningen({
       for (const pages of elementGroupMap.values()) {
         pages.sort((a, b) => a - b)
       }
+
+      // Verzamelen we alle weggewiste regio's per pagina, voor preview-overlay.
+      // Coördinaten worden opgeslagen in PDF native coords (scale=1) zodat
+      // de preview-viewer ze schaalt naar zijn eigen render-scale.
+      const wipedRegionsCollector: WipedRegion[] = []
 
       // Helper: render page with only the top leverancier header cropped away
       async function renderPageWithHeaderCrop(pageNum: number) {
@@ -539,7 +659,13 @@ export function StapTekeningen({
           const res = await fetch('/api/ai/detect-remove-regions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: previewBase64, imageWidth: pw, imageHeight: ph, supplier: supplierName }),
+            body: JSON.stringify({
+              imageBase64: previewBase64,
+              imageWidth: pw,
+              imageHeight: ph,
+              supplier: supplierName,
+              leverancierSlug: leverancierKey,
+            }),
           })
           if (res.ok) {
             const { regions } = (await res.json()) as { regions?: { x: number; y: number; w: number; h: number }[] }
@@ -551,6 +677,15 @@ export function StapTekeningen({
                 const fh = Math.round(r.h / previewScale)
                 ctx.fillStyle = '#FFFFFF'
                 ctx.fillRect(fx, fy, fw, fh)
+                // Sla op in PDF native coords (scale=1) — render-scale is 2
+                wipedRegionsCollector.push({
+                  pageNum,
+                  x: Math.round(fx / 2),
+                  y: Math.round(fy / 2),
+                  w: Math.round(fw / 2),
+                  h: Math.round(fh / 2),
+                  reden: 'ai',
+                })
               }
             }
           }
@@ -598,7 +733,7 @@ export function StapTekeningen({
 
       setProgress('')
       setProcessing(false)
-      onPdfProcessed(parsed, tekeningen)
+      onPdfProcessed(parsed, tekeningen, wipedRegionsCollector)
     } catch (err) {
       console.error('PDF processing error:', err)
       setError(`Fout bij verwerken van PDF: ${err instanceof Error ? err.message : String(err)}`)
@@ -616,6 +751,96 @@ export function StapTekeningen({
       processUploadedPdf(file)
       e.target.value = ''
     }
+  }
+
+  // Modal-confirm: gebruiker heeft een leverancier gekozen of nieuwe toegevoegd → fase B starten
+  async function handleLevModalConfirm() {
+    if (!pendingPdfFile || !pendingPdf || !pendingFullText) {
+      setShowLevModal(false)
+      return
+    }
+    setSavingLev(true)
+    let chosenSlug = modalKeuze
+    let chosenDisplay = modalKeuze
+
+    // Nieuwe leverancier-tab actief?
+    if (!chosenSlug && nieuweLevNaam.trim()) {
+      const result = await addBekendeLeverancier({
+        display_naam: nieuweLevNaam.trim(),
+        profiel: nieuweLevProfiel.trim() || undefined,
+        parser_key: 'default',
+      })
+      if ('error' in result && result.error) {
+        setError(result.error)
+        setSavingLev(false)
+        return
+      }
+      if ('naam' in result && result.naam && result.display_naam) {
+        const newSlug = result.naam
+        const newDisplay = result.display_naam
+        chosenSlug = newSlug
+        chosenDisplay = newDisplay
+        setBekendeLijst(prev => [...prev, { naam: newSlug, display_naam: newDisplay, parser_key: 'default', profielen: nieuweLevProfiel ? [nieuweLevProfiel] : [], validated_count: 0 }])
+      }
+    } else {
+      const found = bekendeLijst.find(l => l.naam === chosenSlug)
+      chosenDisplay = found?.display_naam || chosenSlug
+    }
+
+    if (!chosenSlug) {
+      setError('Kies een leverancier of voeg een nieuwe toe')
+      setSavingLev(false)
+      return
+    }
+
+    // Bevestig in DB voor leereffect
+    if (offerteId) {
+      try {
+        await bevestigLeverancierDetectie({
+          offerteId,
+          leverancierSlug: chosenSlug,
+          userCorrectedFrom: pendingDetectie?.leverancier !== chosenSlug ? pendingDetectie?.leverancier : undefined,
+        })
+      } catch { /* niet kritiek */ }
+    }
+
+    const detectie: DetectieResultaat = {
+      leverancier: chosenSlug,
+      display_naam: chosenDisplay,
+      profiel: nieuweLevProfiel || pendingDetectie?.profiel || '',
+      confidence: 1,
+      reden: 'Door gebruiker bevestigd',
+    }
+    onLeverancierDetected(detectie)
+
+    setShowLevModal(false)
+    setSavingLev(false)
+    setProgress('Tekeningen extraheren...')
+
+    try {
+      await runScanFase(
+        pendingPdfFile,
+        pendingFullText,
+        pendingPdf,
+        pendingTotalPages,
+        chosenSlug as LeverancierKey,
+        chosenDisplay,
+      )
+    } finally {
+      setPendingPdf(null)
+      setPendingFullText('')
+      setPendingDetectie(null)
+    }
+  }
+
+  function handleLevModalCancel() {
+    setShowLevModal(false)
+    setProcessing(false)
+    setProgress('')
+    setPendingPdf(null)
+    setPendingFullText('')
+    setPendingDetectie(null)
+    onRemovePdf()
   }
 
   function formatCurrency(amount: number) {
@@ -638,6 +863,34 @@ export function StapTekeningen({
       </div>
 
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
+
+      {/* Leverancier-badge: laat zien wat AI heeft gedetecteerd, met optie om te corrigeren */}
+      {detectedLeverancier && !showLevModal && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex items-center gap-3">
+          <Building2 className="h-5 w-5 text-primary flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm">
+              <span className="text-gray-500">Leverancier:</span>{' '}
+              <strong className="text-gray-900">{detectedLeverancier.display_naam || detectedLeverancier.leverancier}</strong>
+              {detectedLeverancier.profiel && <span className="text-gray-500"> · {detectedLeverancier.profiel}</span>}
+              {detectedLeverancier.confidence < 1 && (
+                <span className="text-xs text-gray-400 ml-2">AI {Math.round(detectedLeverancier.confidence * 100)}% zeker</span>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingDetectie(detectedLeverancier)
+              setModalKeuze(detectedLeverancier.leverancier !== 'onbekend' ? detectedLeverancier.leverancier : '')
+              setShowLevModal(true)
+            }}
+            className="text-xs text-primary hover:underline"
+          >
+            Klopt niet?
+          </button>
+        </div>
+      )}
 
       {/* Processing state */}
       {pendingPdfFile && processing && (
@@ -714,6 +967,66 @@ export function StapTekeningen({
           </Button>
         )}
       </div>
+
+      {/* Modal: leverancier kiezen of nieuwe toevoegen */}
+      <Dialog open={showLevModal} onClose={handleLevModalCancel} title="Welke leverancier is dit?" className="max-w-lg">
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="text-amber-800">
+              {pendingDetectie?.leverancier === 'onbekend'
+                ? 'AI kon de leverancier niet automatisch herkennen.'
+                : `AI denkt "${pendingDetectie?.display_naam || pendingDetectie?.leverancier}" maar is slechts ${Math.round((pendingDetectie?.confidence || 0) * 100)}% zeker.`}
+              {pendingDetectie?.reden && <div className="text-xs text-amber-700 mt-1">Reden: {pendingDetectie.reden}</div>}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Bestaande leverancier kiezen</label>
+            <select
+              value={modalKeuze}
+              onChange={(e) => { setModalKeuze(e.target.value); setNieuweLevNaam(''); setNieuweLevProfiel('') }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+            >
+              <option value="">— kies leverancier —</option>
+              {bekendeLijst.map(l => (
+                <option key={l.naam} value={l.naam}>
+                  {l.display_naam}{l.profielen && l.profielen.length > 0 ? ` (${l.profielen.join(', ')})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="border-t border-gray-200 pt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Of nieuwe leverancier toevoegen</label>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={nieuweLevNaam}
+                onChange={(e) => { setNieuweLevNaam(e.target.value); if (e.target.value) setModalKeuze('') }}
+                placeholder="Leveranciersnaam (bv. Drutex)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+              <input
+                type="text"
+                value={nieuweLevProfiel}
+                onChange={(e) => setNieuweLevProfiel(e.target.value)}
+                placeholder="Profielsysteem (optioneel, bv. Iglo Energy)"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500">Deze leverancier wordt opgeslagen zodat AI hem bij volgende offertes herkent.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-200">
+            <Button variant="ghost" onClick={handleLevModalCancel} disabled={savingLev}>Annuleren</Button>
+            <Button onClick={handleLevModalConfirm} disabled={savingLev || (!modalKeuze && !nieuweLevNaam.trim())}>
+              {savingLev ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {modalKeuze ? 'Bevestigen' : 'Toevoegen + bevestigen'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

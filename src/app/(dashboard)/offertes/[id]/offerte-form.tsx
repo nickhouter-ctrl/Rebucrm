@@ -18,9 +18,10 @@ import { WizardStepper } from './wizard-stepper'
 import { StapKlant } from './steps/stap-klant'
 import { StapProject } from './steps/stap-project'
 import { StapType } from './steps/stap-type'
-import { StapTekeningen, ParsedPdfResult, RenderedTekening } from './steps/stap-tekeningen'
+import { StapTekeningen, ParsedPdfResult, RenderedTekening, WipedRegion } from './steps/stap-tekeningen'
 import { StapMarge } from './steps/stap-marge'
 import { StapControleren } from './steps/stap-controleren'
+import { StapPreview } from './steps/stap-preview'
 import { StapVersturen } from './steps/stap-versturen'
 
 interface Regel {
@@ -61,10 +62,10 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const isConceptWizard = wizardMode === 'concept'
 
   // ========== WIZARD STATE ==========
-  // Steps: 0=klant, 1=project, 2=type, 3=tekeningen, 4=marge, 5=controleren, 6=versturen
+  // Steps: 0=klant, 1=project, 2=type, 3=marge, 4=tekeningen+detect, 5=controleren, 6=versturen
   const [step, setStep] = useState(() => {
     if (isConceptWizard) return 2 // concept offerte: klant+project al ingevuld, start bij type
-    if (!isNew && wizardMode) return 3 // nieuwe versie: start bij tekeningen
+    if (!isNew && wizardMode) return 3 // nieuwe versie: start bij marge
     if (!isNew) return -1 // edit mode
     if (initialRelatieId) return 1 // skip klant kiezen
     return 0
@@ -86,6 +87,15 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [pendingPdfFile, setPendingPdfFile] = useState<File | null>(null)
   const [parsedPdfResult, setParsedPdfResult] = useState<ParsedPdfResult | null>(null)
   const [renderedTekeningen, setRenderedTekeningen] = useState<RenderedTekening[]>([])
+  const [wipedRegions, setWipedRegions] = useState<WipedRegion[]>([])
+  const [detectedLeverancier, setDetectedLeverancier] = useState<{
+    leverancier: string
+    display_naam: string
+    profiel: string
+    confidence: number
+    reden: string
+    regex_hint?: string | null
+  } | null>(null)
   const [margePercentage, setMargePercentage] = useState(() => {
     const relatieId = initialRelatieId || (offerte?.relatie_id as string)
     if (relatieId) {
@@ -148,12 +158,15 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     if (regels.length === 0 || isDefaultZakelijk) {
       setRegels(type === 'particulier' ? [...PARTICULIER_REGELS] : [...ZAKELIJK_REGELS])
     }
-    setStep(3) // tekeningen
+    setStep(3) // marge (was tekeningen)
   }
 
-  function handlePdfProcessed(result: ParsedPdfResult, tekeningen: RenderedTekening[]) {
+  function handlePdfProcessed(result: ParsedPdfResult, tekeningen: RenderedTekening[], regions?: WipedRegion[]) {
     setParsedPdfResult(result)
     setRenderedTekeningen(tekeningen)
+    setWipedRegions(regions || [])
+    // Marge automatisch toepassen op verkoopregel
+    applyMargeToRegels(result, margePercentage)
   }
 
   function handleRemovePdf() {
@@ -183,27 +196,23 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     return updated
   }
 
-  function handleMargeNext(marges: Record<string, number>) {
-    setElementMarges(marges)
-    // Calculate verkoop totaal with per-element marges and fill kozijnen prijs
-    if (parsedPdfResult) {
-      const verkoopTotaal = parsedPdfResult.elementen.reduce((sum, e) => {
-        const eMarge = marges[e.naam] ?? margePercentage
-        return sum + e.prijs * (1 + eMarge / 100) * e.hoeveelheid
-      }, 0)
-      setRegels(findOrCreateKozijnRegel(regels, verkoopTotaal))
-    }
-    setStep(5) // controleren
+  // Marge wordt nu VÓÓR de upload bepaald — alleen globale marge, geen elementen.
+  // Per-element correctie kan straks bij Controleren.
+  function handleMargeNext() {
+    setStep(4) // tekeningen (was: controleren)
   }
 
   function handleMargeSkip() {
-    // Fill kozijnen prijs without marge — use element sum (not PDF total which may include discount)
-    if (parsedPdfResult) {
-      const elementSum = parsedPdfResult.elementen.reduce((sum, e) => sum + e.prijs * e.hoeveelheid, 0)
-      setRegels(findOrCreateKozijnRegel(regels, elementSum))
-    }
     setMargePercentage(0)
-    setStep(5) // controleren
+    setStep(4) // tekeningen
+  }
+
+  // Wordt aangeroepen vanuit de tekeningen-stap NA succesvolle scan.
+  // Berekent verkoopprijs op basis van globale marge en zet de kozijn-regel.
+  function applyMargeToRegels(parsed: ParsedPdfResult, marge: number) {
+    if (parsed.elementen.length === 0) return
+    const verkoopTotaal = parsed.elementen.reduce((sum, e) => sum + e.prijs * (1 + marge / 100) * e.hoeveelheid, 0)
+    setRegels(prev => findOrCreateKozijnRegel(prev, verkoopTotaal))
   }
 
   function handleSaved(offerteId: string) {
@@ -261,61 +270,77 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
           )}
 
           {step === 3 && (
-            <StapTekeningen
-              pendingPdfFile={pendingPdfFile}
-              parsedPdfResult={parsedPdfResult}
-              renderedTekeningen={renderedTekeningen}
-              onUploadPdf={(file) => setPendingPdfFile(file)}
-              onPdfProcessed={handlePdfProcessed}
-              onRemovePdf={handleRemovePdf}
-              onSkip={() => setStep(5)}
-              onNext={() => setStep(4)}
+            <StapMarge
+              margePercentage={margePercentage}
+              defaultMarge={relaties.find(r => r.id === selectedRelatieId)?.standaard_marge ?? null}
+              onMargeChange={setMargePercentage}
+              onNext={handleMargeNext}
+              onSkip={handleMargeSkip}
               onBack={() => setStep(2)}
             />
           )}
 
           {step === 4 && (
-            parsedPdfResult && parsedPdfResult.elementen.length > 0 ? (
-              <StapMarge
-                parsedPdfResult={parsedPdfResult}
-                margePercentage={margePercentage}
-                onMargeChange={setMargePercentage}
-                onNext={(marges) => handleMargeNext(marges)}
-                onSkip={handleMargeSkip}
-                onBack={() => setStep(3)}
-              />
-            ) : (
-              // Auto-skip marge als er geen PDF elementen zijn
-              <div className="max-w-3xl mx-auto text-center py-16">
-                <p className="text-gray-500 mb-4">Geen leverancier elementen gevonden om marge op toe te passen.</p>
-                <div className="flex justify-center gap-3">
-                  <Button variant="ghost" onClick={() => setStep(3)}>Terug</Button>
-                  <Button onClick={() => setStep(5)}>Volgende</Button>
-                </div>
-              </div>
-            )
-          )}
-
-          {step === 5 && offerteType && (
-            <StapControleren
-              offerte={(wizardMode || isConceptWizard) ? offerte : null}
-              isNew={!wizardMode && !isConceptWizard}
-              relatieName={selectedRelatieName}
-              projectName={selectedProjectName}
-              offerteType={offerteType}
-              selectedRelatieId={selectedRelatieId}
-              selectedProjectId={selectedProjectId}
-              regels={regels}
-              onRegelsChange={setRegels}
-              producten={producten}
+            <StapTekeningen
               pendingPdfFile={pendingPdfFile}
               parsedPdfResult={parsedPdfResult}
               renderedTekeningen={renderedTekeningen}
-              margePercentage={margePercentage}
-              elementMarges={elementMarges}
-              onSaved={handleSaved}
-              onBack={() => setStep(4)}
+              detectedLeverancier={detectedLeverancier}
+              offerteId={savedOfferteId}
+              onUploadPdf={(file) => setPendingPdfFile(file)}
+              onPdfProcessed={handlePdfProcessed}
+              onLeverancierDetected={setDetectedLeverancier}
+              onRemovePdf={handleRemovePdf}
+              onSkip={() => setStep(5)}
+              onNext={() => setStep(5)}
+              onBack={() => setStep(3)}
             />
+          )}
+
+          {step === 5 && offerteType && (
+            // Met leveranciersofferte → preview, anders klassiek controleer-scherm
+            parsedPdfResult && parsedPdfResult.elementen.length > 0 ? (
+              <StapPreview
+                offerte={(wizardMode || isConceptWizard) ? offerte : null}
+                isNew={!wizardMode && !isConceptWizard}
+                relatieName={selectedRelatieName}
+                projectName={selectedProjectName}
+                offerteType={offerteType}
+                selectedRelatieId={selectedRelatieId}
+                selectedProjectId={selectedProjectId}
+                regels={regels}
+                onRegelsChange={setRegels}
+                pendingPdfFile={pendingPdfFile}
+                parsedPdfResult={parsedPdfResult}
+                renderedTekeningen={renderedTekeningen}
+                wipedRegions={wipedRegions}
+                margePercentage={margePercentage}
+                elementMargesInitial={elementMarges}
+                detectedLeverancier={detectedLeverancier}
+                onSaved={handleSaved}
+                onBack={() => setStep(4)}
+              />
+            ) : (
+              <StapControleren
+                offerte={(wizardMode || isConceptWizard) ? offerte : null}
+                isNew={!wizardMode && !isConceptWizard}
+                relatieName={selectedRelatieName}
+                projectName={selectedProjectName}
+                offerteType={offerteType}
+                selectedRelatieId={selectedRelatieId}
+                selectedProjectId={selectedProjectId}
+                regels={regels}
+                onRegelsChange={setRegels}
+                producten={producten}
+                pendingPdfFile={pendingPdfFile}
+                parsedPdfResult={parsedPdfResult}
+                renderedTekeningen={renderedTekeningen}
+                margePercentage={margePercentage}
+                elementMarges={elementMarges}
+                onSaved={handleSaved}
+                onBack={() => setStep(4)}
+              />
+            )
           )}
 
           {step === 6 && savedOfferteId && (

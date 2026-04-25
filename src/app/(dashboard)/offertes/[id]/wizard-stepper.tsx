@@ -6,8 +6,8 @@ const STEPS = [
   { label: 'Klant' },
   { label: 'Project' },
   { label: 'Type' },
-  { label: 'Tekeningen' },
   { label: 'Marge' },
+  { label: 'Leveranciersofferte' },
   { label: 'Controleren' },
   { label: 'Versturen' },
 ]
