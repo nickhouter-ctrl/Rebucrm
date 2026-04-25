@@ -717,12 +717,20 @@ export async function saveOfferte(formData: FormData) {
     offertenummer = await getVolgendeNummer('offerte')
   }
 
+  // Datum is NOT NULL in DB — als client hem niet meegeeft, fallback naar vandaag
+  const datumRaw = formData.get('datum') as string | null
+  const datum = datumRaw && datumRaw.trim() ? datumRaw : new Date().toISOString().split('T')[0]
+  const geldigTotRaw = formData.get('geldig_tot') as string | null
+  const geldigTot = geldigTotRaw && geldigTotRaw.trim()
+    ? geldigTotRaw
+    : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
     offertenummer,
-    datum: formData.get('datum') as string,
-    geldig_tot: formData.get('geldig_tot') as string || null,
+    datum,
+    geldig_tot: geldigTot,
     status: formData.get('status') as string || 'concept',
     onderwerp: formData.get('onderwerp') as string || null,
     inleiding: formData.get('inleiding') as string || null,
