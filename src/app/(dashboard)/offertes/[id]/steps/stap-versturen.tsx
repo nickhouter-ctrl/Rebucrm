@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { getOfferteEmailDefaults, sendOfferteEmail } from '@/lib/actions'
+import { getOfferteEmailDefaults, sendOfferteEmail, getLeverancierPdfData } from '@/lib/actions'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
@@ -27,9 +27,15 @@ export function StapVersturen({
   const [sent, setSent] = useState(false)
   const [sentLink, setSentLink] = useState('')
   const [error, setError] = useState('')
+  // Hoeveelheid tekeningen die zijn opgeslagen — bepaalt of de tekeningen-PDF
+  // automatisch wordt meegestuurd in sendOfferteEmail
+  const [aantalTekeningen, setAantalTekeningen] = useState(0)
 
   useEffect(() => {
-    getOfferteEmailDefaults(offerteId).then(defaults => {
+    Promise.all([
+      getOfferteEmailDefaults(offerteId),
+      getLeverancierPdfData(offerteId),
+    ]).then(([defaults, levData]) => {
       if (defaults.error) {
         setError(defaults.error)
       } else {
@@ -37,6 +43,7 @@ export function StapVersturen({
         setEmailSubject(defaults.subject || '')
         setEmailBody(plainTextToHtml(defaults.body || ''))
       }
+      setAantalTekeningen(levData?.elementen?.length || 0)
       setLoading(false)
     })
   }, [offerteId])
@@ -239,9 +246,18 @@ export function StapVersturen({
             <div className="space-y-2">
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md text-sm">
                 <Download className="h-4 w-4 text-blue-600 flex-shrink-0" />
-                <span className="text-blue-800 flex-1">Offerte PDF</span>
+                <span className="text-blue-800 flex-1">Offerte PDF (met prijzen)</span>
                 <span className="text-xs text-blue-500">Automatisch bijgevoegd</span>
               </div>
+              {aantalTekeningen > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-md text-sm">
+                  <FileText className="h-4 w-4 text-orange-600 flex-shrink-0" />
+                  <span className="text-orange-800 flex-1">
+                    Tekeningen PDF (zonder prijzen) — {aantalTekeningen} tekeningen
+                  </span>
+                  <span className="text-xs text-orange-600">Automatisch bijgevoegd</span>
+                </div>
+              )}
 
               {emailAttachments.map((file, i) => (
                 <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-sm">
