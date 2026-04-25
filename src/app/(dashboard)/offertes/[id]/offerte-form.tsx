@@ -176,22 +176,56 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
     setMargePercentage(0)
   }
 
-  // Zoek kozijnen regel met brede matching, of voeg toe als niet gevonden
+  // Bepaal materiaal op basis van leverancier-detectie / parsed elementen.
+  // Aluprof / Schüco / Reynaers / Aliplast / Cortizo zijn aluminium.
+  // Aluplast / Gealan / Kochs / Eko-Okna (PVC) → kunststof.
+  // Eko-Okna kan beide leveren — we kijken naar het systeem-veld op de elementen.
+  function detectKozijnMateriaal(): 'aluminium' | 'kunststof' {
+    const sysText = (parsedPdfResult?.elementen || []).map(e => `${e.systeem} ${e.type}`).join(' ').toLowerCase()
+    const alulijst = ['aluprof', 'schüco', 'schuco', 'reynaers', 'aliplast', 'cortizo', 'aluminium']
+    const pvcLijst = ['aluplast', 'gealan', 'kochs', 'k-vision', 'primus md', 'premidoor', 'pvc', 'kunststof']
+    const lev = (detectedLeverancier?.display_naam || detectedLeverancier?.leverancier || '').toLowerCase()
+    const profiel = (detectedLeverancier?.profiel || '').toLowerCase()
+    const allText = `${lev} ${profiel} ${sysText}`
+    if (alulijst.some(k => allText.includes(k))) {
+      // Voorkom false-positive: 'aluplast' bevat 'alu' — daarom kijken we eerst
+      // expliciet of een echte aluminium-marker (aluprof, schüco, reynaers, …) erin zit.
+      const echtAlu = ['aluprof', 'schüco', 'schuco', 'reynaers', 'aliplast', 'cortizo'].some(k => allText.includes(k))
+      if (echtAlu) return 'aluminium'
+    }
+    if (pvcLijst.some(k => allText.includes(k))) return 'kunststof'
+    // Default: kunststof (Rebu's hoofdactiviteit)
+    return 'kunststof'
+  }
+
+  // Zoek kozijnen regel met brede matching, of voeg toe als niet gevonden.
+  // Naam past zich aan op basis van materiaal: aluminium → "Leveren aluminium kozijnen",
+  // kunststof → "Kunststof kozijnen leveren".
   function findOrCreateKozijnRegel(currentRegels: Regel[], prijs: number): Regel[] {
     const updated = [...currentRegels]
     const roundedPrijs = Math.round(prijs * 100) / 100
-    // Breed zoeken: kozijn, kunststof, leveren
+    const materiaal = detectKozijnMateriaal()
+    const targetNaam = materiaal === 'aluminium' ? 'Leveren aluminium kozijnen' : 'Kunststof kozijnen leveren'
+    // Breed zoeken: kozijn + (lever / kunststof / aluminium)
     let idx = updated.findIndex(r => {
       const o = r.omschrijving.toLowerCase()
-      return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
+      return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof') || o.includes('aluminium'))
     })
     // Fallback: eerste regel met prijs 0 (placeholder)
     if (idx === -1) idx = updated.findIndex(r => Number(r.prijs) === 0 && r.omschrijving)
     if (idx !== -1) {
-      updated[idx] = { ...updated[idx], prijs: roundedPrijs }
+      // Update prijs én naam (zodat oude 'kunststof'-naam wordt vervangen door 'aluminium' bij ander materiaal)
+      const huidigNaam = updated[idx].omschrijving.toLowerCase()
+      const huidigIsAlu = huidigNaam.includes('aluminium')
+      const huidigIsPvc = huidigNaam.includes('kunststof')
+      const moetAangepast = (materiaal === 'aluminium' && !huidigIsAlu) || (materiaal === 'kunststof' && !huidigIsPvc)
+      updated[idx] = {
+        ...updated[idx],
+        prijs: roundedPrijs,
+        omschrijving: moetAangepast ? targetNaam : updated[idx].omschrijving,
+      }
     } else {
-      // Geen kozijnen regel gevonden — voeg toe aan begin
-      updated.unshift({ omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: roundedPrijs, btw_percentage: 21 })
+      updated.unshift({ omschrijving: targetNaam, aantal: 1, prijs: roundedPrijs, btw_percentage: 21 })
     }
     return updated
   }

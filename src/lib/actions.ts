@@ -7669,6 +7669,58 @@ export async function addBekendeLeverancier(input: { display_naam: string; profi
   return { naam: slug, display_naam: display, alreadyExists: false }
 }
 
+// ========== Leverancier wis-template (gebruiker leert AI welke regio's weg moeten) ==========
+
+// Slaat door gebruiker gecorrigeerde wis-regio's op als template per leverancier.
+// Volgende scan van dezelfde leverancier gebruikt deze regio's vóór AI Vision wordt
+// aangeroepen, of als baseline waarop AI alleen verfijning doet.
+export async function saveLeverancierWipeTemplate(input: {
+  leverancierSlug: string
+  // Regio's als percentages van paginabreedte/-hoogte (schaal-onafhankelijk)
+  regionsPct: { x: number; y: number; w: number; h: number }[]
+  pageWidth: number
+  pageHeight: number
+  validated?: boolean
+}) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+  const { data: existing } = await sb
+    .from('ai_tekening_template')
+    .select('id, usage_count')
+    .eq('supplier', input.leverancierSlug)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await sb.from('ai_tekening_template').update({
+      remove_regions_pct: input.regionsPct,
+      page_width: input.pageWidth,
+      page_height: input.pageHeight,
+      validated: input.validated ?? true,
+      usage_count: (existing.usage_count ?? 0) + 1,
+      last_used: new Date().toISOString(),
+    }).eq('id', existing.id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await sb.from('ai_tekening_template').insert({
+      supplier: input.leverancierSlug,
+      remove_regions_pct: input.regionsPct,
+      page_width: input.pageWidth,
+      page_height: input.pageHeight,
+      box_x_pct: 0,
+      box_y_pct: 0,
+      box_w_pct: 1,
+      box_h_pct: 1,
+      confidence: 1,
+      validated: input.validated ?? true,
+      usage_count: 1,
+      last_used: new Date().toISOString(),
+    })
+    if (error) return { error: error.message }
+  }
+  return { success: true }
+}
+
 // ========== Offerte concept state (preview/correctie-loop) ==========
 
 export async function saveConceptState(input: { offerteId: string; state: unknown; ronde?: number }) {

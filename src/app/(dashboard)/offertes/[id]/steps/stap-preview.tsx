@@ -3,11 +3,12 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X, FileText, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState } from '@/lib/actions'
+import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate } from '@/lib/actions'
 import type { ParsedPdfResult, RenderedTekening, WipedRegion } from './stap-tekeningen'
 import { PdfViewer, type PdfViewerHandle } from './preview/pdf-viewer'
 import { PreviewChecklist } from './preview/checklist'
 import { PreviewContextMenu, CorrectieBadge, type ContextMenuState, type CorrectieType } from './preview/context-menu'
+import { RegionEditor, rerenderPageWithRegions, type EditableRegion } from './preview/region-editor'
 
 // Een stap-correctie die de gebruiker heeft aangewezen via klik of vrije tekst.
 // Wordt verzameld tot "Toepassen" wordt geklikt, dan in 1 AI-call doorgevoerd.
@@ -68,7 +69,7 @@ function BulkBtn({ label, onClick, danger }: { label: string; onClick: () => voi
 }
 
 // Toont 1 gerenderde tekening uit de blob — prijzen weggewist, tekening + specs intact.
-function TekeningPreview({ tek, idx }: { tek: RenderedTekening; idx: number }) {
+function TekeningPreview({ tek, idx, onEdit }: { tek: RenderedTekening; idx: number; onEdit?: () => void }) {
   const [url, setUrl] = useState<string>('')
   useEffect(() => {
     const u = URL.createObjectURL(tek.blob)
@@ -76,7 +77,7 @@ function TekeningPreview({ tek, idx }: { tek: RenderedTekening; idx: number }) {
     return () => URL.revokeObjectURL(u)
   }, [tek.blob])
   return (
-    <div className="border border-gray-200 rounded overflow-hidden bg-white">
+    <div className="border border-gray-200 rounded overflow-hidden bg-white group relative">
       <div className="px-2 py-1 bg-gray-50 border-b border-gray-100 flex items-center justify-between text-[10px]">
         <span className="font-medium text-gray-700 truncate">
           {tek.naam}{tek.totalPages > 1 && <span className="text-gray-400 ml-1">({tek.pageIndex + 1}/{tek.totalPages})</span>}
@@ -87,6 +88,16 @@ function TekeningPreview({ tek, idx }: { tek: RenderedTekening; idx: number }) {
         <img src={url} alt={`Tekening ${idx + 1}`} className="w-full h-auto block" />
       ) : (
         <div className="aspect-[4/3] bg-gray-100" />
+      )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          className="absolute top-7 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-gray-200 hover:border-blue-400 rounded p-1 text-blue-600 shadow-sm"
+          title="Wis-regio's bewerken op deze pagina"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
       )}
     </div>
   )
@@ -295,6 +306,78 @@ export function StapPreview({
 
   const [bulkOpen, setBulkOpen] = useState(false)
 
+  // ---- Region editor (per-pagina wis-regio's bewerken + AI leert) ----
+  const [editorPage, setEditorPage] = useState<number | null>(null)
+  // Mutable kopie van renderedTekeningen zodat we de blob per element kunnen vervangen
+  const [tekeningenLocal, setTekeningenLocal] = useState<RenderedTekening[]>(renderedTekeningen)
+  // Per-page actuele regio's: start vanuit prop wipedRegions, wordt bijgewerkt
+  // wanneer de gebruiker er aan sleutelt. PDF native coords (scale=1).
+  const [regionsByPage, setRegionsByPage] = useState<Map<number, EditableRegion[]>>(() => {
+    const m = new Map<number, EditableRegion[]>()
+    for (const r of (wipedRegions || [])) {
+      const arr = m.get(r.pageNum) ?? []
+      arr.push({ id: `init-${arr.length}`, x: r.x, y: r.y, w: r.w, h: r.h, reden: r.reden })
+      m.set(r.pageNum, arr)
+    }
+    return m
+  })
+  useEffect(() => { setTekeningenLocal(renderedTekeningen) }, [renderedTekeningen])
+
+  async function handleRegionEditorSave(pageNum: number, newRegions: EditableRegion[]) {
+    // 1. Update state
+    setRegionsByPage(prev => {
+      const m = new Map(prev)
+      m.set(pageNum, newRegions)
+      return m
+    })
+    // 2. Re-render de tekening met nieuwe regio's en vervang de blob
+    if (pendingPdfFile) {
+      try {
+        const newBlob = await rerenderPageWithRegions(
+          pendingPdfFile,
+          pageNum,
+          newRegions.map(r => ({ x: r.x, y: r.y, w: r.w, h: r.h })),
+          2,
+          0,
+        )
+        setTekeningenLocal(prev => prev.map(t => t.pageNum === pageNum ? { ...t, blob: newBlob } : t))
+      } catch (e) {
+        console.error('Tekening her-renderen mislukt:', e)
+      }
+    }
+    // 3. AI leert automatisch — sla regio's op als percentages voor deze leverancier
+    if (detectedLeverancier?.leverancier && detectedLeverancier.leverancier !== 'onbekend') {
+      try {
+        // We hebben de page-size niet ter beschikking hier; reken in percentages via PDF.
+        // Laat de region-editor zelf de page-grootte voor de huidige pagina opslaan
+        // als gemeenschappelijke referentie — voor cache-key voldoet het.
+        const pdfjsLib = await import('pdfjs-dist')
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`
+        const buf = await pendingPdfFile!.arrayBuffer()
+        const doc = await pdfjsLib.getDocument({ data: buf }).promise
+        const page = await doc.getPage(pageNum)
+        const viewport = page.getViewport({ scale: 1 })
+        const regionsPct = newRegions.map(r => ({
+          x: r.x / viewport.width,
+          y: r.y / viewport.height,
+          w: r.w / viewport.width,
+          h: r.h / viewport.height,
+        }))
+        await saveLeverancierWipeTemplate({
+          leverancierSlug: detectedLeverancier.leverancier,
+          regionsPct,
+          pageWidth: viewport.width,
+          pageHeight: viewport.height,
+          validated: true,
+        })
+      } catch (e) {
+        console.warn('Leverancier-template opslaan mislukt:', e)
+      }
+    }
+    // 4. Triggert PDF preview re-build bij volgende toon
+    setPdfPreviewUrl('')
+  }
+
   // ---- Live offerte-PDF preview ----
   const [rightTab, setRightTab] = useState<'edit' | 'pdf'>('edit')
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string>('')
@@ -309,7 +392,7 @@ export function StapPreview({
       const fd = new FormData()
       // Per element: bouw lijst van tekening-file-keys en voeg de blobs toe
       const elementen = parsedPdfResult.elementen.map(el => {
-        const tekeningen = renderedTekeningen.filter(t => t.naam === el.naam).sort((a, b) => a.pageIndex - b.pageIndex)
+        const tekeningen = tekeningenLocal.filter(t => t.naam === el.naam).sort((a, b) => a.pageIndex - b.pageIndex)
         const tekeningKeys: string[] = []
         for (let i = 0; i < tekeningen.length; i++) {
           const key = `tek_${el.naam.replace(/[^a-z0-9]/gi, '_')}_${i}`
@@ -686,7 +769,7 @@ export function StapPreview({
       // Tekeningen uploaden:
       const elementToPaths = new Map<string, { paths: string[]; pageNums: number[] }>()
       let i = 0
-      for (const t of renderedTekeningen) {
+      for (const t of tekeningenLocal) {
         const fdFile = new FormData()
         const file = new File([t.blob], `tekening-${t.pageNum}.jpg`, { type: 'image/jpeg' })
         fdFile.append('image', file)
@@ -1071,12 +1154,17 @@ export function StapPreview({
                 <span className="text-[10px] text-gray-400">{renderedTekeningen.filter(t => !zichtbaarheid[t.naam]?.hidden && !verwijderdeElementen.has(t.naam)).length} stuks</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {renderedTekeningen
+                {tekeningenLocal
                   .filter(t => !zichtbaarheid[t.naam]?.hidden && !verwijderdeElementen.has(t.naam))
                   .map((t, idx) => (
-                    <TekeningPreview key={`${t.naam}-${t.pageNum}`} tek={t} idx={idx} />
+                    <TekeningPreview
+                      key={`${t.naam}-${t.pageNum}`}
+                      tek={t}
+                      idx={idx}
+                      onEdit={() => setEditorPage(t.pageNum)}
+                    />
                   ))}
-                {renderedTekeningen.length === 0 && (
+                {tekeningenLocal.length === 0 && (
                   <div className="col-span-2 text-center text-xs text-gray-400 py-4 border border-dashed border-gray-200 rounded">
                     Geen tekeningen geëxtraheerd
                   </div>
@@ -1171,6 +1259,20 @@ export function StapPreview({
         state={contextMenu}
         onAction={handleCorrectieAction}
         onClose={() => setContextMenu(null)}
+      />
+
+      {/* Region-editor: gebruiker past wis-rechthoeken aan op originele PDF-pagina,
+          AI leert automatisch op voor deze leverancier */}
+      <RegionEditor
+        open={editorPage !== null}
+        pdfFile={pendingPdfFile}
+        pageNum={editorPage || 1}
+        initialRegions={editorPage ? (regionsByPage.get(editorPage) || []) : []}
+        leverancierLabel={detectedLeverancier?.display_naam}
+        onClose={() => setEditorPage(null)}
+        onSave={async (newRegions) => {
+          if (editorPage !== null) await handleRegionEditorSave(editorPage, newRegions)
+        }}
       />
 
       {/* Visueel onbenutte hooks/icons stillen ESLint */}
