@@ -814,6 +814,14 @@ export function StapPreview({
       fd.set('relatie_id', selectedRelatieId)
       if (selectedProjectId) fd.set('project_id', selectedProjectId)
       fd.set('onderwerp', onderwerp || projectName || '')
+      // Vandaag als datum, geldig_tot 30 dagen — saveOfferte vereist datum (NOT NULL)
+      const vandaag = new Date()
+      const geldigTot = new Date(vandaag.getTime() + 30 * 24 * 60 * 60 * 1000)
+      const isoDatum = (offerte?.datum as string | undefined) || vandaag.toISOString().split('T')[0]
+      const isoGeldigTot = (offerte?.geldig_tot as string | undefined) || geldigTot.toISOString().split('T')[0]
+      fd.set('datum', isoDatum)
+      fd.set('geldig_tot', isoGeldigTot)
+      fd.set('status', (offerte?.status as string | undefined) || 'concept')
       fd.set('regels', JSON.stringify(regels.map(r => ({ ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) }))))
       const result = await saveOfferte(fd)
       if (result.error) { setError(result.error); setSaving(false); return }
