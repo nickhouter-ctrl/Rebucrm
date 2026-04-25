@@ -251,9 +251,10 @@ export function RegionEditor({
                     </span>
                     <button
                       type="button"
-                      onClick={(e) => { e.stopPropagation(); deleteRegion(r.id) }}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] hover:bg-red-600"
-                      title="Verwijder"
+                      onMouseDown={(e) => { e.stopPropagation(); e.preventDefault() }}
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); deleteRegion(r.id) }}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold hover:bg-red-600 z-10 cursor-pointer"
+                      title="Verwijder regio"
                     >
                       ×
                     </button>
