@@ -30,7 +30,7 @@ const elementUpdateSchema = z.object({
 })
 
 const regelUpdateSchema = z.object({
-  index: z.number().int().describe('Index in regels-array; -1 voor toevoegen aan eind'),
+  index: z.number().describe('Geheel getal: index in regels-array; -1 voor toevoegen aan eind'),
   actie: z.enum(['toevoegen', 'aanpassen', 'verwijderen']),
   omschrijving: z.string().optional(),
   aantal: z.number().optional(),

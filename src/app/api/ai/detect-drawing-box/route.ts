@@ -16,10 +16,10 @@ export const maxDuration = 60
 export const dynamic = 'force-dynamic'
 
 const schema = z.object({
-  x: z.number().int(),
-  y: z.number().int(),
-  w: z.number().int(),
-  h: z.number().int(),
+  x: z.number(),
+  y: z.number(),
+  w: z.number(),
+  h: z.number(),
   reason: z.string().optional(),
 })
 

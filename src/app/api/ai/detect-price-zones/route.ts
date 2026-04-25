@@ -12,7 +12,7 @@ import { z } from 'zod'
 export const maxDuration = 60
 
 const schema = z.object({
-  hide: z.array(z.number().int()).describe('Indices (veld "i") van items die verborgen moeten worden'),
+  hide: z.array(z.number()).describe('Indices (veld "i") van items die verborgen moeten worden'),
 })
 
 export async function POST(req: NextRequest) {

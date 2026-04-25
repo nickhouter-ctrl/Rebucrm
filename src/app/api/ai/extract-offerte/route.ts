@@ -14,8 +14,7 @@ export const dynamic = 'force-dynamic'
 
 const elementSchema = z.object({
   naam: z.string().describe('Zoals "Element 001", "Deur 008", "Element 009"'),
-  // .min(1) niet ondersteund door Anthropic structured output op integers — runtime check elders
-  hoeveelheid: z.number().int(),
+  hoeveelheid: z.number().describe('Geheel getal, minimaal 1'),
   systeem: z.string().default(''),
   kleur: z.string().default(''),
   afmetingen: z.string().describe('Zoals "1000 mm x 2600 mm"').default(''),
