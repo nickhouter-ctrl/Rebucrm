@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { generateObject, gateway } from 'ai'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -28,15 +27,16 @@ const schema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }
 
-  const { imageBase64, imageWidth, imageHeight, supplier } = (await req.json()) as {
+  const { imageBase64, imageWidth, imageHeight, supplier, leverancierSlug } = (await req.json()) as {
     imageBase64: string
     imageWidth: number
     imageHeight: number
     supplier?: string
+    leverancierSlug?: string
   }
 
   if (!imageBase64 || !imageWidth || !imageHeight) {
@@ -44,7 +44,10 @@ export async function POST(req: NextRequest) {
   }
 
   const sb = createAdminClient()
-  const supplierKey = (supplier || 'unknown').toLowerCase().trim()
+  // Cache-key: leverancierSlug heeft voorrang (deterministisch, gevalideerd via
+  // bekende_leveranciers tabel). Fallback op oude `supplier` string voor
+  // backwards-compat met bestaande cache-records.
+  const supplierKey = (leverancierSlug || supplier || 'unknown').toLowerCase().trim()
 
   // Cache: als we deze leverancier eerder succesvol hebben gezien, hergebruik direct
   const { data: template } = await sb
@@ -103,10 +106,14 @@ Geef MEERDERE boxes als prijzen verspreid staan. Bv. Aluplast heeft vaak links e
 
   try {
     const { object } = await generateObject({
-      model: anthropic('claude-sonnet-4-5'),
+      model: gateway('anthropic/claude-sonnet-4-5'),
       system,
       schema,
       temperature: 0,
+      // System prompt is lang en stabiel — perfecte caching candidate
+      providerOptions: {
+        anthropic: { cacheControl: { type: 'ephemeral' } },
+      },
       messages: [
         {
           role: 'user',

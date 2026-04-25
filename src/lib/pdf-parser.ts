@@ -1,5 +1,10 @@
 // Shared PDF parsing utilities — used by both server actions and API routes
 
+// Leverancier-hint: als bekend, skipt de parser autodetect en gebruikt direct
+// het juiste regex-pad. Voorkomt mis-detectie bij PDF's die qua tekst-extractie
+// op meerdere leveranciers lijken (vooral Schüco-encoded vs Gealan).
+export type LeverancierKey = 'eko-okna' | 'schuco' | 'gealan' | 'gealan-nl' | 'kochs' | 'aluplast' | 'reynaers' | 'default'
+
 export interface KozijnElement {
   naam: string
   hoeveelheid: number
@@ -32,7 +37,7 @@ export interface KozijnElement {
   krukBuiten: string
 }
 
-export function parseLeverancierPdfText(text: string): { totaal: number; elementen: KozijnElement[] } {
+export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { totaal: number; elementen: KozijnElement[] } {
   const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
 
   // Schüco PDF-fonts worden soms door pdfjs niet correct gedecoded — elke
@@ -80,21 +85,28 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   // Detect format - flexible whitespace to handle different PDF text extractors
   // Belangrijk: Aluplast/Deur-Element format (originele) eerst testen. Gealan-detectie
   // was te breed en ving ook Aluplast PDFs waar 'Merk A Aantal: 1' toevallig voorkomt.
-  const isAluplast = /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
-  // Gealan S9000NL / Hef-schuif: locatie-gebaseerde element namen (Zolder voorzijde li ...),
-  // per-element sectie start met "Productie maten", prijzen in "Netto prijs / Raam / Totaal" tabel.
-  const isGealanNL = !isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
-  const isGealan = !isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text)
-  // Schüco: "Merk A Aantal stuks:N Verbinding: :45 Systeem: Schüco Slide/Verdiept"
-  // Layout sterk vergelijkbaar met Gealan maar gebruikt "Aantal stuks" en "Brutopr. / Korting / Netto prijs" tabel.
-  // Detect tolerant op encoding (pdfjs kan "Schüco" als "Sch¿co" renderen).
-  const isSchuco = !isAluplast && !isGealanNL && !isGealan && (
+  // Hint heeft voorrang: als de aanroeper (of AI) zeker weet welke leverancier het is,
+  // skippen we autodetect en gebruiken we direct het juiste pad.
+  const useAluplast = hint === 'aluplast'
+  const useGealanNL = hint === 'gealan-nl'
+  const useGealan = hint === 'gealan'
+  const useSchuco = hint === 'schuco'
+  const useKochs = hint === 'kochs'
+  const useEkoOkna = hint === 'eko-okna'
+  const useDefault = hint === 'default' || hint === 'reynaers'
+  const hasHint = !!hint
+
+  const isAluplast = hasHint ? useAluplast : /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
+  const isGealanNL = hasHint ? useGealanNL : (!isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text))
+  const isGealan = hasHint ? useGealan : (!isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
+  const isSchuco = hasHint ? useSchuco : (!isAluplast && !isGealanNL && !isGealan && (
     /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
     /Sch[üu¿\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(text)
-  )
-  // Kochs: K-Vision (oud) of Primus MD + Premidoor (nieuw)
-  const isKochs = !isGealan && !isGealanNL && !isSchuco && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text))
-  const isEkoOkna = !isGealan && !isGealanNL && !isKochs && !isSchuco && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text)
+  ))
+  const isKochs = hasHint ? useKochs : (!isGealan && !isGealanNL && !isSchuco && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text)))
+  const isEkoOkna = hasHint ? useEkoOkna : (!isGealan && !isGealanNL && !isKochs && !isSchuco && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text))
+  // useDefault valt vanzelf in de else-branch onderin
+  void useDefault
 
   // Extract totaal
   let totaal = 0
@@ -764,4 +776,17 @@ export function parseLeverancierPdfText(text: string): { totaal: number; element
   }
 
   return { totaal, elementen }
+}
+
+// Autodetect op basis van regex-patronen. Wordt gebruikt als second-opinion
+// voor de AI-detectie (om confidence te verhogen) of als fallback bij AI-fout.
+export function detectLeverancierFromText(text: string): LeverancierKey | null {
+  const cleaned = text.replace(/[-]/g, '')
+  if (/(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(cleaned)) return 'aluplast'
+  if (/Productie\s+maten/i.test(cleaned) && /Netto\s*prijs/i.test(cleaned) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(cleaned) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(cleaned)) return 'gealan-nl'
+  if (/Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(cleaned) && /Netto\s*totaal/i.test(cleaned) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(cleaned)) return 'gealan'
+  if (/Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(cleaned) || /Sch[ü¿u\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(cleaned) || /1IVO\s*[%&'()*+,\-.]/.test(cleaned)) return 'schuco'
+  if (/K-Vision\s+\d+/.test(cleaned) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(cleaned)) return 'kochs'
+  if (/Hoev\.\s*:\s*\d+/.test(cleaned)) return 'eko-okna'
+  return null
 }

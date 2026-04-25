@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { generateObject, gateway } from 'ai'
 import { z } from 'zod'
 
 // AI-driven offerte extractie. Claude scant de volledige leverancier-PDF tekst
@@ -29,6 +28,8 @@ const elementSchema = z.object({
   scharnieren: z.string().default(''),
   gewicht: z.string().default(''),
   omtrek: z.string().default(''),
+  confidence: z.number().min(0).max(1).default(1).describe('Hoe zeker ben je over de extractie van dit element? 1=zeker, <0.7 = controleer extra'),
+  confidence_reden: z.string().default('').describe('Korte uitleg bij lage confidence'),
 })
 
 const schema = z.object({
@@ -38,20 +39,26 @@ const schema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }
 
-  const { text, regexResult } = (await req.json()) as {
+  const { text, regexResult, leverancier, profiel } = (await req.json()) as {
     text: string
     regexResult?: { totaal: number; elementen: Array<{ naam: string; prijs: number; hoeveelheid: number }> }
+    leverancier?: string
+    profiel?: string
   }
 
   if (!text || text.length < 100) {
     return NextResponse.json({ error: 'PDF-tekst te kort of leeg' }, { status: 400 })
   }
 
-  const system = `Je bent een expert in het analyseren van kozijn-leveranciers offertes (Aluplast, Gealan, Aluprof, Eko-Okna, Kochs, Schüco, Reynaers).
+  const leverancierHint = leverancier
+    ? `\nDeze offerte komt vast en zeker van: **${leverancier}**${profiel ? ` (profiel: ${profiel})` : ''}. Gebruik dit als ground-truth voor naam-formatting en prijs-locatie.\n`
+    : ''
+
+  const system = `Je bent een expert in het analyseren van kozijn-leveranciers offertes (Aluplast, Gealan, Aluprof, Eko-Okna, Kochs, Schüco, Reynaers).${leverancierHint}
 
 Je taak: scan de PDF-tekst en geef EXACT de lijst van echte offerte-elementen met hun specs en prijzen.
 
@@ -73,6 +80,12 @@ KRITIEKE REGELS (op basis van fouten die eerder zijn gemaakt):
 
 8. **Totaal** = som van (prijs × hoeveelheid) voor alle elementen met prijs > 0. Als er een "Totaal excl. BTW" in de PDF staat dat matcht, gebruik die waarde.
 
+9. **Confidence per element**: geef per element een score 0-1.
+   - 1.0 = element-naam, prijs, hoeveelheid en systeem allemaal duidelijk extraheerbaar
+   - 0.7-0.9 = klein twijfelpunt (bv. afmetingen onduidelijk, encoded text)
+   - < 0.7 = serieuze twijfel (bv. "Prijs op aanvraag", verschillende prijzen, ghost-referentie risico)
+   Vul confidence_reden in zodra de score < 0.9.
+
 Wees grondig. Als iets twijfelachtig is, leg het uit in "opmerkingen".`
 
   const userPrompt = `Hieronder de volledige tekst van een kozijn-offerte PDF. Extraheer alle echte elementen volgens de regels.
@@ -84,11 +97,14 @@ ${text.slice(0, 80000)}
 
   try {
     const { object } = await generateObject({
-      model: anthropic('claude-sonnet-4-5'),
+      model: gateway('anthropic/claude-sonnet-4-5'),
       system,
       schema,
       temperature: 0,
       messages: [{ role: 'user', content: userPrompt }],
+      providerOptions: {
+        anthropic: { cacheControl: { type: 'ephemeral' } },
+      },
     })
 
     return NextResponse.json({ ...object, fromAi: true })

@@ -1626,8 +1626,7 @@ export async function sendFactuurEmail(factuurId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
-      fromName: mwInfo?.naam ? `${mwInfo.naam} - Rebu Kozijnen` : 'Rebu Kozijnen',
-      replyTo: mwInfo?.email,
+      fromName: 'Rebu Kozijnen',
     })
   } catch (err) {
     console.error('Factuur e-mail verzenden mislukt:', err)
@@ -4797,8 +4796,7 @@ export async function sendOfferteEmail(offerteId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
-      fromName: medewerkerInfo?.naam ? `${medewerkerInfo.naam} - Rebu Kozijnen` : 'Rebu Kozijnen',
-      replyTo: medewerkerInfo?.email,
+      fromName: 'Rebu Kozijnen',
     })
   } catch (err) {
     console.error('E-mail verzenden mislukt:', err)
@@ -7636,4 +7634,119 @@ export async function sendBroadcastEmail(onderwerp: string, bericht: string, typ
   })
 
   return { success: true, aantalOntvangers: emailAdressen.length }
+}
+
+// ========== Leverancier registry ==========
+
+export async function getBekendeLeveranciers() {
+  const sb = createAdminClient()
+  const { data } = await sb
+    .from('bekende_leveranciers')
+    .select('naam, display_naam, parser_key, profielen, validated_count')
+    .order('display_naam', { ascending: true })
+  return (data || []) as { naam: string; display_naam: string; parser_key: string; profielen: string[] | null; validated_count: number }[]
+}
+
+export async function addBekendeLeverancier(input: { display_naam: string; profiel?: string; parser_key?: string }) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const display = input.display_naam.trim()
+  if (!display) return { error: 'Naam is verplicht' }
+  const slug = display.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  if (!slug) return { error: 'Ongeldige naam' }
+  const sb = createAdminClient()
+  const { data: existing } = await sb.from('bekende_leveranciers').select('naam').eq('naam', slug).maybeSingle()
+  if (existing) return { naam: slug, display_naam: display, alreadyExists: true }
+  const profielen = input.profiel ? [input.profiel.trim()] : []
+  const { error } = await sb.from('bekende_leveranciers').insert({
+    naam: slug,
+    display_naam: display,
+    profielen,
+    parser_key: input.parser_key || 'default',
+    added_by_user: true,
+  })
+  if (error) return { error: error.message }
+  return { naam: slug, display_naam: display, alreadyExists: false }
+}
+
+// ========== Offerte concept state (preview/correctie-loop) ==========
+
+export async function saveConceptState(input: { offerteId: string; state: unknown; ronde?: number }) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+  const { data: existing } = await sb
+    .from('offerte_concept_state')
+    .select('id')
+    .eq('offerte_id', input.offerteId)
+    .eq('administratie_id', adminId)
+    .maybeSingle()
+  const payload = {
+    state: input.state,
+    ronde: input.ronde ?? 0,
+    updated_at: new Date().toISOString(),
+  }
+  if (existing) {
+    const { error } = await sb.from('offerte_concept_state').update(payload).eq('id', existing.id)
+    if (error) return { error: error.message }
+    return { success: true, id: existing.id }
+  } else {
+    const { data, error } = await sb.from('offerte_concept_state').insert({
+      offerte_id: input.offerteId,
+      administratie_id: adminId,
+      ...payload,
+    }).select('id').single()
+    if (error) return { error: error.message }
+    return { success: true, id: data?.id }
+  }
+}
+
+export async function loadConceptState(offerteId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+  const sb = createAdminClient()
+  const { data } = await sb
+    .from('offerte_concept_state')
+    .select('state, ronde, approved, updated_at')
+    .eq('offerte_id', offerteId)
+    .eq('administratie_id', adminId)
+    .eq('approved', false)
+    .maybeSingle()
+  return data || null
+}
+
+export async function approveConceptState(offerteId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+  await sb
+    .from('offerte_concept_state')
+    .update({ approved: true, updated_at: new Date().toISOString() })
+    .eq('offerte_id', offerteId)
+    .eq('administratie_id', adminId)
+  return { success: true }
+}
+
+export async function bevestigLeverancierDetectie(input: {
+  offerteId: string
+  leverancierSlug: string
+  userCorrectedFrom?: string
+}) {
+  const sb = createAdminClient()
+  // Bump validated_count op de bevestigde leverancier
+  const { data: lev } = await sb.from('bekende_leveranciers').select('id, validated_count').eq('naam', input.leverancierSlug).maybeSingle()
+  if (lev) {
+    await sb.from('bekende_leveranciers').update({
+      validated_count: (lev.validated_count || 0) + 1,
+      updated_at: new Date().toISOString(),
+    }).eq('id', lev.id)
+  }
+  // Log de bevestiging/correctie
+  if (input.offerteId) {
+    await sb.from('leverancier_detectie_log').update({
+      user_confirmed: true,
+      user_corrected_to: input.userCorrectedFrom ? input.leverancierSlug : null,
+    }).eq('offerte_id', input.offerteId).order('created_at', { ascending: false }).limit(1)
+  }
+  return { success: true }
 }
