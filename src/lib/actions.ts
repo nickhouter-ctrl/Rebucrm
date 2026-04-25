@@ -740,13 +740,24 @@ export async function saveOfferte(formData: FormData) {
     ? geldigTotRaw
     : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
+  // Status mag alleen één van de toegestane CHECK-waarden zijn
+  const allowedStatus = new Set(['concept', 'verzonden', 'geaccepteerd', 'afgewezen', 'verlopen'])
+  const statusRaw = formData.get('status') as string | null
+  const status = statusRaw && allowedStatus.has(statusRaw) ? statusRaw : 'concept'
+
+  // Last-resort offertenummer-garantie (mag NIET null zijn in DB)
+  if (!offertenummer || !offertenummer.trim()) {
+    try { offertenummer = await getVolgendeNummer('offerte') } catch { /* ignore */ }
+    if (!offertenummer) offertenummer = `CONCEPT-${Date.now()}`
+  }
+
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
     offertenummer,
     datum,
     geldig_tot: geldigTot,
-    status: formData.get('status') as string || 'concept',
+    status,
     onderwerp: formData.get('onderwerp') as string || null,
     inleiding: formData.get('inleiding') as string || null,
     subtotaal,
@@ -759,32 +770,56 @@ export async function saveOfferte(formData: FormData) {
   }
 
   let offerteId = id
-  if (id) {
-    const { error } = await supabase.from('offertes').update(record).eq('id', id)
-    if (error) return { error: error.message }
-    await supabase.from('offerte_regels').delete().eq('offerte_id', id)
-  } else {
-    const { data, error } = await supabase.from('offertes').insert(record).select('id').single()
-    if (error) return { error: error.message }
-    offerteId = data.id
-    // Eerste offerte in project: groep_id = eigen id
-    if (!groepId) {
-      await supabase.from('offertes').update({ groep_id: offerteId }).eq('id', offerteId)
+  try {
+    if (id) {
+      const { error } = await supabase.from('offertes').update(record).eq('id', id)
+      if (error) {
+        console.error('saveOfferte update error:', error.message, record)
+        return { error: `Kon offerte niet bijwerken: ${error.message}` }
+      }
+      await supabase.from('offerte_regels').delete().eq('offerte_id', id)
+    } else {
+      const { data, error } = await supabase.from('offertes').insert(record).select('id').single()
+      if (error) {
+        console.error('saveOfferte insert error:', error.message, record)
+        return { error: `Kon offerte niet aanmaken: ${error.message}` }
+      }
+      offerteId = data.id
+      if (!groepId) {
+        await supabase.from('offertes').update({ groep_id: offerteId }).eq('id', offerteId)
+      }
     }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Onbekende fout bij opslaan offerte' }
   }
 
   if (regels.length > 0) {
-    const regelRecords = regels.map((r: { omschrijving: string; aantal: number; prijs: number; btw_percentage: number; product_id?: string }, i: number) => ({
-      offerte_id: offerteId,
-      product_id: r.product_id || null,
-      omschrijving: r.omschrijving,
-      aantal: r.aantal,
-      prijs: r.prijs,
-      btw_percentage: r.btw_percentage,
-      totaal: r.aantal * r.prijs,
-      volgorde: i,
-    }))
-    await supabase.from('offerte_regels').insert(regelRecords)
+    // Filter ongeldige regels (lege omschrijving = NOT NULL violation) en
+    // normaliseer numerieke velden zodat we nooit op een type-fout knappen.
+    const regelRecords = regels
+      .map((r: { omschrijving?: string; aantal?: number | string; prijs?: number | string; btw_percentage?: number | string; product_id?: string }, i: number) => {
+        const omschrijving = (r.omschrijving || '').trim() || '(geen omschrijving)'
+        const aantal = typeof r.aantal === 'number' ? r.aantal : parseFloat(String(r.aantal ?? 0)) || 0
+        const prijs = typeof r.prijs === 'number' ? r.prijs : parseFloat(String(r.prijs ?? 0)) || 0
+        const btw = typeof r.btw_percentage === 'number' ? r.btw_percentage : parseFloat(String(r.btw_percentage ?? 21)) || 21
+        return {
+          offerte_id: offerteId,
+          product_id: r.product_id || null,
+          omschrijving,
+          aantal,
+          prijs,
+          btw_percentage: btw,
+          totaal: aantal * prijs,
+          volgorde: i,
+        }
+      })
+    if (regelRecords.length > 0) {
+      const { error: regelErr } = await supabase.from('offerte_regels').insert(regelRecords)
+      if (regelErr) {
+        console.error('offerte_regels insert error:', regelErr.message)
+        // Niet-fataal — offerte is wel opgeslagen, alleen regels niet
+      }
+    }
   }
 
   // Auto-create order als status geaccepteerd wordt
