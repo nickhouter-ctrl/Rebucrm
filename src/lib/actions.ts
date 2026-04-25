@@ -7677,6 +7677,33 @@ export async function addBekendeLeverancier(input: { display_naam: string; profi
   return { naam: slug, display_naam: display, alreadyExists: false }
 }
 
+// ========== Leverancier prijs-correcties (gebruiker vult handmatig prijs in, AI leert) ==========
+
+export async function saveLeverancierPrijsCorrecties(input: {
+  leverancierSlug: string
+  offerteId?: string | null
+  correcties: Array<{
+    elementNaam: string
+    aiPrijs: number
+    handmatigePrijs: number
+    pdfTextSample?: string
+  }>
+}) {
+  if (!input.correcties.length) return { success: true, count: 0 }
+  const sb = createAdminClient()
+  const rows = input.correcties.map(c => ({
+    leverancier_slug: input.leverancierSlug,
+    element_naam: c.elementNaam,
+    ai_prijs: c.aiPrijs,
+    handmatige_prijs: c.handmatigePrijs,
+    pdf_text_sample: c.pdfTextSample || null,
+    offerte_id: input.offerteId || null,
+  }))
+  const { error } = await sb.from('leverancier_prijs_correctie').insert(rows)
+  if (error) return { error: error.message }
+  return { success: true, count: rows.length }
+}
+
 // ========== Leverancier wis-template (gebruiker leert AI welke regio's weg moeten) ==========
 
 // Slaat door gebruiker gecorrigeerde wis-regio's op als template per leverancier.

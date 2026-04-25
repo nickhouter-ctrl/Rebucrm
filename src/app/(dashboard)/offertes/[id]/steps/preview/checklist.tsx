@@ -59,6 +59,8 @@ export function PreviewChecklist({
 
   // Low-confidence elementen
   const lowConfidence = parsedPdfResult.elementen.filter(e => typeof e.confidence === 'number' && e.confidence < 0.7)
+  // Elementen zonder prijs (AI heeft geen prijs kunnen extraheren)
+  const zonderPrijs = parsedPdfResult.elementen.filter(e => e.prijs === 0)
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 mb-3">
@@ -77,8 +79,19 @@ export function PreviewChecklist({
       </div>
 
       {/* Waarschuwingen */}
-      {(verdacht.length > 0 || sanityWarn || lowConfidence.length > 0) && (
+      {(verdacht.length > 0 || sanityWarn || lowConfidence.length > 0 || zonderPrijs.length > 0) && (
         <div className="mt-3 space-y-2">
+          {zonderPrijs.length > 0 && (
+            <div className="flex items-start gap-2 p-2 bg-orange-50 border border-orange-300 rounded-md text-sm text-orange-800">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <strong>{zonderPrijs.length} element{zonderPrijs.length > 1 ? 'en' : ''} zonder prijs:</strong>{' '}
+                {zonderPrijs.slice(0, 5).map(e => e.naam).join(', ')}
+                {zonderPrijs.length > 5 && ` (+${zonderPrijs.length - 5} meer)`}
+                {' '}— vul de inkoopprijs handmatig in (oranje invoervelden in de tabel hieronder). Marge wordt automatisch toegepast.
+              </div>
+            </div>
+          )}
           {lowConfidence.length > 0 && (
             <div className="flex items-start gap-2 p-2 bg-amber-50 border border-amber-200 rounded-md text-sm text-amber-800">
               <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />

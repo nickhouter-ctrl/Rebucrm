@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X, FileText, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate } from '@/lib/actions'
+import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate, saveLeverancierPrijsCorrecties } from '@/lib/actions'
 import type { ParsedPdfResult, RenderedTekening, WipedRegion } from './stap-tekeningen'
 import { PdfViewer, type PdfViewerHandle } from './preview/pdf-viewer'
 import { PreviewChecklist } from './preview/checklist'
@@ -203,6 +203,15 @@ export function StapPreview({
   const [verwijderdeElementen, setVerwijderdeElementen] = useState<Set<string>>(new Set())
   const [vrijTekst, setVrijTekst] = useState('')
 
+  // Handmatige prijs-overrides per element (wanneer AI prijs 0 leest of fout heeft)
+  const [prijsOverrides, setPrijsOverrides] = useState<Record<string, number>>({})
+  // Welke prijs is er feitelijk voor een element (override of geparsed) — helper
+  // beschikbaar voor toekomstige callsites.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const getActualPrijs = useCallback((el: typeof parsedPdfResult.elementen[0]) => {
+    return prijsOverrides[el.naam] ?? el.prijs
+  }, [prijsOverrides, parsedPdfResult.elementen]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Correctie-stack: lijst pending correcties die de gebruiker heeft aangewezen
   // via contextmenu. Worden bij "Toepassen" gebundeld naar de AI gestuurd.
   const [pendingCorrecties, setPendingCorrecties] = useState<PendingCorrectie[]>([])
@@ -223,14 +232,16 @@ export function StapPreview({
     return m
   }, [renderedTekeningen])
 
-  // Verkoopprijs-totaal bij actuele marges (negeert verborgen elementen)
+  // Verkoopprijs-totaal bij actuele marges (negeert verborgen elementen).
+  // Gebruikt prijs-override als die is gezet, anders AI-geparsed prijs.
   const verkoopTotaal = useMemo(() => {
     return parsedPdfResult.elementen.reduce((sum, e) => {
-      if (zichtbaarheid[e.naam]?.hidden) return sum
+      if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) return sum
       const m = elementMarges[e.naam] ?? margePercentage
-      return sum + e.prijs * (1 + m / 100) * e.hoeveelheid
+      const inkoop = prijsOverrides[e.naam] ?? e.prijs
+      return sum + inkoop * (1 + m / 100) * e.hoeveelheid
     }, 0)
-  }, [parsedPdfResult.elementen, elementMarges, margePercentage, zichtbaarheid])
+  }, [parsedPdfResult.elementen, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, prijsOverrides])
 
   // Sync verkoopprijs naar de "Kunststof kozijnen leveren" regel
   function syncKozijnRegel() {
@@ -406,7 +417,7 @@ export function StapPreview({
           kleur: el.kleur,
           afmetingen: el.afmetingen,
           type: el.type,
-          prijs: el.prijs * (1 + ((elementMarges[el.naam] ?? margePercentage) / 100)),
+          prijs: (prijsOverrides[el.naam] ?? el.prijs) * (1 + ((elementMarges[el.naam] ?? margePercentage) / 100)),
           glasType: el.glasType,
           beslag: el.beslag,
           uwWaarde: el.uwWaarde,
@@ -677,6 +688,7 @@ export function StapPreview({
         regels: Regel[]
         onderwerp: string
         history: CorrectieSnapshot[]
+        prijsOverrides: Record<string, number>
       }>
       if (s.elementMarges) setElementMarges(s.elementMarges)
       if (s.zichtbaarheid) setZichtbaarheid(s.zichtbaarheid)
@@ -684,6 +696,7 @@ export function StapPreview({
       if (s.regels) onRegelsChange(s.regels)
       if (s.onderwerp) setOnderwerp(s.onderwerp)
       if (s.history) setHistory(s.history)
+      if (s.prijsOverrides) setPrijsOverrides(s.prijsOverrides)
     })
     return () => { cancelled = true }
   }, [offerteId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -745,11 +758,12 @@ export function StapPreview({
           regels,
           onderwerp,
           history,
+          prijsOverrides,
         },
       }).catch(() => { /* niet kritiek */ })
     }, 1500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [offerteId, elementMarges, zichtbaarheid, verwijderdeElementen, regels, onderwerp, history])
+  }, [offerteId, elementMarges, zichtbaarheid, verwijderdeElementen, regels, onderwerp, history, prijsOverrides])
 
   const inkoopprijzen = useMemo(() => parsedPdfResult.elementen.map(e => e.prijs), [parsedPdfResult.elementen])
 
@@ -829,6 +843,24 @@ export function StapPreview({
       if (pendingPdfFile) {
         const up = await uploadPreProcessedPdf(offerteId)
         if (!up.ok) { setSaving(false); return }
+      }
+      // AI leert van handmatige prijs-correcties
+      if (detectedLeverancier?.leverancier && detectedLeverancier.leverancier !== 'onbekend' && Object.keys(prijsOverrides).length > 0) {
+        try {
+          const correcties = Object.entries(prijsOverrides).map(([naam, handmatigePrijs]) => {
+            const orig = parsedPdfResult.elementen.find(e => e.naam === naam)
+            return {
+              elementNaam: naam,
+              aiPrijs: orig?.prijs ?? 0,
+              handmatigePrijs,
+            }
+          })
+          await saveLeverancierPrijsCorrecties({
+            leverancierSlug: detectedLeverancier.leverancier,
+            offerteId,
+            correcties,
+          })
+        } catch { /* niet kritiek */ }
       }
       // Concept-state markeren als goedgekeurd zodat hij bij nieuwe versie niet
       // opnieuw wordt geladen
@@ -1004,15 +1036,18 @@ export function StapPreview({
                   <tbody>
                     {parsedPdfResult.elementen.filter(el => !verwijderdeElementen.has(el.naam)).map((el) => {
                       const m = elementMarges[el.naam] ?? margePercentage
-                      const verkoop = el.prijs * (1 + m / 100) * el.hoeveelheid
+                      const inkoop = prijsOverrides[el.naam] ?? el.prijs
+                      const verkoop = inkoop * (1 + m / 100) * el.hoeveelheid
                       const hidden = !!zichtbaarheid[el.naam]?.hidden
                       const aiHl = aiAangepast.has(el.naam)
                       const pages = naamToPages.get(el.naam) || []
                       const pendingForThis = pendingCorrecties.filter(c => c.targetType === 'element' && c.target === el.naam)
+                      const geenPrijs = inkoop === 0
+                      const handmatigeprijs = prijsOverrides[el.naam] !== undefined
                       return (
                         <tr
                           key={el.naam}
-                          className={`border-b border-gray-100 last:border-0 ${hidden ? 'opacity-40 bg-gray-50' : ''} ${aiHl ? 'bg-yellow-50' : ''} hover:bg-blue-50/50`}
+                          className={`border-b border-gray-100 last:border-0 ${hidden ? 'opacity-40 bg-gray-50' : ''} ${aiHl ? 'bg-yellow-50' : ''} ${geenPrijs ? 'bg-orange-50/50' : ''} hover:bg-blue-50/50`}
                           onMouseEnter={() => hoverElement(el.naam)}
                           onContextMenu={(e) => openContextMenu(e, el.naam, 'element')}
                         >
@@ -1037,6 +1072,19 @@ export function StapPreview({
                               </button>
                               {el.type && <span className="text-gray-500">({el.type})</span>}
                               {pages.length > 0 && <span className="text-[10px] text-gray-400">p{pages.join(',')}</span>}
+                              {geenPrijs && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 text-[10px] bg-orange-100 text-orange-700 px-1 rounded"
+                                  title="AI heeft geen prijs gevonden — vul handmatig in of klik op pagina-nummer om naar het origineel te gaan"
+                                >
+                                  ⚠ geen prijs
+                                </span>
+                              )}
+                              {handmatigeprijs && !geenPrijs && (
+                                <span className="text-[10px] bg-blue-100 text-blue-700 px-1 rounded" title="Prijs handmatig aangepast — AI leert dit op">
+                                  handmatig
+                                </span>
+                              )}
                               {typeof el.confidence === 'number' && el.confidence < 0.7 && (
                                 <span className="text-[10px] bg-red-100 text-red-700 px-1 rounded" title={el.confidence_reden}>
                                   controleer
@@ -1047,7 +1095,30 @@ export function StapPreview({
                             </div>
                           </td>
                           <td className="text-center px-1.5 py-1.5 text-gray-600">{el.hoeveelheid}</td>
-                          <td className="text-right px-2 py-1.5 text-gray-600">{formatCurrency(el.prijs)}</td>
+                          <td className="text-right px-2 py-1.5 text-gray-600">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={inkoop || ''}
+                              placeholder="0,00"
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value)
+                                setPrijsOverrides(prev => {
+                                  const next = { ...prev }
+                                  if (isNaN(v)) delete next[el.naam]
+                                  else next[el.naam] = v
+                                  return next
+                                })
+                              }}
+                              className={`w-20 px-1 py-0.5 text-xs text-right rounded focus:outline-none focus:ring-1 focus:ring-primary ${
+                                geenPrijs
+                                  ? 'border-2 border-orange-400 bg-orange-50 placeholder-orange-400 font-medium animate-pulse'
+                                  : 'border border-gray-200 hover:border-gray-300 focus:border-primary'
+                              }`}
+                              title={geenPrijs ? 'Vul handmatig de inkoopprijs in' : 'Inkoopprijs (handmatig overschrijven)'}
+                            />
+                          </td>
                           <td className="text-center px-1.5 py-1.5">
                             <input
                               type="number"
@@ -1059,17 +1130,29 @@ export function StapPreview({
                             />
                           </td>
                           <td className="text-right px-2 py-1.5 font-medium text-gray-900">
-                            {hidden ? '—' : formatCurrency(verkoop)}
+                            {hidden ? '—' : geenPrijs ? <span className="text-orange-500 italic">—</span> : formatCurrency(verkoop)}
                           </td>
                           <td className="px-1 py-1.5">
-                            <button
-                              type="button"
-                              onClick={() => toggleHidden(el.naam)}
-                              className="p-1 text-gray-400 hover:text-gray-700"
-                              title={hidden ? 'Element opnemen' : 'Element verbergen'}
-                            >
-                              {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                            </button>
+                            <div className="flex items-center gap-0.5">
+                              {geenPrijs && pages[0] && (
+                                <button
+                                  type="button"
+                                  onClick={() => viewerRef.current?.highlightPage(pages[0])}
+                                  className="p-1 text-orange-500 hover:text-orange-700"
+                                  title="Toon pagina in origineel om prijs op te zoeken"
+                                >
+                                  →
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => toggleHidden(el.naam)}
+                                className="p-1 text-gray-400 hover:text-gray-700"
+                                title={hidden ? 'Element opnemen' : 'Element verbergen'}
+                              >
+                                {hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
