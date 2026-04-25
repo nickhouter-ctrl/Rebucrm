@@ -596,7 +596,8 @@ async function processNewEmail(
   offerteId: string | null,
   supabase: ReturnType<typeof createAdminClient>
 ) {
-  const toegewezenMedewerker = await matchMedewerkerByEmail(email.aan_email, administratieId, supabase)
+  // toegewezenMedewerker werd alleen gebruikt voor auto-taak aanmaak — die is
+  // weggehaald. matchMedewerkerByEmail blijft staan voor evt. toekomstig gebruik.
   if (classificatie === 'offerte_aanvraag') {
     let finalRelatieId = relatieId
     if (!finalRelatieId) {
@@ -628,49 +629,16 @@ async function processNewEmail(
         .eq('message_id', email.message_id)
     }
 
-    // Geen automatische verkoopkans of concept-offerte aanmaken — dit gebeurt pas
-    // wanneer de gebruiker de aanvraag handmatig promoveert via /aanvragen.
-    await supabase.from('taken').insert({
-      administratie_id: administratieId,
-      titel: 'Nieuwe aanvraag - offerte nog te maken',
-      omschrijving: `E-mail ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"`,
-      prioriteit: 'hoog',
-      status: 'open',
-      relatie_id: finalRelatieId,
-      medewerker_id: toegewezenMedewerker?.id || null,
-      toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
-    })
+    // Geen automatische taak aanmaken — taak ontstaat pas wanneer een
+    // medewerker de e-mail expliciet aan zichzelf/iemand toewijst via de
+    // email-inbox UI (assignEmailToMedewerker).
   } else if (classificatie === 'offerte_reactie' && offerteId) {
-    const { data: offerte } = await supabase
-      .from('offertes')
-      .select('offertenummer')
-      .eq('id', offerteId)
-      .single()
-
     await supabase
       .from('emails')
       .update({ verwerkt: true, offerte_id: offerteId })
       .eq('administratie_id', administratieId)
       .eq('message_id', email.message_id)
-
-    // Prioriteit: relatie van afzender-email. Alleen als die niet bestaat, valt
-    // terug op relatie van de offerte. Anders ontstaan taken op de verkeerde klant
-    // wanneer iemand anders reageert op een offerte-thread.
-    let finaleRelatieId = relatieId
-    if (!finaleRelatieId && offerteId) {
-      const { data: off } = await supabase.from('offertes').select('relatie_id').eq('id', offerteId).maybeSingle()
-      if (off?.relatie_id) finaleRelatieId = off.relatie_id
-    }
-    await supabase.from('taken').insert({
-      administratie_id: administratieId,
-      titel: `Offerte reactie: ${offerte?.offertenummer || 'onbekend'} - offerte aanpassen`,
-      omschrijving: `Reactie ontvangen van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"`,
-      prioriteit: 'normaal',
-      status: 'open',
-      relatie_id: finaleRelatieId,
-      offerte_id: offerteId,
-      medewerker_id: toegewezenMedewerker?.id || null,
-      toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
-    })
+    // Geen automatische taak aanmaken bij offerte-reacties — medewerker
+    // wijst zelf toe via email-inbox als opvolging nodig is.
   }
 }
