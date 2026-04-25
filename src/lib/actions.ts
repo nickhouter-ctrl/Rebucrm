@@ -745,11 +745,18 @@ export async function saveOfferte(formData: FormData) {
   const statusRaw = formData.get('status') as string | null
   const status = statusRaw && allowedStatus.has(statusRaw) ? statusRaw : 'concept'
 
-  // Last-resort offertenummer-garantie (mag NIET null zijn in DB)
-  if (!offertenummer || !offertenummer.trim()) {
-    try { offertenummer = await getVolgendeNummer('offerte') } catch { /* ignore */ }
-    if (!offertenummer) offertenummer = `CONCEPT-${Date.now()}`
+  // Last-resort offertenummer-garantie (mag NIET null zijn in DB).
+  // Coerce alle falsy waarden, ongeacht hoe ze ontstaan zijn.
+  const ensureOffertenummer = async (): Promise<string> => {
+    if (offertenummer && String(offertenummer).trim()) return String(offertenummer).trim()
+    try {
+      const v = await getVolgendeNummer('offerte')
+      if (v && v.trim()) return v.trim()
+    } catch { /* ignore */ }
+    // Ultieme fallback: timestamp-based nummer dat NOOIT null kan zijn
+    return `OFF-${Date.now()}`
   }
+  offertenummer = await ensureOffertenummer()
 
   const record = {
     administratie_id: adminId,
@@ -775,17 +782,42 @@ export async function saveOfferte(formData: FormData) {
       const { error } = await supabase.from('offertes').update(record).eq('id', id)
       if (error) {
         console.error('saveOfferte update error:', error.message, record)
-        return { error: `Kon offerte niet bijwerken: ${error.message}` }
+        // Retry: als de error een NOT NULL constraint betreft, garandeer
+        // de waarden en probeer opnieuw
+        if (error.message.includes('null value')) {
+          const fixedRecord = {
+            ...record,
+            offertenummer: record.offertenummer || `OFF-${Date.now()}`,
+            datum: record.datum || new Date().toISOString().split('T')[0],
+          }
+          const retry = await supabase.from('offertes').update(fixedRecord).eq('id', id)
+          if (retry.error) return { error: `Kon offerte niet bijwerken: ${retry.error.message}` }
+        } else {
+          return { error: `Kon offerte niet bijwerken: ${error.message}` }
+        }
       }
       await supabase.from('offerte_regels').delete().eq('offerte_id', id)
     } else {
       const { data, error } = await supabase.from('offertes').insert(record).select('id').single()
       if (error) {
         console.error('saveOfferte insert error:', error.message, record)
-        return { error: `Kon offerte niet aanmaken: ${error.message}` }
+        if (error.message.includes('null value')) {
+          // NOT NULL fout — vul ALLE NOT NULL kolommen met defaults en retry
+          const fixedRecord = {
+            ...record,
+            offertenummer: record.offertenummer || `OFF-${Date.now()}`,
+            datum: record.datum || new Date().toISOString().split('T')[0],
+          }
+          const retry = await supabase.from('offertes').insert(fixedRecord).select('id').single()
+          if (retry.error) return { error: `Kon offerte niet aanmaken: ${retry.error.message}` }
+          offerteId = retry.data!.id
+        } else {
+          return { error: `Kon offerte niet aanmaken: ${error.message}` }
+        }
+      } else {
+        offerteId = data.id
       }
-      offerteId = data.id
-      if (!groepId) {
+      if (!groepId && offerteId) {
         await supabase.from('offertes').update({ groep_id: offerteId }).eq('id', offerteId)
       }
     }
