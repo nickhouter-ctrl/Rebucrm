@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject, gateway } from 'ai'
+import { generateObject } from 'ai'
 import { z } from 'zod'
+import { aiModel } from '@/lib/ai-model'
 
 // Correctie-loop endpoint. Krijgt:
 // - de huidige concept-state (regels, zichtbaarheid per element, marges)
@@ -124,7 +125,7 @@ Geef nu de element_updates en regel_updates die nodig zijn om deze correcties to
 
   try {
     const { object } = await generateObject({
-      model: gateway('anthropic/claude-sonnet-4-5'),
+      model: aiModel('anthropic/claude-sonnet-4-5'),
       system,
       schema: responseSchema,
       temperature: 0,

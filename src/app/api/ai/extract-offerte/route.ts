@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject, gateway } from 'ai'
+import { generateObject } from 'ai'
 import { z } from 'zod'
+import { aiModel } from '@/lib/ai-model'
 
 // AI-driven offerte extractie. Claude scant de volledige leverancier-PDF tekst
 // en geeft een gevalideerde element-lijst terug: naam, hoeveelheid, systeem,
@@ -97,7 +98,7 @@ ${text.slice(0, 80000)}
 
   try {
     const { object } = await generateObject({
-      model: gateway('anthropic/claude-sonnet-4-5'),
+      model: aiModel('anthropic/claude-sonnet-4-5'),
       system,
       schema,
       temperature: 0,

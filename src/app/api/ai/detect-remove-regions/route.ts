@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject, gateway } from 'ai'
+import { generateObject } from 'ai'
 import { z } from 'zod'
+import { aiModel } from '@/lib/ai-model'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // Claude Vision identificeert REGIO'S DIE WEG MOETEN op een leverancier-tekening
@@ -106,7 +107,7 @@ Geef MEERDERE boxes als prijzen verspreid staan. Bv. Aluplast heeft vaak links e
 
   try {
     const { object } = await generateObject({
-      model: gateway('anthropic/claude-sonnet-4-5'),
+      model: aiModel('anthropic/claude-sonnet-4-5'),
       system,
       schema,
       temperature: 0,

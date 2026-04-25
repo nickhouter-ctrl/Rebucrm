@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { generateObject, gateway } from 'ai'
+import { generateObject } from 'ai'
 import { z } from 'zod'
+import { aiModel } from '@/lib/ai-model'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { detectLeverancierFromText } from '@/lib/pdf-parser'
 
@@ -81,7 +82,7 @@ ${text.slice(0, 5000)}
 
   try {
     const { object } = await generateObject({
-      model: gateway('anthropic/claude-haiku-4-5'),
+      model: aiModel('anthropic/claude-haiku-4-5'),
       system,
       schema,
       temperature: 0,
