@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X, FileText, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate, saveLeverancierPrijsCorrecties } from '@/lib/actions'
+import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate, saveLeverancierPrijsCorrecties, processLeverancierPdf } from '@/lib/actions'
 import type { ParsedPdfResult, RenderedTekening, WipedRegion } from './stap-tekeningen'
 import { PdfViewer, type PdfViewerHandle } from './preview/pdf-viewer'
 import { PreviewChecklist } from './preview/checklist'
@@ -767,19 +767,24 @@ export function StapPreview({
 
   const inkoopprijzen = useMemo(() => parsedPdfResult.elementen.map(e => e.prijs), [parsedPdfResult.elementen])
 
-  // Pas verkoopprijs door op kozijn-regel telkens als marges/zichtbaarheid wijzigen
-  // (run als side-effect via memo + immediate apply)
-  useMemo(() => syncKozijnRegel(), [verkoopTotaal]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Pas verkoopprijs door op kozijn-regel telkens als marges/zichtbaarheid/overrides wijzigen.
+  // useEffect i.p.v. useMemo — dit is een side-effect (setState op parent), geen memoized value.
+  useEffect(() => { syncKozijnRegel() }, [verkoopTotaal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function uploadPreProcessedPdf(offerteId: string) {
     if (!pendingPdfFile) return { ok: true }
     try {
-      const fd = new FormData()
-      fd.append('pdf', pendingPdfFile)
-      fd.append('offerte_id', offerteId)
-      // We hergebruiken niet de processLeverancierPdf server-action — die parsed
-      // opnieuw. Hier gebruiken we de al uitgevoerde tekening-uploads + metadata.
-      // Voor compatibiliteit: roep saveLeverancierTekeningen aan met de paths.
+      // STAP 1: leveranciers-PDF zelf uploaden naar storage + parsed data opslaan.
+      // Zonder deze call vindt /api/pdf/offerte/[id] geen offerte_leverancier
+      // record en bouwt hij de PDF zonder tekeningen + zonder kozijnElementen.
+      const pdfFd = new FormData()
+      pdfFd.append('pdf', pendingPdfFile)
+      const pdfResult = await processLeverancierPdf(offerteId, pdfFd)
+      if (pdfResult.error) {
+        // Niet fataal — we hebben al tekening-blobs en metadata, maar log het
+        console.warn('Leveranciers-PDF upload mislukt:', pdfResult.error)
+      }
+      // STAP 2: tekening-blobs + metadata + handmatige overrides opslaan.
       // Tekeningen uploaden:
       const elementToPaths = new Map<string, { paths: string[]; pageNums: number[] }>()
       let i = 0
@@ -804,14 +809,12 @@ export function StapPreview({
       )
       const elementPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
       for (const e of parsedPdfResult.elementen) {
-        if (zichtbaarheid[e.naam]?.hidden) continue
-        elementPrijzen[e.naam] = { prijs: e.prijs, hoeveelheid: e.hoeveelheid }
+        if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) continue
+        // Gebruik handmatige override als die er is — anders AI-prijs
+        const prijs = prijsOverrides[e.naam] ?? e.prijs
+        elementPrijzen[e.naam] = { prijs, hoeveelheid: e.hoeveelheid }
       }
       await saveLeverancierTekeningen(offerteId, tekeningenPayload, margePercentage, elementMarges, elementPrijzen)
-      // De PDF zelf moet ook nog naar storage — die was al via processLeverancierPdf
-      // gegaan in het vorige scherm. Hier zou je `processLeverancierPdf` kunnen
-      // aanroepen om de PDF apart te uploaden. Voor nu: skipping (PDF is al
-      // in client memory, server kan opnieuw vragen).
       return { ok: true }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'PDF upload mislukt')
