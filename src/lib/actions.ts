@@ -2932,6 +2932,51 @@ export async function saveAdministratie(formData: FormData) {
 }
 
 // === DASHBOARD ===
+// Maandelijkse omzet-analytics: bedragen per maand voor de laatste 12 maanden,
+// gesplitst tussen offertes (verzonden) en facturen (betaald).
+// Bedoeld voor dashboard-grafiek + conversie-trend.
+export async function getMaandOmzetAnalytics() {
+  const sb = createAdminClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { maanden: [] as { maand: string; offertes: number; facturen: number; betaald: number }[] }
+
+  // 12 maanden terug
+  const startDate = new Date()
+  startDate.setMonth(startDate.getMonth() - 11)
+  startDate.setDate(1)
+  startDate.setHours(0, 0, 0, 0)
+
+  const [offertes, facturen] = await Promise.all([
+    sb.from('offertes').select('datum, totaal, status').eq('administratie_id', adminId).gte('datum', startDate.toISOString().slice(0, 10)),
+    sb.from('facturen').select('datum, totaal, status, betaald_bedrag').eq('administratie_id', adminId).gte('datum', startDate.toISOString().slice(0, 10)),
+  ])
+
+  const maanden: { maand: string; offertes: number; facturen: number; betaald: number }[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date()
+    d.setMonth(d.getMonth() - i)
+    d.setDate(1)
+    const key = d.toISOString().slice(0, 7) // YYYY-MM
+    maanden.push({ maand: key, offertes: 0, facturen: 0, betaald: 0 })
+  }
+
+  for (const o of offertes.data || []) {
+    if (o.status === 'concept') continue
+    const m = (o.datum as string).slice(0, 7)
+    const bucket = maanden.find(x => x.maand === m)
+    if (bucket) bucket.offertes += Number(o.totaal) || 0
+  }
+  for (const f of facturen.data || []) {
+    const m = (f.datum as string).slice(0, 7)
+    const bucket = maanden.find(x => x.maand === m)
+    if (bucket) {
+      bucket.facturen += Number(f.totaal) || 0
+      bucket.betaald += Number(f.betaald_bedrag) || 0
+    }
+  }
+  return { maanden }
+}
+
 export async function getDashboardData() {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
