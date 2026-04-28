@@ -8,7 +8,9 @@ import { Loader2 } from 'lucide-react'
 interface MaandData {
   maand: string
   offertes: number
+  offertesAantal?: number
   facturen: number
+  facturenAantal?: number
   betaald: number
 }
 
@@ -52,10 +54,12 @@ export function OmzetChart() {
       <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
         <div>
           <h3 className="font-semibold text-gray-900 text-sm">Omzet per maand</h3>
-          <p className="text-xs text-gray-500">Laatste 12 maanden</p>
+          <p className="text-xs text-gray-500">
+            Laatste 12 maanden · Bedragen excl. BTW · Per verkoopkans uniek geteld
+          </p>
         </div>
         <div className="flex items-center gap-3 text-[11px]">
-          <Legend kleur="bg-blue-400" label="Geaccepteerd" />
+          <Legend kleur="bg-blue-400" label="Geofferreerd" />
           <Legend kleur="bg-amber-400" label="Gefactureerd" />
           <Legend kleur="bg-green-500" label="Betaald" />
         </div>
@@ -90,8 +94,8 @@ export function OmzetChart() {
                 {isHover && (d.offertes > 0 || d.facturen > 0 || d.betaald > 0) && (
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white text-xs rounded-md px-2 py-1.5 whitespace-nowrap shadow-lg">
                     <div className="font-medium">{maandLabel(d.maand)}</div>
-                    <div>Geaccepteerd: {formatCurrency(d.offertes)}</div>
-                    <div>Gefactureerd: {formatCurrency(d.facturen)}</div>
+                    <div>Geofferreerd: {formatCurrency(d.offertes)} {d.offertesAantal ? <span className="text-gray-400">({d.offertesAantal} st.)</span> : null}</div>
+                    <div>Gefactureerd: {formatCurrency(d.facturen)} {d.facturenAantal ? <span className="text-gray-400">({d.facturenAantal} st.)</span> : null}</div>
                     <div>Betaald: {formatCurrency(d.betaald)}</div>
                   </div>
                 )}

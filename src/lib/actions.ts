@@ -2947,12 +2947,12 @@ export async function getMaandOmzetAnalytics() {
   const startStr = startDate.toISOString().slice(0, 10)
 
   // Bouw lege buckets eerst zodat output altijd 12 maanden heeft
-  const maanden: { maand: string; offertes: number; facturen: number; betaald: number }[] = []
+  const maanden: { maand: string; offertes: number; offertesAantal: number; facturen: number; facturenAantal: number; betaald: number }[] = []
   for (let i = 11; i >= 0; i--) {
     const d = new Date()
     d.setMonth(d.getMonth() - i)
     d.setDate(1)
-    maanden.push({ maand: d.toISOString().slice(0, 7), offertes: 0, facturen: 0, betaald: 0 })
+    maanden.push({ maand: d.toISOString().slice(0, 7), offertes: 0, offertesAantal: 0, facturen: 0, facturenAantal: 0, betaald: 0 })
   }
 
   if (!adminId) {
@@ -2960,19 +2960,21 @@ export async function getMaandOmzetAnalytics() {
     return { maanden }
   }
 
-  // We tellen alleen GEACCEPTEERDE offertes — dat zijn echte deals.
-  // Bij meerdere versies in dezelfde groep nemen we de hoogste (= laatst geaccepteerd).
-  // Status 'verzonden' / 'concept' / 'afgewezen' tellen niet mee voor omzet.
+  // GEOFFERREERD = offertes die uitgebracht zijn naar de klant (verzonden of
+  // geaccepteerd). Concept/afgewezen/verlopen tellen niet — die zijn nooit
+  // de deur uit of niet doorgegaan.
+  // Per verkoopkans (groep_id) tellen we alleen de meest recente versie zodat
+  // herzieningen niet dubbel worden geteld. Datum = datum van die versie.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offertesRaw = await fetchAllRows<any>((from, to) =>
-    sb.from('offertes').select('id, datum, totaal, subtotaal, status, versie_nummer, groep_id').eq('administratie_id', adminId).eq('status', 'geaccepteerd').gte('datum', startStr).range(from, to),
+    sb.from('offertes').select('id, datum, totaal, subtotaal, status, versie_nummer, groep_id').eq('administratie_id', adminId).in('status', ['verzonden', 'geaccepteerd']).gte('datum', startStr).range(from, to),
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const facturen = await fetchAllRows<any>((from, to) =>
     sb.from('facturen').select('datum, totaal, subtotaal, status, betaald_bedrag').eq('administratie_id', adminId).gte('datum', startStr).range(from, to),
   )
 
-  // Dedupliceer geaccepteerde offertes per groep_id → hoogste versie
+  // Per groep_id: hoogste versie (meest actuele uitgebrachte offerte)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groepLaatste = new Map<string, any>()
   for (const o of offertesRaw) {
@@ -2989,6 +2991,7 @@ export async function getMaandOmzetAnalytics() {
     const bucket = maanden.find(x => x.maand === m)
     if (!bucket) continue
     bucket.offertes += Number(o.subtotaal || o.totaal) || 0
+    bucket.offertesAantal += 1
     totalIncluded++
   }
   for (const f of facturen) {
@@ -2998,6 +3001,7 @@ export async function getMaandOmzetAnalytics() {
     if (bucket) {
       // Subtotaal (excl BTW) is de "echte" omzet
       bucket.facturen += Number(f.subtotaal || f.totaal) || 0
+      bucket.facturenAantal += 1
       bucket.betaald += Number(f.betaald_bedrag) || 0
     }
   }
