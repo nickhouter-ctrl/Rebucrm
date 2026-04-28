@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { sendEmail } from '@/lib/email'
 import { buildRebuEmailHtml } from '@/lib/email-template'
+import { getAppUrl } from '@/lib/utils'
 
 // Helper: pagineer Supabase queries die door de 1000-rij limiet heen moeten
 async function fetchAllRows<T>(queryFn: (from: number, to: number) => PromiseLike<{ data: T[] | null }>): Promise<T[]> {
@@ -1622,7 +1623,7 @@ export async function getFactuurEmailDefaults(factuurId: string) {
 
   // Permanente Rebu-URL: redirect naar de actuele Mollie-link, of genereert
   // een verse als de huidige verlopen is. Werkt dus ook weken later.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+  const baseUrl = getAppUrl()
   const publiekToken = (factuur as { publiek_token?: string | null }).publiek_token
   const directBetaalUrl = betaalLink && publiekToken
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
@@ -1783,7 +1784,7 @@ export async function sendFactuurEmail(factuurId: string, options: {
 
   // CTA knop: permanente Rebu-URL die bij klikken de actuele Mollie-link
   // ophaalt (of een verse genereert als de huidige verlopen is).
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+  const baseUrl = getAppUrl()
   const publiekToken = (factuur as { publiek_token?: string | null }).publiek_token
   const ctaLink = betaalLink && publiekToken
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
@@ -2356,7 +2357,7 @@ export async function zorgVoorBetaallink(factuurId: string): Promise<string | nu
     if (!process.env.MOLLIE_API_KEY) return null
 
     const { createMolliePayment } = await import('@/lib/mollie')
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const appUrl = getAppUrl()
     const payment = await createMolliePayment({
       amount: openstaand,
       description: `Factuur ${factuur.factuurnummer}`,
@@ -2390,7 +2391,7 @@ export async function generateBetaallink(factuurId: string) {
 
   try {
     const { createMolliePayment } = await import('@/lib/mollie')
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const appUrl = getAppUrl()
 
     const payment = await createMolliePayment({
       amount: openstaandBedrag,
@@ -4872,7 +4873,7 @@ export async function createGebruiker(formData: FormData) {
 
   // Optioneel: stuur welkomstmail met inloggegevens
   if (formData.get('stuur_email') === 'true') {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = getAppUrl()
     const welkomBody = `Beste ${naam},
 
 Er is een account voor u aangemaakt bij Rebu Kozijnen.
@@ -5225,7 +5226,7 @@ export async function sendOfferteEmail(offerteId: string, options: {
   if (!offerte) return { error: 'Offerte niet gevonden' }
   if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = getAppUrl()
   const link = `${baseUrl}/offerte/${offerte.publiek_token}`
 
   // Haal medewerker-gegevens op voor de mail-footer (en Reply-To)
@@ -6653,7 +6654,7 @@ export async function createKlantToegang(data: {
     .insert({ profiel_id: userData.user.id, relatie_id: data.relatie_id })
 
   // Stuur welkomstmail met inloggegevens
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = getAppUrl()
 
   const welkomBody = `Beste ${data.naam},
 
@@ -7331,7 +7332,7 @@ export async function bulkCreateLeadsFromKvk(kandidaten: Array<{
   // Verrijk met email/telefoon uit KVK basisprofiel voor elke kandidaat
   const gefilterd = kandidaten.filter(k => !bestaandKvk.has(k.kvkNummer) && !bestaandKvk.has((k.naam || '').toLowerCase()))
   const apiKey = process.env.KVK_API_KEY
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = getAppUrl()
 
   const records: Record<string, unknown>[] = []
   for (const k of gefilterd) {
@@ -7911,7 +7912,7 @@ export async function createMedewerkerAccount(medewerkerId: string, formData: Fo
 
   // Optioneel: stuur welkomstmail met inloggegevens
   if (formData.get('stuur_email') === 'true') {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = getAppUrl()
     const welkomBody = `Beste ${naam},
 
 Er is een medewerker-account voor u aangemaakt bij Rebu Kozijnen. Via het dashboard kunt u uw taken, planning en uren bekijken.

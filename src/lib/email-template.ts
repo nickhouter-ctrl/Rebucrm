@@ -1,10 +1,12 @@
+import { getAppUrl } from '@/lib/utils'
+
 export function buildRebuEmailHtml(
   body: string,
   ctaLink?: string,
   ctaLabel?: string,
   medewerker?: { naam?: string; email?: string; telefoon?: string },
 ): string {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const baseUrl = getAppUrl()
   const logoUrl = `${baseUrl}/images/logo-rebu.png`
 
   // Body kan HTML (uit rich-text-editor) of plain text zijn.

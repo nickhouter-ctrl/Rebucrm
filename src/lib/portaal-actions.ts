@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getAppUrl } from '@/lib/utils'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import { buildRebuEmailHtml } from '@/lib/email-template'
@@ -20,7 +21,7 @@ async function zorgVoorBetaallinkAdmin(factuurId: string, sb: any): Promise<stri
     const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
     if (openstaand <= 0) return null
     if (!process.env.MOLLIE_API_KEY) return null
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const appUrl = getAppUrl()
     const payment = await createMolliePayment({
       amount: openstaand,
       description: `Factuur ${f.factuurnummer}`,
@@ -459,7 +460,7 @@ async function autoFacturerenNaAcceptatie(
   orderId: string | null,
   supabaseAdmin: ReturnType<typeof createAdminClient>
 ) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = getAppUrl()
   const vandaag = new Date().toISOString().split('T')[0]
   const vervaldatum = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 

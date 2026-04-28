@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getAppUrl } from '@/lib/utils'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createMolliePayment } from '@/lib/mollie'
 
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ token: 
 
   const openstaand = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
   if (factuur.status === 'betaald' || openstaand <= 0.01) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const appUrl = getAppUrl()
     return NextResponse.redirect(`${appUrl}/betaling/succes?factuur=${factuur.factuurnummer}`)
   }
 
@@ -46,7 +47,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ token: 
 
   if (needsNew && process.env.MOLLIE_API_KEY) {
     try {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+      const appUrl = getAppUrl()
       const nieuwe = await createMolliePayment({
         amount: openstaand,
         description: `Factuur ${factuur.factuurnummer}`,
