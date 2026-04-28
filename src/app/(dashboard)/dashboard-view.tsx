@@ -90,6 +90,8 @@ interface DashboardData {
     vervaldatum: string | null
     status: string
     factuur_type: string | null
+    verkoopkans_naam: string | null
+    onderwerp: string | null
   }[]
   topKlanten: {
     relatie_id: string
@@ -659,6 +661,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <thead>
                   <tr className="bg-gray-50/70">
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Klant</th>
+                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verkoopkans</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Factuur</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Type</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand</th>
@@ -675,6 +678,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     return (
                       <tr key={f.id} className={`border-t border-gray-50 hover:bg-gray-50/50 transition-colors ${isVervallen ? 'bg-red-50/20' : ''}`}>
                         <td className="px-5 py-3 text-sm font-medium text-gray-900">{f.relatie_bedrijfsnaam}</td>
+                        <td className="px-3 py-3 text-sm text-gray-700">{f.verkoopkans_naam || f.onderwerp || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 py-3"><Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{f.factuurnummer}</Link></td>
                         <td className="px-3 py-3"><span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span></td>
                         <td className={`px-3 py-3 text-sm text-right font-semibold ${isVervallen ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(f.openstaand_bedrag)}</td>
@@ -696,6 +700,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{f.relatie_bedrijfsnaam}</p>
+                          {(f.verkoopkans_naam || f.onderwerp) && (
+                            <p className="text-xs text-gray-500 truncate">{f.verkoopkans_naam || f.onderwerp}</p>
+                          )}
                           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                             <span className="text-xs text-[#00a66e] font-medium">{f.factuurnummer}</span>
                             {typeLabel && <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span>}
