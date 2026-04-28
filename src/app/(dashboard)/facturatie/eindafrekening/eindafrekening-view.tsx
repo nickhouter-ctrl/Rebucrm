@@ -41,7 +41,14 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
     {
       id: 'onderwerp',
       header: 'Onderwerp',
-      accessorFn: (r) => r.offerte?.onderwerp || r.onderwerp || '-',
+      // Factuur eigen onderwerp heeft voorrang — dat beschrijft DEZE factuur.
+      // De gekoppelde offerte kan verkeerd zijn (bv. door auto-koppeling op
+      // klant-niveau wanneer er meerdere offertes voor dezelfde klant zijn).
+      // Strip de standaard 'Aanbetaling/Restbetaling' prefix voor leesbaarheid.
+      accessorFn: (r) => {
+        const eigen = (r.onderwerp || '').replace(/^(1e\s+Factuur\s*\/\s*Aanbetaling|Aanbetaling|Restbetaling|2e\s+Factuur\s*\/\s*Restbetaling)\s+/i, '').trim()
+        return eigen || r.offerte?.onderwerp || '-'
+      },
     },
     { accessorKey: 'datum', header: 'Aanbet-datum', cell: ({ getValue }) => getValue() ? formatDate(getValue() as string) : '-' },
     {
