@@ -2960,34 +2960,48 @@ export async function getMaandOmzetAnalytics() {
     return { maanden }
   }
 
-  // Pagineer over alle rijen (Supabase default limit = 1000)
+  // We tellen alleen GEACCEPTEERDE offertes — dat zijn echte deals.
+  // Bij meerdere versies in dezelfde groep nemen we de hoogste (= laatst geaccepteerd).
+  // Status 'verzonden' / 'concept' / 'afgewezen' tellen niet mee voor omzet.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const offertes = await fetchAllRows<any>((from, to) =>
-    sb.from('offertes').select('datum, totaal, status').eq('administratie_id', adminId).gte('datum', startStr).range(from, to),
+  const offertesRaw = await fetchAllRows<any>((from, to) =>
+    sb.from('offertes').select('id, datum, totaal, subtotaal, status, versie_nummer, groep_id').eq('administratie_id', adminId).eq('status', 'geaccepteerd').gte('datum', startStr).range(from, to),
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const facturen = await fetchAllRows<any>((from, to) =>
-    sb.from('facturen').select('datum, totaal, status, betaald_bedrag').eq('administratie_id', adminId).gte('datum', startStr).range(from, to),
+    sb.from('facturen').select('datum, totaal, subtotaal, status, betaald_bedrag').eq('administratie_id', adminId).gte('datum', startStr).range(from, to),
   )
 
-  for (const o of offertes) {
+  // Dedupliceer geaccepteerde offertes per groep_id → hoogste versie
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groepLaatste = new Map<string, any>()
+  for (const o of offertesRaw) {
+    const key = o.groep_id || o.id
+    const huidig = groepLaatste.get(key)
+    if (!huidig || (o.versie_nummer || 1) > (huidig.versie_nummer || 1)) {
+      groepLaatste.set(key, o)
+    }
+  }
+  let totalIncluded = 0
+  for (const [, o] of groepLaatste) {
     if (!o.datum) continue
-    // Concept-offertes meetellen wanneer ze later wél verzonden worden — voor
-    // 'omzet pijplijn' is concept ook relevant. We filteren niet meer.
     const m = (o.datum as string).slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
-    if (bucket) bucket.offertes += Number(o.totaal) || 0
+    if (!bucket) continue
+    bucket.offertes += Number(o.subtotaal || o.totaal) || 0
+    totalIncluded++
   }
   for (const f of facturen) {
     if (!f.datum) continue
     const m = (f.datum as string).slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
     if (bucket) {
-      bucket.facturen += Number(f.totaal) || 0
+      // Subtotaal (excl BTW) is de "echte" omzet
+      bucket.facturen += Number(f.subtotaal || f.totaal) || 0
       bucket.betaald += Number(f.betaald_bedrag) || 0
     }
   }
-  console.log('[getMaandOmzetAnalytics]', { adminId, offertes: offertes.length, facturen: facturen.length, maanden })
+  console.log('[getMaandOmzetAnalytics]', { adminId, offertes_unieke: totalIncluded, facturen: facturen.length, maanden })
   return { maanden }
 }
 

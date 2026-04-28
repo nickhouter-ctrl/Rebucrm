@@ -55,7 +55,7 @@ export function OmzetChart() {
           <p className="text-xs text-gray-500">Laatste 12 maanden</p>
         </div>
         <div className="flex items-center gap-3 text-[11px]">
-          <Legend kleur="bg-blue-400" label="Verzonden offertes" />
+          <Legend kleur="bg-blue-400" label="Geaccepteerd" />
           <Legend kleur="bg-amber-400" label="Gefactureerd" />
           <Legend kleur="bg-green-500" label="Betaald" />
         </div>
@@ -90,7 +90,7 @@ export function OmzetChart() {
                 {isHover && (d.offertes > 0 || d.facturen > 0 || d.betaald > 0) && (
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white text-xs rounded-md px-2 py-1.5 whitespace-nowrap shadow-lg">
                     <div className="font-medium">{maandLabel(d.maand)}</div>
-                    <div>Offertes: {formatCurrency(d.offertes)}</div>
+                    <div>Geaccepteerd: {formatCurrency(d.offertes)}</div>
                     <div>Gefactureerd: {formatCurrency(d.facturen)}</div>
                     <div>Betaald: {formatCurrency(d.betaald)}</div>
                   </div>
