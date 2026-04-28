@@ -2968,11 +2968,22 @@ export async function getMaandOmzetAnalytics() {
     return { maanden }
   }
 
-  // CRM-migratie batch-dagen: 22 + 23 april 2026 (374 + 1695 records).
-  // Records met created_at op die bulk-import dagen zijn migraties en tellen niet,
-  // ongeacht welke datum ze in de oude data hadden.
-  const migratieStartDag = '2026-04-13'
-  const migratieEindDag = '2026-04-23'
+  // CRM-migratie bulk-dagen: 22 + 23 april 2026 (374 + 1695 records ingevoerd).
+  // De imports kregen datum=april, terwijl de oorspronkelijke deals soms
+  // jaren ouder waren. We laten alle data zien, MAAR filteren binnen de
+  // april-bucket de bulk-import-records eruit zodat april niet vol staat
+  // met €6M aan migratie-spookwaarden.
+  const isMigratieRecord = (createdAt: string | null, datum: string) => {
+    if (!createdAt) return false
+    const cDag = createdAt.slice(0, 10)
+    // Bulk-import dagen: 13-23 april 2026 (klein 13e + bulk 22-23e)
+    const isBulkDag = cDag >= '2026-04-13' && cDag <= '2026-04-23'
+    if (!isBulkDag) return false
+    // Alleen records met datum april ZIJN potentiële vervuilers van de april-bucket.
+    // Records met historische datum (datum < april) tellen we juist mee voor hun
+    // oorspronkelijke maand — dan zijn ze geen probleem.
+    return datum >= '2026-04-01'
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offertesRaw = await fetchAllRows<any>((from, to) =>
@@ -2992,35 +3003,43 @@ export async function getMaandOmzetAnalytics() {
       .range(from, to),
   )
 
-  const isImport = (createdAt: string | null) => {
-    if (!createdAt) return false
-    const dag = createdAt.slice(0, 10)
-    return dag >= migratieStartDag && dag <= migratieEindDag
-  }
-
-  // Per groep_id alleen de LAATSTE versie (hoogste versie_nummer)
+  // Per groep_id: datum van EERSTE versie (origineel), bedrag/status van
+  // LAATSTE versie (meest actueel). Zo telt een offerte uit 2024 die in april
+  // een nieuwe versie kreeg in zijn oorspronkelijke maand — niet in april.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const groepLaatste = new Map<string, any>()
+  const groep = new Map<string, { datum: string | null; createdAt: string | null; bedrag: number; status: string | null; vMin: number; vMax: number }>()
   for (const o of offertesRaw) {
-    if (isImport(o.created_at)) continue
     const key = o.groep_id || o.id
-    const huidig = groepLaatste.get(key)
-    if (!huidig || (o.versie_nummer || 1) > (huidig.versie_nummer || 1)) {
-      groepLaatste.set(key, o)
+    const v = o.versie_nummer || 1
+    let g = groep.get(key)
+    if (!g) {
+      g = { datum: null, createdAt: null, bedrag: 0, status: null, vMin: Number.POSITIVE_INFINITY, vMax: 0 }
+      groep.set(key, g)
+    }
+    if (v < g.vMin) {
+      g.vMin = v
+      g.datum = o.datum
+      g.createdAt = o.created_at
+    }
+    if (v >= g.vMax) {
+      g.vMax = v
+      g.bedrag = Number(o.subtotaal || o.totaal) || 0
+      g.status = o.status
     }
   }
 
   let totalIncluded = 0
-  for (const [, o] of groepLaatste) {
-    if (!o.datum) continue
-    const m = (o.datum as string).slice(0, 7)
+  for (const [, g] of groep) {
+    if (!g.datum) continue
+    // Filter migratie-records (alleen de records die de april-bucket vervuilen)
+    if (isMigratieRecord(g.createdAt, g.datum)) continue
+    const m = g.datum.slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
     if (!bucket) continue
-    const bedrag = Number(o.subtotaal || o.totaal) || 0
-    bucket.geofferreerd += bedrag
+    bucket.geofferreerd += g.bedrag
     bucket.geofferreerdAantal += 1
-    if (o.status === 'geaccepteerd') {
-      bucket.geaccepteerd += bedrag
+    if (g.status === 'geaccepteerd') {
+      bucket.geaccepteerd += g.bedrag
       bucket.geaccepteerdAantal += 1
     }
     totalIncluded++
@@ -3028,7 +3047,7 @@ export async function getMaandOmzetAnalytics() {
 
   for (const f of facturenRaw) {
     if (!f.datum) continue
-    if (isImport(f.created_at)) continue
+    if (isMigratieRecord(f.created_at, f.datum)) continue
     const m = (f.datum as string).slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
     if (bucket) bucket.betaald += Number(f.betaald_bedrag) || 0

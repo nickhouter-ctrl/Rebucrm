@@ -58,7 +58,7 @@ export function OmzetChart() {
         <div>
           <h3 className="font-semibold text-gray-900 text-sm">Omzet per maand</h3>
           <p className="text-xs text-gray-500">
-            Laatste 12 maanden · excl. BTW · alleen laatste versie per verkoopkans · CRM-import van april uitgesloten
+            Laatste 12 maanden · excl. BTW · per verkoopkans uniek (oorspronkelijke datum) · bulk-import april gefilterd
           </p>
         </div>
         <div className="flex items-center gap-3 text-[11px] flex-wrap">
