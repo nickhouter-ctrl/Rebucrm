@@ -1620,8 +1620,19 @@ export async function getFactuurEmailDefaults(factuurId: string) {
     if (result.link) betaalLink = result.link
   }
 
-  const betaalSectie = betaalLink
-    ? `U kunt direct online betalen via de knop onderaan deze e-mail, of handmatig overmaken naar:`
+  // Permanente Rebu-URL: redirect naar de actuele Mollie-link, of genereert
+  // een verse als de huidige verlopen is. Werkt dus ook weken later.
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+  const publiekToken = (factuur as { publiek_token?: string | null }).publiek_token
+  const directBetaalUrl = betaalLink && publiekToken
+    ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
+    : (betaalLink || null)
+
+  const betaalSectie = directBetaalUrl
+    ? `Online direct betalen via iDEAL:
+${directBetaalUrl}
+
+Of handmatig overmaken naar:`
     : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
 
   const body = `Beste ${klantNaam},
