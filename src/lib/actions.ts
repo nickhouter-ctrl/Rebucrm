@@ -3830,6 +3830,25 @@ export async function assignEmailToMedewerker(emailId: string, medewerkerId: str
       if (parentEmail?.project_id) finalProjectId = parentEmail.project_id
     }
 
+    // b2) Onderwerp bevat offertenummer (OFF-XXXX of O-YYYY-XXXX) → vind die
+    // offerte → gebruik haar project_id. Voorkomt dat 'Re:'/'FW:' op een
+    // bestaande offerte een nieuwe verkoopkans aanmaakt.
+    if (!finalProjectId && email.onderwerp) {
+      const offNrMatch = (email.onderwerp as string).match(/\b(OFF-\d+|O-\d{4}-\d+)\b/i)
+      if (offNrMatch) {
+        const { data: bestOff } = await supabase
+          .from('offertes')
+          .select('project_id, relatie_id')
+          .eq('offertenummer', offNrMatch[1].toUpperCase())
+          .eq('relatie_id', relatieId)
+          .not('project_id', 'is', null)
+          .order('versie_nummer', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (bestOff?.project_id) finalProjectId = bestOff.project_id
+      }
+    }
+
     // c) Zoek actieve projecten voor deze relatie
     if (!finalProjectId) {
       const { data: actieveProjecten } = await supabase
