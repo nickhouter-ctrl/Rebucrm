@@ -3864,20 +3864,9 @@ export async function assignEmailToMedewerker(emailId: string, medewerkerId: str
       }
     }
 
-    // d) Geen match → nieuwe verkoopkans aanmaken
-    if (!finalProjectId) {
-      const { data: project } = await supabase
-        .from('projecten')
-        .insert({
-          administratie_id: adminId,
-          naam: email.onderwerp || 'Nieuw vanuit e-mail',
-          relatie_id: relatieId,
-          status: 'actief',
-        })
-        .select('id')
-        .single()
-      if (project) finalProjectId = project.id
-    }
+    // GEEN auto-create meer: als er geen match is bij een binnenkomende email,
+    // wordt er geen verkoopkans aangemaakt. De medewerker kiest dan handmatig
+    // 'nieuw' in de assign-dialog (projectId === 'nieuw' branch hierboven).
   }
 
   // Maak taak aan
