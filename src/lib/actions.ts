@@ -2542,6 +2542,108 @@ export async function getOfferteVersies(offerteId: string) {
   return versies || []
 }
 
+// In-app notificaties: bundelt items die de gebruiker wil zien zonder zelf te
+// hoeven zoeken — niet-gelezen klantberichten, geaccepteerde offertes, betaalde
+// facturen, deadline-overschreden taken.
+export async function getNotificaties() {
+  const sb = createAdminClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { items: [] as Array<{ id: string; type: string; titel: string; subtitle?: string; href?: string; datum: string; nieuw?: boolean }>, ongelezen: 0 }
+
+  const sinds = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+  const items: Array<{ id: string; type: string; titel: string; subtitle?: string; href?: string; datum: string; nieuw?: boolean }> = []
+
+  // Klantberichten ongelezen
+  const { data: berichten } = await sb
+    .from('berichten')
+    .select('id, tekst, created_at, afzender_naam, offerte:offertes(id, offertenummer, administratie_id)')
+    .eq('afzender_type', 'klant')
+    .eq('gelezen', false)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  for (const b of berichten || []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const off = (b as any).offerte
+    if (off?.administratie_id !== adminId) continue
+    items.push({
+      id: `bericht-${b.id}`,
+      type: 'bericht',
+      titel: `Klant heeft gereageerd op ${off?.offertenummer || 'offerte'}`,
+      subtitle: (b.tekst as string)?.slice(0, 80),
+      href: off?.id ? `/offertes/${off.id}` : undefined,
+      datum: b.created_at as string,
+      nieuw: true,
+    })
+  }
+
+  // Recent geaccepteerde offertes
+  const { data: accepted } = await sb
+    .from('offertes')
+    .select('id, offertenummer, totaal, updated_at, relatie:relaties(bedrijfsnaam)')
+    .eq('administratie_id', adminId)
+    .eq('status', 'geaccepteerd')
+    .gte('updated_at', sinds)
+    .order('updated_at', { ascending: false })
+    .limit(10)
+  for (const o of accepted || []) {
+    items.push({
+      id: `acc-${o.id}`,
+      type: 'offerte_akkoord',
+      titel: `Offerte ${o.offertenummer} geaccepteerd`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subtitle: `${(o as any).relatie?.bedrijfsnaam || 'klant'} — €${Math.round(Number(o.totaal) || 0).toLocaleString('nl-NL')}`,
+      href: `/offertes/${o.id}`,
+      datum: o.updated_at as string,
+    })
+  }
+
+  // Recent betaalde facturen
+  const { data: betaald } = await sb
+    .from('facturen')
+    .select('id, factuurnummer, totaal, updated_at, relatie:relaties(bedrijfsnaam)')
+    .eq('administratie_id', adminId)
+    .eq('status', 'betaald')
+    .gte('updated_at', sinds)
+    .order('updated_at', { ascending: false })
+    .limit(10)
+  for (const f of betaald || []) {
+    items.push({
+      id: `pay-${f.id}`,
+      type: 'factuur_betaald',
+      titel: `Factuur ${f.factuurnummer} betaald`,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subtitle: `${(f as any).relatie?.bedrijfsnaam || 'klant'} — €${Math.round(Number(f.totaal) || 0).toLocaleString('nl-NL')}`,
+      href: `/facturatie/${f.id}`,
+      datum: f.updated_at as string,
+    })
+  }
+
+  // Open taken met deadline overschreden
+  const vandaag = new Date().toISOString().slice(0, 10)
+  const { data: taken } = await sb
+    .from('taken')
+    .select('id, titel, deadline, taaknummer')
+    .eq('administratie_id', adminId)
+    .neq('status', 'afgerond')
+    .lt('deadline', vandaag)
+    .order('deadline', { ascending: true })
+    .limit(10)
+  for (const t of taken || []) {
+    items.push({
+      id: `task-${t.id}`,
+      type: 'taak_deadline',
+      titel: `Taak ${t.taaknummer || ''} deadline gepasseerd`,
+      subtitle: t.titel as string,
+      href: `/taken/${t.id}`,
+      datum: t.deadline as string,
+    })
+  }
+
+  // Sorteer chronologisch nieuwste eerst
+  items.sort((a, b) => b.datum.localeCompare(a.datum))
+  return { items: items.slice(0, 30), ongelezen: items.filter(i => i.nieuw).length }
+}
+
 // Conversie-funnel statistieken: van aanvraag → offerte → akkoord → gefactureerd → betaald.
 // Per stap aantal + bedrag + conversie-% van vorige stap.
 export async function getConversieFunnel() {

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, LogOut, User, Menu } from 'lucide-react'
 import { SearchBar } from './search-bar'
+import { NotificationBell } from './notification-bell'
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -53,6 +54,8 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         <SearchBar />
       </div>
 
+      <div className="flex items-center gap-1">
+        <NotificationBell />
       <div className="relative">
         <button
           onClick={() => setUserMenuOpen(!userMenuOpen)}
@@ -86,6 +89,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
             </div>
           </>
         )}
+      </div>
       </div>
     </header>
   )
