@@ -1221,7 +1221,27 @@ export async function maakEindafrekening(aanbetalingId: string) {
     offerteSubtotaal = Number(aanbet.subtotaal || 0) / (safePct / 100)
   }
 
-  const restSubtotaal = Math.max(0, offerteSubtotaal - Number(aanbet.subtotaal || 0))
+  // Tel alle aanbetalingen op voor dezelfde offerte/order — een klant kan
+  // meerdere aanbetalingen hebben (bv. 30%+30% i.p.v. 50%, of correctie-
+  // facturen), die moeten samen worden afgetrokken van het offerte-totaal.
+  let totaalAanbetSubtotaal = Number(aanbet.subtotaal || 0)
+  if (offerteId || aanbet.order_id) {
+    const orFilter: string[] = []
+    if (offerteId) orFilter.push(`offerte_id.eq.${offerteId}`)
+    if (aanbet.order_id) orFilter.push(`order_id.eq.${aanbet.order_id}`)
+    const { data: alleAanbet } = await supabase
+      .from('facturen')
+      .select('id, subtotaal, factuur_type, status')
+      .eq('administratie_id', adminId)
+      .eq('factuur_type', 'aanbetaling')
+      .neq('status', 'gecrediteerd')
+      .or(orFilter.join(','))
+    if (alleAanbet && alleAanbet.length > 0) {
+      totaalAanbetSubtotaal = alleAanbet.reduce((sum, a) => sum + Number(a.subtotaal || 0), 0)
+    }
+  }
+
+  const restSubtotaal = Math.max(0, offerteSubtotaal - totaalAanbetSubtotaal)
   const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
   const restTotaal = Math.round((restSubtotaal + restBtw) * 100) / 100
 
