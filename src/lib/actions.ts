@@ -1169,7 +1169,7 @@ export async function maakEindafrekening(aanbetalingId: string) {
 
   const { data: aanbet } = await supabase
     .from('facturen')
-    .select('id, factuurnummer, relatie_id, offerte_id, order_id, onderwerp, subtotaal, btw_totaal, totaal, factuur_type, administratie_id')
+    .select('id, factuurnummer, relatie_id, offerte_id, order_id, onderwerp, subtotaal, btw_totaal, totaal, factuur_type, administratie_id, datum')
     .eq('id', aanbetalingId)
     .single()
   if (!aanbet) return { error: 'Aanbetaling niet gevonden' }
@@ -1192,25 +1192,57 @@ export async function maakEindafrekening(aanbetalingId: string) {
       else if (order.subtotaal) offerteSubtotaal = Number(order.subtotaal)
     }
   }
-  // Fallback via verkoopkans (project): zoek de meest recente geaccepteerde
-  // offerte van dezelfde klant vóór of rond de aanbetalingsdatum.
+  // Fallback via verkoopkans (project): zoek offertes van dezelfde klant rond
+  // de aanbetalingsdatum en match op onderwerp-keywords. Zonder onderwerp-
+  // match konden we vroeger naar de verkeerde offerte grijpen (bv. Andy:
+  // aanbetaling "2x aanbouw" → systeem pakte een Schüco-offerte van €42k →
+  // rest €32k klopte niet). Daarom: extraheer kernwoorden uit het onderwerp
+  // en prefereer offertes waarvan het onderwerp die woorden bevat.
   if (!offerteSubtotaal && aanbet.relatie_id) {
     const windowDate = new Date(aanbet.datum || new Date())
-    const startDate = new Date(windowDate); startDate.setMonth(startDate.getMonth() - 3)
+    const startDate = new Date(windowDate); startDate.setMonth(startDate.getMonth() - 6)
     const endDate = new Date(windowDate); endDate.setDate(endDate.getDate() + 7)
-    const { data: kandidaatOff } = await supabase
+    const { data: kandidaten } = await supabase
       .from('offertes')
-      .select('id, subtotaal, offertenummer, datum, project_id, status')
+      .select('id, subtotaal, offertenummer, datum, project_id, status, onderwerp')
       .eq('administratie_id', adminId)
       .eq('relatie_id', aanbet.relatie_id)
       .gte('datum', startDate.toISOString().slice(0, 10))
       .lte('datum', endDate.toISOString().slice(0, 10))
       .in('status', ['geaccepteerd', 'verzonden'])
       .order('datum', { ascending: false })
-      .limit(1)
-    if (kandidaatOff?.[0]?.subtotaal) {
-      offerteSubtotaal = Number(kandidaatOff[0].subtotaal)
-      offertenummer = kandidaatOff[0].offertenummer
+
+    const lijst = (kandidaten || []) as Array<{ id: string; subtotaal: number; offertenummer: string; onderwerp: string | null }>
+    const aanbetSubtotaalNum = Number(aanbet.subtotaal || 0)
+    // Strip prefix-woorden zoals "Aanbetaling 70%", "1e Factuur", "Restbetaling —"
+    const stripPrefixes = (s: string) => s
+      .replace(/^(?:1e|2e|3e)\s*Factuur\s*[\/\-—]?\s*/i, '')
+      .replace(/^Aanbetaling\s*\d{1,3}\s*%?\s*[\/\-—]?\s*/i, '')
+      .replace(/^Restbetaling\s*[\/\-—]?\s*/i, '')
+      .replace(/offerte\s+O-?\d+-?\d+/gi, '')
+      .trim()
+    const aanbetOnderwerp = stripPrefixes(aanbet.onderwerp || '').toLowerCase()
+    const keywords = aanbetOnderwerp
+      .split(/[\s,\/\-—]+/)
+      .filter(w => w.length >= 3 && !/^[0-9.,€%]+$/.test(w))
+
+    // Score elke kandidaat: + voor onderwerp-keyword overlap, ++ voor plausibel
+    // bedrag (aanbetaling tussen 20% en 95% van offerte).
+    const scored = lijst.map(o => {
+      const ondw = stripPrefixes(o.onderwerp || '').toLowerCase()
+      const overlap = keywords.filter(k => ondw.includes(k)).length
+      const ratio = o.subtotaal > 0 ? aanbetSubtotaalNum / Number(o.subtotaal) : 0
+      const plausibel = ratio >= 0.20 && ratio <= 0.99
+      const score = overlap * 10 + (plausibel ? 5 : 0)
+      return { ...o, score, ratio, overlap }
+    }).sort((a, b) => b.score - a.score)
+
+    // Kies enkel als er een fatsoenlijke match is: onderwerp-overlap OF
+    // plausibel bedrag. Anders niets — sanity-check hieronder grijpt in.
+    const beste = scored.find(s => s.overlap > 0) || scored.find(s => s.ratio >= 0.20 && s.ratio <= 0.99)
+    if (beste?.subtotaal) {
+      offerteSubtotaal = Number(beste.subtotaal)
+      offertenummer = beste.offertenummer
     }
   }
   // Fallback: parse het aanbetaal-percentage uit het onderwerp ("Aanbetaling 70%"
@@ -1261,6 +1293,29 @@ export async function maakEindafrekening(aanbetalingId: string) {
   }
   const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
   const restTotaal = Math.round((restSubtotaal + restBtw) * 100) / 100
+
+  // Sanity-check: weiger automatisch een rest aan te maken als de uitkomst
+  // implausibel is. Bv. Andy: aanbetaling €10.585 maar systeem-fallback pakte
+  // verkeerde offerte van €42.945 → rest €32.360 was 3x de aanbetaling. Of
+  // omgekeerd: rest 0 omdat 'matched' offerte kleiner is dan de aanbetaling.
+  // Drempels: rest mag niet > 4x de aanbetaling zijn, en niet > 95% van het
+  // offerte-totaal (zou betekenen dat aanbetaling < 5% was — dat is geen
+  // aanbetaling). Bij twijfel terug naar de gebruiker — beter handmatig
+  // koppelen dan een bizarre factuur de wereld in.
+  const aanbetSubNum = Number(aanbet.subtotaal || 0)
+  if (aanbetSubNum > 0 && restSubtotaal > aanbetSubNum * 4) {
+    return {
+      error: `Eindafrekening lijkt onjuist: rest €${restSubtotaal.toFixed(2)} is meer dan 4× de aanbetaling €${aanbetSubNum.toFixed(2)}. ` +
+             `${offerteId ? '' : 'De aanbetaling heeft geen offerte gekoppeld — koppel hem eerst handmatig aan de juiste offerte. '}` +
+             `Geen factuur aangemaakt.`
+    }
+  }
+  if (offerteSubtotaal > 0 && restSubtotaal > offerteSubtotaal * 0.95 && aanbetSubNum > 0) {
+    return {
+      error: `Eindafrekening lijkt onjuist: aanbetaling €${aanbetSubNum.toFixed(2)} is < 5% van offerte-totaal €${offerteSubtotaal.toFixed(2)}. ` +
+             `Controleer of de juiste offerte gekoppeld is. Geen factuur aangemaakt.`
+    }
+  }
 
   const { data: nummer } = await supabase.rpc('volgende_nummer', { p_administratie_id: adminId, p_type: 'factuur' })
   const { data: nieuw, error } = await supabase.from('facturen').insert({
@@ -1629,11 +1684,11 @@ export async function getFactuurEmailDefaults(factuurId: string) {
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
     : (betaalLink || null)
 
+  // Body bevat geen URL — de groene "Betaal direct" knop in de e-mail-template
+  // is de enige plek waar de Mollie-link zichtbaar wordt. Voorkomt lelijke
+  // afgebroken URL's in de body.
   const betaalSectie = directBetaalUrl
-    ? `Online direct betalen via iDEAL:
-${directBetaalUrl}
-
-Of handmatig overmaken naar:`
+    ? `U kunt direct online betalen via de groene knop hieronder, of handmatig overmaken naar:`
     : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
 
   const body = `Beste ${klantNaam},
@@ -1791,16 +1846,11 @@ export async function sendFactuurEmail(factuurId: string, options: {
     : (betaalLink || undefined)
   const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
 
-  // Hard guarantee: als de body (door user aangepast) geen URL bevat naar
-  // de betaal-link, voeg hem expliciet onderaan toe. Zo staat de link
-  // GEGARANDEERD in elke verzonden email — ook al heeft de user de body
-  // bewerkt en de tekst weggehaald.
-  let bodyMetLink = options.body
-  if (ctaLink && !bodyMetLink.includes(ctaLink) && !bodyMetLink.includes('payment-links.mollie.com') && !bodyMetLink.includes('/api/factuur/')) {
-    bodyMetLink = bodyMetLink + `\n\n--- Online direct betalen via iDEAL ---\n${ctaLink}`
-  }
-
-  const emailHtml = buildRebuEmailHtml(bodyMetLink, ctaLink, ctaLabel, mwInfo)
+  // De groene CTA-knop in de e-mail-template is de enige plek waar de
+  // Mollie-link verschijnt. We injecteren géén URL meer in de body — dat
+  // gaf in de editor lelijke afgebroken links. De knop is gegarandeerd
+  // aanwezig zolang ctaLink gezet is (zie de hard-block hierboven).
+  const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
 
   // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
