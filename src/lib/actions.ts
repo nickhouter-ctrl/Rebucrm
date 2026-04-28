@@ -1241,7 +1241,23 @@ export async function maakEindafrekening(aanbetalingId: string) {
     }
   }
 
-  const restSubtotaal = Math.max(0, offerteSubtotaal - totaalAanbetSubtotaal)
+  // 50/50 detectie: als aanbetalingen dicht bij 50% van offerte zitten
+  // (binnen 10% marge), interpreteren we het als een 50/50-deal en wordt
+  // de rest exact 50% van het offerte-subtotaal — niet 'wat resteert na
+  // afgeronde aanbetalingen'. Voorkomt dat afrondingen euro-verschillen
+  // veroorzaken bij eindafrekening.
+  let restSubtotaal: number
+  if (offerteSubtotaal > 0) {
+    const aanbetRatio = totaalAanbetSubtotaal / offerteSubtotaal
+    if (aanbetRatio >= 0.40 && aanbetRatio <= 0.60) {
+      // 50/50 deal → rest = exact 50%
+      restSubtotaal = Math.round((offerteSubtotaal * 0.5) * 100) / 100
+    } else {
+      restSubtotaal = Math.max(0, offerteSubtotaal - totaalAanbetSubtotaal)
+    }
+  } else {
+    restSubtotaal = Math.max(0, offerteSubtotaal - totaalAanbetSubtotaal)
+  }
   const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
   const restTotaal = Math.round((restSubtotaal + restBtw) * 100) / 100
 
@@ -1596,27 +1612,12 @@ export async function getFactuurEmailDefaults(factuurId: string) {
   const totaalFormatted = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(factuur.totaal || 0)
   const vervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum).toLocaleDateString('nl-NL') : 'n.v.t.'
 
-  // Auto-genereer Mollie betaallink als deze nog niet bestaat
+  // Auto-genereer Mollie betaallink (idempotent — bestaande link blijft staan)
   let betaalLink = factuur.betaal_link as string | null
-  const openstaandBedrag = (factuur.totaal || 0) - (factuur.betaald_bedrag || 0)
-  if (!betaalLink && openstaandBedrag > 0 && process.env.MOLLIE_API_KEY) {
-    try {
-      const { createMolliePayment } = await import('@/lib/mollie')
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const payment = await createMolliePayment({
-        amount: openstaandBedrag,
-        description: `Factuur ${factuur.factuurnummer}`,
-        redirectUrl: `${appUrl}/betaling/succes`,
-        webhookUrl: `${appUrl}/api/mollie/webhook`,
-      })
-      betaalLink = payment.checkoutUrl
-      await supabase
-        .from('facturen')
-        .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
-        .eq('id', factuurId)
-    } catch (err) {
-      console.error('Mollie auto-genereer betaallink mislukt:', err)
-    }
+  if (!betaalLink) {
+    const { ensureFactuurBetaalLink } = await import('@/lib/mollie')
+    const result = await ensureFactuurBetaalLink(factuurId)
+    if (result.link) betaalLink = result.link
   }
 
   const betaalSectie = betaalLink
@@ -2331,7 +2332,10 @@ export async function zorgVoorBetaallink(factuurId: string): Promise<string | nu
       .single()
     if (!factuur) return null
     if (factuur.betaal_link) return factuur.betaal_link as string
-    if (['concept', 'gecrediteerd', 'geannuleerd'].includes(factuur.status as string)) return null
+    // 'concept' wordt NIET meer uitgesloten — user-wens: altijd Mollie-link
+    // klaar op de factuur, ook al staat hij op concept. Pas bij verzending
+    // hangt hij dan in de email.
+    if (['gecrediteerd', 'geannuleerd'].includes(factuur.status as string)) return null
     const openstaand = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
     if (openstaand <= 0) return null
     if (!process.env.MOLLIE_API_KEY) return null
