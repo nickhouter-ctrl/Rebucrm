@@ -1763,39 +1763,43 @@ export async function sendFactuurEmail(factuurId: string, options: {
     }
   }
 
-  // Auto-genereer Mollie betaallink als nog niet bestaat + openstaand > 0
-  let betaalLink = (factuur.betaal_link as string | null) || null
+  // BLOCKING: zorg dat er een Mollie betaal-link is vóór we de mail versturen.
+  // User-eis: 'ten alle tijden met elke factuur die per mail wordt verstuurd
+  // moet een Mollie link mee'. Bij openstaand=0 (al betaald) of credit-factuur
+  // is een link niet zinvol — dan slaan we hem over.
   const openstaandBedrag = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
-  if (!betaalLink && openstaandBedrag > 0 && process.env.MOLLIE_API_KEY) {
-    try {
-      const { createMolliePayment } = await import('@/lib/mollie')
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-      const payment = await createMolliePayment({
-        amount: openstaandBedrag,
-        description: `Factuur ${factuur.factuurnummer}`,
-        redirectUrl: `${appUrl}/betaling/succes`,
-        webhookUrl: `${appUrl}/api/mollie/webhook`,
-      })
-      betaalLink = payment.checkoutUrl
-      await supabase
-        .from('facturen')
-        .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
-        .eq('id', factuurId)
-    } catch (err) {
-      console.error('Mollie betaallink bij versturen mislukt:', err)
+  let betaalLink = (factuur.betaal_link as string | null) || null
+  if (!betaalLink && openstaandBedrag > 0 && factuur.status !== 'gecrediteerd' && factuur.status !== 'betaald') {
+    if (!process.env.MOLLIE_API_KEY) {
+      return { error: 'Mollie is niet geconfigureerd — kan factuur niet versturen zonder betaal-link.' }
+    }
+    const { ensureFactuurBetaalLink } = await import('@/lib/mollie')
+    const result = await ensureFactuurBetaalLink(factuurId)
+    betaalLink = result.link
+    if (!betaalLink) {
+      return { error: 'Mollie payment-link kon niet worden aangemaakt — factuur is niet verstuurd. Probeer het over enkele minuten opnieuw.' }
     }
   }
 
   // CTA knop: permanente Rebu-URL die bij klikken de actuele Mollie-link
-  // ophaalt (of een verse genereert als de huidige verlopen is). Zo blijft
-  // de mail-link altijd werken, ook weken later.
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // ophaalt (of een verse genereert als de huidige verlopen is).
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
   const publiekToken = (factuur as { publiek_token?: string | null }).publiek_token
   const ctaLink = betaalLink && publiekToken
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
     : (betaalLink || undefined)
   const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
-  const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
+
+  // Hard guarantee: als de body (door user aangepast) geen URL bevat naar
+  // de betaal-link, voeg hem expliciet onderaan toe. Zo staat de link
+  // GEGARANDEERD in elke verzonden email — ook al heeft de user de body
+  // bewerkt en de tekst weggehaald.
+  let bodyMetLink = options.body
+  if (ctaLink && !bodyMetLink.includes(ctaLink) && !bodyMetLink.includes('payment-links.mollie.com') && !bodyMetLink.includes('/api/factuur/')) {
+    bodyMetLink = bodyMetLink + `\n\n--- Online direct betalen via iDEAL ---\n${ctaLink}`
+  }
+
+  const emailHtml = buildRebuEmailHtml(bodyMetLink, ctaLink, ctaLabel, mwInfo)
 
   // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
