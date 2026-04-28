@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { offerteStatussen, statusKleuren } from '@/lib/constants'
-import { Plus, FileText } from 'lucide-react'
+import { Plus, FileText, Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 const statusLabels: Record<string, string> = {
   concept: 'Concept', verzonden: 'Verzonden', geaccepteerd: 'Geaccepteerd',
@@ -81,13 +82,38 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
     ? offertes.filter(o => o.status === statusFilter)
     : offertes
 
+  async function exportXlsx() {
+    if (filteredOffertes.length === 0) return
+    const rows = filteredOffertes.map(o => ({
+      Offertenummer: o.offertenummer,
+      Versie: o.versie_nummer || 1,
+      Datum: o.datum,
+      Status: o.status,
+      Klant: o.relatie?.bedrijfsnaam || '',
+      Verkoopkans: o.project?.naam || '',
+      Onderwerp: o.onderwerp || '',
+      Subtotaal: o.subtotaal ?? 0,
+      BTW: o.btw_totaal ?? 0,
+      Totaal: o.totaal,
+    }))
+    const XLSX = await import('xlsx')
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Offertes')
+    XLSX.writeFile(wb, `offertes-export-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   return (
     <div>
       <PageHeader
         title="Offertes & Orders"
         description="Beheer uw offertes en orders"
         actions={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="ghost" size="sm" onClick={exportXlsx} disabled={filteredOffertes.length === 0}>
+              <Download className="h-3.5 w-3.5" />
+              Excel
+            </Button>
             <Link href="/offertes/archief">
               <Button variant="ghost">Archief</Button>
             </Link>

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw } from 'lucide-react'
+import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw, Download } from 'lucide-react'
 import { syncSnelstartBetalingen } from '@/lib/actions'
 import { showToast } from '@/components/ui/toast'
 
@@ -167,13 +167,41 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     { key: 'per-klus', label: 'Per klus', count: ordersMetActie.length > 0 ? ordersMetActie.length : undefined },
   ]
 
+  async function exportXlsx() {
+    const data = tab === 'openstaand' ? openstaandFacturen : facturen
+    if (data.length === 0) return
+    const rows = data.map(f => ({
+      Factuurnummer: f.factuurnummer,
+      Datum: f.datum,
+      Vervaldatum: f.vervaldatum || '',
+      Status: f.status,
+      Type: f.factuur_type || 'volledig',
+      Klant: f.relatie?.bedrijfsnaam || '',
+      Onderwerp: f.order?.onderwerp || '',
+      Subtotaal: f.subtotaal ?? 0,
+      BTW: f.btw_totaal ?? 0,
+      Totaal: f.totaal,
+      Betaald: f.betaald_bedrag,
+      Openstaand: Math.max(0, f.totaal - (f.betaald_bedrag || 0)),
+    }))
+    const XLSX = await import('xlsx')
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Facturen')
+    XLSX.writeFile(wb, `facturen-export-${new Date().toISOString().slice(0, 10)}.xlsx`)
+  }
+
   return (
     <div>
       <PageHeader
         title="Facturatie"
         description="Beheer uw facturen"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="ghost" size="sm" onClick={exportXlsx}>
+              <Download className="h-3.5 w-3.5" />
+              Excel
+            </Button>
             <Button variant="ghost" onClick={() => router.push('/facturatie/eindafrekening')}>
               Eindafrekening nodig
             </Button>
