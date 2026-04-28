@@ -127,7 +127,10 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
           zonderOfferte ? (
             <Button variant="ghost" onClick={() => router.push('/projecten')}>Alle verkoopkansen</Button>
           ) : (
-            <Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>
+            <div className="flex gap-2 flex-wrap">
+              <Button variant="ghost" size="sm" onClick={() => router.push('/projecten/kanban')}>Kanban</Button>
+              <Button onClick={() => router.push('/projecten/nieuw')}><Plus className="h-4 w-4" />Nieuwe verkoopkans</Button>
+            </div>
           )
         }
       />

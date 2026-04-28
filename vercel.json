@@ -18,6 +18,10 @@
     {
       "path": "/api/cron/cleanup-concept-state",
       "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/cron/offerte-followup",
+      "schedule": "0 9 * * *"
     }
   ]
 }

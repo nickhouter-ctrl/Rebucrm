@@ -223,6 +223,36 @@ export async function exportRelaties() {
   return { success: true, relaties: allRelaties }
 }
 
+// Klant-timeline: bundel alle contactmomenten (notities, emails in/uit, offertes,
+// facturen, taken-acties) in chronologische volgorde voor 1 relatie.
+export async function getRelatieTimeline(relatieId: string, limit = 50) {
+  const sb = createAdminClient()
+  const [notities, emails, offertes, facturen, taken] = await Promise.all([
+    sb.from('notities').select('id, tekst, created_at').eq('relatie_id', relatieId).order('created_at', { ascending: false }).limit(limit),
+    sb.from('emails').select('id, onderwerp, van_email, aan_email, datum, richting').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
+    sb.from('offertes').select('id, offertenummer, status, datum, totaal').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
+    sb.from('facturen').select('id, factuurnummer, status, datum, totaal').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
+    sb.from('taken').select('id, taaknummer, titel, status, created_at').eq('relatie_id', relatieId).order('created_at', { ascending: false }).limit(limit),
+  ])
+
+  type Item = { id: string; type: 'notitie' | 'email' | 'offerte' | 'factuur' | 'taak'; titel: string; subtitle?: string; bedrag?: number; status?: string; datum: string; href?: string; richting?: string }
+  const items: Item[] = []
+  for (const n of notities.data || []) items.push({ id: n.id, type: 'notitie', titel: n.tekst.slice(0, 100), datum: n.created_at })
+  for (const e of emails.data || []) items.push({
+    id: e.id, type: 'email',
+    titel: e.onderwerp || '(geen onderwerp)',
+    subtitle: e.richting === 'inkomend' ? `← ${e.van_email}` : `→ ${e.aan_email}`,
+    datum: e.datum,
+    richting: e.richting,
+  })
+  for (const o of offertes.data || []) items.push({ id: o.id, type: 'offerte', titel: o.offertenummer, status: o.status, bedrag: o.totaal, datum: o.datum, href: `/offertes/${o.id}` })
+  for (const f of facturen.data || []) items.push({ id: f.id, type: 'factuur', titel: f.factuurnummer, status: f.status, bedrag: f.totaal, datum: f.datum, href: `/facturatie/${f.id}` })
+  for (const t of taken.data || []) items.push({ id: t.id, type: 'taak', titel: t.titel, subtitle: t.taaknummer, status: t.status, datum: t.created_at, href: `/taken/${t.id}` })
+
+  items.sort((a, b) => b.datum.localeCompare(a.datum))
+  return items.slice(0, limit)
+}
+
 export async function getRelatie(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
@@ -2485,6 +2515,47 @@ export async function getProjecten() {
       laatste_offerte_nummer: laatsteOfferte?.offertenummer || null,
       laatste_offerte_status: laatsteOfferte?.status || null,
       laatste_offerte_bedrag: laatsteOfferte?.subtotaal || null,
+    }
+  })
+}
+
+// Pipeline-fase voor verkoopkansen kanban — afgeleid uit project-status +
+// offerte-status. Geen DB-migratie nodig.
+export type PipelineFase = 'aanvraag' | 'concept' | 'verzonden' | 'geaccepteerd' | 'afgerond' | 'verloren'
+
+export async function getVerkoopkansenPipeline() {
+  const supabase = await createClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('projecten')
+      .select('id, naam, status, created_at, updated_at, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
+      .neq('status', 'geannuleerd')
+      .order('updated_at', { ascending: false })
+      .range(from, to),
+  )
+  return (data || []).map(p => {
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number; datum: string; geldig_tot: string | null }[]
+    const laatste = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
+    let fase: PipelineFase = 'aanvraag'
+    if (p.status === 'afgerond') fase = 'afgerond'
+    else if (laatste?.status === 'geaccepteerd') fase = 'geaccepteerd'
+    else if (laatste?.status === 'afgewezen') fase = 'verloren'
+    else if (laatste?.status === 'verzonden') fase = 'verzonden'
+    else if (laatste?.status === 'concept') fase = 'concept'
+    return {
+      id: p.id,
+      naam: p.naam,
+      bedrag: laatste?.subtotaal ?? 0,
+      relatieNaam: p.relatie?.bedrijfsnaam || null,
+      contactpersoon: p.relatie?.contactpersoon || null,
+      laatsteOfferteId: laatste?.id || null,
+      laatsteOfferteNummer: laatste?.offertenummer || null,
+      laatsteOfferteDatum: laatste?.datum || null,
+      laatsteOfferteGeldigTot: laatste?.geldig_tot || null,
+      offerteStatus: laatste?.status || null,
+      fase,
+      updatedAt: p.updated_at,
     }
   })
 }
