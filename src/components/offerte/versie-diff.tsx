@@ -120,7 +120,7 @@ function DiffRij({ diff }: { diff: DiffEntry }) {
       </div>
     )
   }
-  // changed
+  if (diff.kind !== 'changed') return null
   const beforeTotal = diff.before.aantal * diff.before.prijs
   const afterTotal = diff.after.aantal * diff.after.prijs
   const verschil = afterTotal - beforeTotal

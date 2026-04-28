@@ -141,6 +141,24 @@ export function StapControleren({
     onRegelsChange([{ omschrijving, aantal: 1, prijs: excl, btw_percentage: 21 }])
   }
 
+  // Bulk-edit: percentage over alle regels (bv. +5% marge correctie achteraf,
+  // of -10% bij actie-korting). Negeert vaste-bedrag regels zoals bezorgkosten.
+  function bulkAanpassenPrijzen() {
+    const input = prompt('Percentage aanpassing (bijv. 5 voor +5%, -10 voor -10%):')
+    if (input === null) return
+    const pct = parseFloat(input.replace(',', '.'))
+    if (!pct || isNaN(pct)) { alert('Ongeldig percentage'); return }
+    const factor = 1 + pct / 100
+    const updated = regels.map(r => {
+      const omschrijving = (r.omschrijving || '').toLowerCase()
+      // Skip vaste bedragen (bezorgkosten, eenmalige posten met fixed totaal)
+      if (omschrijving.includes('bezorg') || omschrijving.includes('korting')) return r
+      const huidigePrijs = parseFloat(String(r.prijs)) || 0
+      return { ...r, prijs: Math.round(huidigePrijs * factor * 100) / 100 }
+    })
+    onRegelsChange(updated)
+  }
+
   function removeRegel(index: number) {
     onRegelsChange(regels.filter((_, i) => i !== index))
   }
@@ -683,9 +701,12 @@ export function StapControleren({
               )}
             </div>
             {!readOnly && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button type="button" variant="ghost" size="sm" onClick={snelVulBedrag}>
                   Bedrag invullen
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={bulkAanpassenPrijzen} title="Pas alle prijzen aan met een percentage (+5%, -10% etc.)">
+                  ± %
                 </Button>
                 <Button type="button" variant="secondary" size="sm" onClick={addRegel}>
                   <Plus className="h-3 w-3" />

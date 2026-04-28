@@ -142,6 +142,30 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   async function handleSubmit(formData: FormData) {
     setLoading(true)
     setError('')
+
+    // Client-side validatie van email + telefoon — voorkomt typo's die later
+    // bouncen en bespaart een server-roundtrip.
+    const fouten: string[] = []
+    const emailRaw = (formData.get('email') as string || '').trim()
+    const factuurEmailRaw = (formData.get('factuur_email') as string || '').trim()
+    const telefoonRaw = (formData.get('telefoon') as string || '').trim()
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+    if (emailRaw && !emailRe.test(emailRaw)) fouten.push('E-mailadres lijkt ongeldig')
+    if (factuurEmailRaw && !emailRe.test(factuurEmailRaw)) fouten.push('Factuur-e-mail lijkt ongeldig')
+    if (telefoonRaw) {
+      // NL telefoon: 06/0X gevolgd door min 8 cijfers, of +31 prefix.
+      // Spaties / streepjes / haakjes negeren.
+      const cijfers = telefoonRaw.replace(/[\s\-().]/g, '')
+      const nlRe = /^(\+31|0031|0)[1-9]\d{8}$/
+      const intRe = /^\+\d{8,15}$/
+      if (!nlRe.test(cijfers) && !intRe.test(cijfers)) fouten.push('Telefoonnummer lijkt ongeldig')
+    }
+    if (fouten.length > 0) {
+      setError(fouten.join(' • '))
+      setLoading(false)
+      return
+    }
+
     if (relatie) formData.set('id', relatie.id)
     const result = await saveRelatie(formData)
     if (result.error) {

@@ -27,9 +27,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (payment.status === 'paid') {
-      const nieuwBetaaldBedrag = (factuur.betaald_bedrag || 0) + payment.amount
-      const totaal = factuur.totaal || 0
-      const nieuweStatus = nieuwBetaaldBedrag >= totaal ? 'betaald' : 'deels_betaald'
+      // payment.amount = totaal betaald via deze Mollie payment-link (som van
+      // alle 'paid' sub-payments). Bij webhook-retries krijgen we dezelfde
+      // waarde — dus IDEMPOTENT zetten i.p.v. optellen, anders telt dubbel.
+      // Math.max beschermt tegen handmatige correcties die de DB-waarde hoger
+      // zetten dan Mollie kan zien (bv. handmatig overgemaakt + Mollie betaald).
+      const huidigBetaald = Number(factuur.betaald_bedrag || 0)
+      const mollieBetaald = Number(payment.amount || 0)
+      const nieuwBetaaldBedrag = Math.max(huidigBetaald, mollieBetaald)
+      const totaal = Number(factuur.totaal || 0)
+      // 1ct marge tegen afrondingsverschillen in Mollie-bedragen
+      const nieuweStatus = nieuwBetaaldBedrag >= totaal - 0.01 ? 'betaald' : 'deels_betaald'
       const werdBetaald = factuur.status !== 'betaald' && nieuweStatus === 'betaald'
 
       await supabase

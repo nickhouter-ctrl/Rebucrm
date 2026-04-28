@@ -39,22 +39,51 @@ function relativeTime(d: string): string {
 }
 
 // Bell-icoon in header met dropdown van recente notificaties.
-// Pollt elke 60s op nieuwe items.
+// Pollt elke 60s op nieuwe items + triggert browser-notificatie bij nieuwe
+// items (vereist permission, één keer gevraagd op eerste render).
 export function NotificationBell() {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<Item[]>([])
   const [ongelezen, setOngelezen] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Bewaar gezien-IDs in sessionStorage zodat een herhaalde poll niet
+  // dezelfde notificatie opnieuw toont, zelfs niet na refresh.
+  const seenRef = useRef<Set<string>>(new Set())
 
   async function fetchData() {
     try {
       const data = await getNotificaties()
-      setItems(data.items as Item[])
+      const nieuweItems = data.items as Item[]
+
+      // Eerste fetch: alle bestaande items markeren als 'gezien' zodat we
+      // niet onmiddellijk een storm aan notificaties triggeren.
+      if (seenRef.current.size === 0) {
+        for (const it of nieuweItems) seenRef.current.add(it.id)
+      } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        for (const it of nieuweItems) {
+          if (!seenRef.current.has(it.id) && it.nieuw) {
+            try {
+              new Notification(it.titel, {
+                body: it.subtitle || '',
+                tag: it.id,
+                icon: '/images/logo-rebu.png',
+              })
+            } catch { /* sommige browsers blokkeren dit in onbekende contexten */ }
+          }
+          seenRef.current.add(it.id)
+        }
+      }
+
+      setItems(nieuweItems)
       setOngelezen(data.ongelezen)
     } catch { /* niet kritiek */ }
   }
 
   useEffect(() => {
+    // Vraag éénmalig om permission — non-blocking, klant kan deny zonder gevolg.
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
     fetchData()
     const interval = setInterval(fetchData, 60_000)
     return () => clearInterval(interval)

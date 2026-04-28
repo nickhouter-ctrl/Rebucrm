@@ -719,6 +719,15 @@ export async function saveOfferte(formData: FormData) {
   const regelsJson = formData.get('regels') as string
   const regels = regelsJson ? JSON.parse(regelsJson) : []
 
+  // Veiligheidsslot: een offerte zonder relatie EN zonder project is een
+  // weeskind dat later voor problemen zorgt (eindafrekening-matching,
+  // klant-historie, dedup). Forceer minimaal één van beide.
+  const heeftRelatie = !!(formData.get('relatie_id') as string || '').trim()
+  const heeftProject = !!(formData.get('project_id') as string || '').trim()
+  if (!heeftRelatie && !heeftProject) {
+    return { error: 'Koppel de offerte aan een relatie of verkoopkans voordat u opslaat.' }
+  }
+
   const subtotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number }) => sum + r.aantal * r.prijs, 0)
   const btwTotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number; btw_percentage: number }) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
 
@@ -990,6 +999,23 @@ export async function markOrderBesteld(orderId: string) {
   if (error) return { error: error.message }
   revalidatePath('/')
   return { success: true }
+}
+
+// Audit-log getter voor de UI: haalt log-entries op voor een specifieke
+// entiteit (factuur/offerte/relatie). Gesorteerd op datum, max 100.
+export async function getAuditLog(entiteitType: string, entiteitId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const sb = createAdminClient()
+  const { data } = await sb
+    .from('audit_log')
+    .select('id, actie, user_email, details, created_at')
+    .eq('administratie_id', adminId)
+    .eq('entiteit_type', entiteitType)
+    .eq('entiteit_id', entiteitId)
+    .order('created_at', { ascending: false })
+    .limit(100)
+  return data || []
 }
 
 export async function deleteOfferte(id: string) {
@@ -1359,6 +1385,22 @@ export async function maakEindafrekening(aanbetalingId: string) {
   } catch (e) {
     console.warn('Mollie link bij eindafrekening niet aangemaakt:', e)
   }
+
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({
+      actie: 'factuur.eindafrekening_aanmaken',
+      entiteitType: 'factuur',
+      entiteitId: nieuw.id,
+      details: { aanbetalingId, offertenummer, restSubtotaal, restTotaal, gebaseerdOpOfferte: !!offerteId },
+    })
+    await logAudit({
+      actie: 'factuur.eindafrekening_aanmaken',
+      entiteitType: 'factuur',
+      entiteitId: aanbet.id,
+      details: { restFactuurId: nieuw.id, restTotaal },
+    })
+  } catch { /* niet kritiek */ }
 
   revalidatePath('/facturatie')
   revalidatePath('/facturatie/eindafrekening')
@@ -1891,6 +1933,22 @@ export async function sendFactuurEmail(factuurId: string, options: {
 
   // Update status naar verzonden
   await supabase.from('facturen').update({ status: 'verzonden' }).eq('id', factuurId)
+
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({
+      actie: 'factuur.email_verzonden',
+      entiteitType: 'factuur',
+      entiteitId: factuurId,
+      details: {
+        aan: options.to,
+        onderwerp: options.subject,
+        totaal: factuur.totaal,
+        openstaand: openstaandBedrag,
+        mollieLink: !!betaalLink,
+      },
+    })
+  } catch { /* niet kritiek */ }
 
   // Als deze factuur aan een order gekoppeld is die wacht op betaling → activeer de order (te plannen leveringen)
   if (factuur.order_id) {

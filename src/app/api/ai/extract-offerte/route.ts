@@ -3,6 +3,7 @@ import { generateObject } from 'ai'
 import { z } from 'zod'
 import { aiModel } from '@/lib/ai-model'
 import { rateLimit, getRateLimitKey } from '@/lib/rate-limit'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // AI-driven offerte extractie. Claude scant de volledige leverancier-PDF tekst
 // en geeft een gevalideerde element-lijst terug: naam, hoeveelheid, systeem,
@@ -66,7 +67,34 @@ export async function POST(req: NextRequest) {
     ? `\nDeze offerte komt vast en zeker van: **${leverancier}**${profiel ? ` (profiel: ${profiel})` : ''}. Gebruik dit als ground-truth voor naam-formatting en prijs-locatie.\n`
     : ''
 
-  const system = `Je bent een expert in het analyseren van kozijn-leveranciers offertes (Aluplast, Gealan, Aluprof, Eko-Okna, Kochs, Schüco, Reynaers).${leverancierHint}
+  // Lees historische correcties voor deze leverancier — laat AI de patronen
+  // zien zodat dezelfde fout niet 2x gemaakt wordt. Bv. als bij Schüco de
+  // AI vaak prijs=0 zette terwijl gebruiker handmatig €450 invulde, vertellen
+  // we Claude waar in de PDF die prijs typisch staat.
+  let correctiesHint = ''
+  if (leverancier) {
+    try {
+      const sb = createAdminClient()
+      const slug = leverancier.toLowerCase().replace(/\s+/g, '-')
+      const { data: correcties } = await sb
+        .from('leverancier_prijs_correctie')
+        .select('element_naam, ai_prijs, handmatige_prijs, pdf_text_sample, created_at')
+        .eq('leverancier_slug', slug)
+        .order('created_at', { ascending: false })
+        .limit(20)
+      if (correcties && correcties.length > 0) {
+        const samples = correcties.slice(0, 8).map(c => {
+          const sample = (c.pdf_text_sample || '').slice(0, 200).replace(/\s+/g, ' ').trim()
+          return `- ${c.element_naam}: AI-extractie €${c.ai_prijs} → correct €${c.handmatige_prijs}${sample ? `\n  Context: "${sample}"` : ''}`
+        }).join('\n')
+        correctiesHint = `\nHISTORISCHE CORRECTIES voor ${leverancier} (gebruiker corrigeerde eerder, leer hiervan):\n${samples}\n`
+      }
+    } catch (e) {
+      console.warn('Kon historische correcties niet laden:', e)
+    }
+  }
+
+  const system = `Je bent een expert in het analyseren van kozijn-leveranciers offertes (Aluplast, Gealan, Aluprof, Eko-Okna, Kochs, Schüco, Reynaers).${leverancierHint}${correctiesHint}
 
 Je taak: scan de PDF-tekst en geef EXACT de lijst van echte offerte-elementen met hun specs en prijzen.
 

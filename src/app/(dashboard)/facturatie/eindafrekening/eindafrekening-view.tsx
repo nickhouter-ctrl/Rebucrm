@@ -7,8 +7,32 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { ArrowLeft, CheckCircle2, FileText, Loader2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, FileText, Loader2, AlertTriangle } from 'lucide-react'
 import { maakEindafrekening } from '@/lib/actions'
+
+// Bepaal of de berekende rest verdacht is. Spiegel van de sanity-check in
+// maakEindafrekening — gebruiker krijgt visuele waarschuwing voor de klik.
+function detecteerProblemen(r: Aanbetaling): { ernst: 'ok' | 'warn' | 'fout'; reden: string } {
+  const aanbet = Number(r.subtotaal || 0)
+  const offerte = Number(r.offerte?.subtotaal || 0)
+  if (!r.offerte) {
+    return { ernst: 'warn', reden: 'Geen offerte gekoppeld — eindafrekening kan verkeerd berekend worden.' }
+  }
+  if (offerte === 0) {
+    return { ernst: 'warn', reden: 'Offerte heeft geen subtotaal — controleer eerst.' }
+  }
+  if (aanbet > offerte) {
+    return { ernst: 'fout', reden: `Aanbetaling (${aanbet}) is groter dan offerte (${offerte}). Verkeerde koppeling?` }
+  }
+  const rest = offerte - aanbet
+  if (aanbet > 0 && rest > aanbet * 4) {
+    return { ernst: 'fout', reden: `Rest €${rest.toFixed(2)} > 4× aanbetaling. Mogelijk verkeerde offerte gekoppeld.` }
+  }
+  if (rest > offerte * 0.95 && aanbet > 0) {
+    return { ernst: 'warn', reden: 'Aanbetaling < 5% van offerte — controleer of dit klopt.' }
+  }
+  return { ernst: 'ok', reden: '' }
+}
 
 type Aanbetaling = {
   id: string
@@ -28,7 +52,14 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
   const [busyId, setBusyId] = useState<string | null>(null)
 
   async function handleMaak(id: string) {
-    if (!confirm('Concept-restbetaling aanmaken voor deze klant?')) return
+    const aanbet = aanbetalings.find(a => a.id === id)
+    if (!aanbet) return
+    const p = detecteerProblemen(aanbet)
+    let prompt = 'Concept-restbetaling aanmaken voor deze klant?'
+    if (p.ernst !== 'ok') {
+      prompt = `⚠ ${p.reden}\n\nWeet u zeker dat u alsnog wilt doorgaan?`
+    }
+    if (!confirm(prompt)) return
     setBusyId(id)
     const res = await maakEindafrekening(id)
     setBusyId(null)
@@ -37,6 +68,20 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
   }
 
   const columns: ColumnDef<Aanbetaling, unknown>[] = [
+    {
+      id: 'check',
+      header: '',
+      cell: ({ row }) => {
+        const p = detecteerProblemen(row.original)
+        if (p.ernst === 'ok') return null
+        const cls = p.ernst === 'fout' ? 'text-red-600' : 'text-amber-600'
+        return (
+          <span title={p.reden} className={`inline-flex items-center ${cls}`}>
+            <AlertTriangle className="h-4 w-4" />
+          </span>
+        )
+      },
+    },
     { id: 'relatie', header: 'Klant', accessorFn: (r) => r.relatie?.bedrijfsnaam || '-' },
     {
       id: 'onderwerp',

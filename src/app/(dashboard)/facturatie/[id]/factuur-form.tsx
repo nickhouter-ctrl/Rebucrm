@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { formatCurrency } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X, Download, Send, Mail, Paperclip, Loader2, Link2, Copy } from 'lucide-react'
+import { AuditLogTab } from '@/components/audit-log/audit-log-tab'
 
 interface Regel {
   omschrijving: string
@@ -248,6 +249,15 @@ export function FactuurForm({ factuur, relaties, producten }: {
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-md text-sm">
                 <Download className="h-4 w-4 text-blue-600 flex-shrink-0" />
                 <span className="text-blue-800 flex-1">Factuur-{String(factuur?.factuurnummer)}.pdf</span>
+                {factuur?.id && (
+                  <button
+                    type="button"
+                    onClick={() => window.open(`/api/pdf/factuur/${factuur.id}`, '_blank')}
+                    className="text-xs text-blue-700 hover:text-blue-900 underline"
+                  >
+                    Voorbeeld
+                  </button>
+                )}
                 <span className="text-xs text-blue-500">Automatisch bijgevoegd</span>
               </div>
               {emailAttachments.map((file, i) => (
@@ -340,6 +350,15 @@ export function FactuurForm({ factuur, relaties, producten }: {
           </CardFooter>
         </Card>
       </form>
+
+      {!isNew && factuur?.id && (
+        <Card className="mt-4">
+          <CardContent className="pt-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Wijzigingsgeschiedenis</h3>
+            <AuditLogTab entiteitType="factuur" entiteitId={factuur.id as string} />
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
