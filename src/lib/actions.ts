@@ -1259,6 +1259,15 @@ export async function maakEindafrekening(aanbetalingId: string) {
   // Link aanbetaling terug naar rest
   await supabase.from('facturen').update({ gerelateerde_factuur_id: nieuw.id }).eq('id', aanbet.id)
 
+  // Mollie betaal-link automatisch aanmaken zodat klant direct kan betalen,
+  // ook al wordt de factuur (nog) niet per email verstuurd.
+  try {
+    const { ensureFactuurBetaalLink } = await import('@/lib/mollie')
+    await ensureFactuurBetaalLink(nieuw.id)
+  } catch (e) {
+    console.warn('Mollie link bij eindafrekening niet aangemaakt:', e)
+  }
+
   revalidatePath('/facturatie')
   revalidatePath('/facturatie/eindafrekening')
   return { success: true, factuurId: nieuw.id }
@@ -1272,21 +1281,45 @@ export async function getEindafrekeningen() {
   if (!adminId) return []
   const supabase = await createClient()
 
-  // Ground truth = Tribe's 22. Filter CRM facturen direct op deze whitelist
-  // zodat onze lijst 1-op-1 overeenkomt met wat in Tribe staat. Lees dan de
-  // bijbehorende offerte voor het juiste totaalbedrag excl BTW.
+  // Ground truth = Tribe's whitelist; lees de bijbehorende aanbetalingen op.
   const nummers = TRIBE_EINDAFREKENING_NUMMERS
   const { data: aanbetaligs } = await supabase.from('facturen')
-    .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
+    .select('id, factuurnummer, datum, status, subtotaal, totaal, onderwerp, relatie_id, relatie:relaties(bedrijfsnaam), order_id, offerte_id, gerelateerde_factuur_id, offerte:offertes(id, offertenummer, subtotaal, onderwerp, project_id)')
     .eq('administratie_id', adminId)
     .in('factuurnummer', nummers)
+
+  // Filter dynamisch: sluit aanbetalingen uit waarvoor al een rest- of
+  // volledige factuur is aangemaakt (welke status dan ook). Zodra een
+  // eindafrekening is gemaakt verdwijnt de aanbetaling uit deze lijst.
+  const aanbetIds = (aanbetaligs || []).map(f => f.id)
+  let restFactuurAanwezig: Set<string> = new Set()
+  if (aanbetIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: rests } = await supabase.from('facturen')
+      .select('gerelateerde_factuur_id, status')
+      .eq('administratie_id', adminId)
+      .in('factuur_type', ['restbetaling', 'volledig'])
+      .neq('status', 'gecrediteerd')
+      .in('gerelateerde_factuur_id', aanbetIds as string[])
+    for (const r of (rests || [])) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const gid = (r as any).gerelateerde_factuur_id as string | null
+      if (gid) restFactuurAanwezig.add(gid)
+    }
+    // Daarnaast: aanbetalingen waar zelf gerelateerde_factuur_id is gevuld
+    // wijzen ook al naar een rest (bidirectionele link wordt gezet bij maakEindafrekening).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const aanbetMetGerel = (aanbetaligs || []).filter((a: any) => a.gerelateerde_factuur_id)
+    for (const a of aanbetMetGerel) restFactuurAanwezig.add(a.id)
+  }
+
   // Sorteer in exact dezelfde volgorde als Tribe + override offerte-totaal
   // met de waarden uit Tribe zodat de getallen 1-op-1 overeenkomen.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ordered = nummers.map(nr => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const f = (aanbetaligs || []).find((x: any) => x.factuurnummer === nr)
     if (!f) return null
+    if (restFactuurAanwezig.has(f.id)) return null  // rest al aangemaakt → niet meer tonen
     const tribeTotaal = TRIBE_OFFERTE_TOTALEN.get(nr) ?? null
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fAny = f as any

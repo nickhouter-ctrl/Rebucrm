@@ -61,6 +61,44 @@ export async function createMolliePayment(options: {
 }
 
 /**
+ * Idempotente helper: zorgt dat een factuur een betaal_link heeft.
+ * Genereert een nieuwe Mollie Payment Link als die nog ontbreekt + er een
+ * openstaand bedrag is. Update meteen de DB. Faalt nooit hard — bij Mollie-
+ * fout wordt enkel een warning gelogd zodat de aanroeper niet crasht.
+ */
+import { createAdminClient } from '@/lib/supabase/admin'
+export async function ensureFactuurBetaalLink(factuurId: string): Promise<{ link: string | null; created: boolean }> {
+  if (!process.env.MOLLIE_API_KEY) return { link: null, created: false }
+  const sb = createAdminClient()
+  const { data: f } = await sb
+    .from('facturen')
+    .select('id, factuurnummer, totaal, betaald_bedrag, betaal_link, mollie_payment_id, status')
+    .eq('id', factuurId)
+    .maybeSingle()
+  if (!f) return { link: null, created: false }
+  if (f.betaal_link) return { link: f.betaal_link as string, created: false }
+  if (f.status === 'gecrediteerd' || f.status === 'betaald') return { link: null, created: false }
+  const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
+  if (openstaand <= 0) return { link: null, created: false }
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://rebucrm.vercel.app'
+    const payment = await createMolliePayment({
+      amount: openstaand,
+      description: `Factuur ${f.factuurnummer}`,
+      redirectUrl: `${appUrl}/betaling/succes`,
+      webhookUrl: `${appUrl}/api/mollie/webhook`,
+    })
+    await sb.from('facturen')
+      .update({ mollie_payment_id: payment.id, betaal_link: payment.checkoutUrl })
+      .eq('id', factuurId)
+    return { link: payment.checkoutUrl, created: true }
+  } catch (err) {
+    console.warn('ensureFactuurBetaalLink: Mollie payment-link niet aangemaakt:', err)
+    return { link: null, created: false }
+  }
+}
+
+/**
  * Status ophalen. Ondersteunt zowel nieuwe Payment Links (`pl_…`) als oude
  * Payments (`tr_…`) voor backwards-compat met facturen die eerder via de
  * Payments API zijn aangemaakt.
