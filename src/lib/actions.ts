@@ -7821,6 +7821,47 @@ export async function sendBroadcastEmail(onderwerp: string, bericht: string, typ
   return { success: true, aantalOntvangers: emailAdressen.length }
 }
 
+// AI-leereffect statistieken per leverancier — voor het AI dashboard.
+export async function getLeverancierAiStats() {
+  const sb = createAdminClient()
+  // Bekende leveranciers + hun usage counts
+  const { data: lijst } = await sb.from('bekende_leveranciers').select('naam, display_naam, detect_count, validated_count, profielen, parser_key, added_by_user').order('detect_count', { ascending: false })
+  // Detectie-log: hoeveel keer correct, hoeveel keer gecorrigeerd
+  const { data: log } = await sb.from('leverancier_detectie_log').select('detected_leverancier, user_confirmed, user_corrected_to, ai_confidence, created_at')
+  // Prijs-correcties per leverancier
+  const { data: prijsCorr } = await sb.from('leverancier_prijs_correctie').select('leverancier_slug, ai_prijs, handmatige_prijs, created_at')
+  // Wis-templates
+  const { data: templates } = await sb.from('ai_tekening_template').select('supplier, validated, usage_count, last_used')
+
+  const stats = (lijst || []).map(l => {
+    const detecties = (log || []).filter(d => d.detected_leverancier === l.naam)
+    const bevestigd = detecties.filter(d => d.user_confirmed === true).length
+    const gecorrigeerd = detecties.filter(d => d.user_corrected_to && d.user_corrected_to !== l.naam).length
+    const avgConfidence = detecties.length
+      ? detecties.reduce((s, d) => s + (Number(d.ai_confidence) || 0), 0) / detecties.length
+      : 0
+    const prijsCorrCount = (prijsCorr || []).filter(p => p.leverancier_slug === l.naam).length
+    const tpl = (templates || []).find(t => t.supplier === l.naam)
+    return {
+      naam: l.naam,
+      display_naam: l.display_naam,
+      profielen: l.profielen,
+      parser_key: l.parser_key,
+      added_by_user: l.added_by_user,
+      detect_count: l.detect_count,
+      validated_count: l.validated_count,
+      detecties_total: detecties.length,
+      bevestigd,
+      gecorrigeerd,
+      gemiddelde_confidence: avgConfidence,
+      prijs_correcties: prijsCorrCount,
+      wis_template_validated: tpl?.validated ?? false,
+      wis_template_usage: tpl?.usage_count ?? 0,
+    }
+  })
+  return stats
+}
+
 // ========== Leverancier registry ==========
 
 export async function getBekendeLeveranciers() {
