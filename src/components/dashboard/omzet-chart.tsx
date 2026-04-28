@@ -22,10 +22,16 @@ export function OmzetChart() {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
   useEffect(() => {
-    getMaandOmzetAnalytics().then(r => {
-      setData(r.maanden)
-      setLoading(false)
-    })
+    getMaandOmzetAnalytics()
+      .then(r => {
+        console.log('[OmzetChart] response:', r)
+        setData(r.maanden || [])
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error('[OmzetChart] fetch error:', err)
+        setLoading(false)
+      })
   }, [])
 
   if (loading) {

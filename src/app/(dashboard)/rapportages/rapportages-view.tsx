@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
+import { OmzetChart } from '@/components/dashboard/omzet-chart'
 
 interface Factuur {
   id: string
@@ -189,6 +190,11 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
   return (
     <div>
       <PageHeader title="Rapportages" description="Financieel overzicht en analyses" />
+
+      {/* Maandelijkse omzet trend (laatste 12 maanden) */}
+      <div className="mb-4">
+        <OmzetChart />
+      </div>
 
       {/* Jaar selector + tabs */}
       <div className="flex flex-wrap items-center gap-3 mb-6">

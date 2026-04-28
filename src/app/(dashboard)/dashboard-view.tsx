@@ -12,7 +12,6 @@ import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
-import { OmzetChart } from '@/components/dashboard/omzet-chart'
 
 interface TePlannenOrder {
   id: string
@@ -515,9 +514,6 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </Button>
         </Link>
       </div>
-
-      {/* Maandelijkse omzet trend */}
-      <OmzetChart />
 
       {/* Notificatiebalk */}
       {notifications.length > 0 && (
