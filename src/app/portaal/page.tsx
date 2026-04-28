@@ -2,6 +2,7 @@ import { getPortaalDashboard } from '@/lib/portaal-actions'
 import { Card, CardContent } from '@/components/ui/card'
 import { FileText, Receipt, Truck, Mail } from 'lucide-react'
 import Link from 'next/link'
+import { OrderStatusTracker } from '@/components/portaal/order-status-tracker'
 
 function formatDate(d: string) {
   try { return new Date(d).toLocaleDateString('nl-NL', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return d }
@@ -44,6 +45,24 @@ export default async function PortaalDashboardPage() {
           </Link>
         ))}
       </div>
+
+      {/* Status van actieve orders */}
+      {data.recenteOrders.filter(o => o.status !== 'afgerond').length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <Truck className="h-4 w-4 text-orange-500" />
+            Status van uw actieve orders
+          </h2>
+          <div className="space-y-2">
+            {data.recenteOrders.filter(o => o.status !== 'afgerond').slice(0, 3).map(o => (
+              <OrderStatusTracker
+                key={o.id}
+                order={{ id: o.id, ordernummer: o.ordernummer, status: o.status, leverdatum: (o as { leverdatum?: string | null }).leverdatum, betaald: false }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Recente offertes */}
