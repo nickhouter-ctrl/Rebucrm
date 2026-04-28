@@ -146,6 +146,44 @@ export function StapTekeningen({
         fullText += pageText + '\n\n'
       }
 
+      // OCR-fallback: scan-PDF zonder text-layer
+      // Heuristiek: minder dan 200 chars over alle pagina's = vermoedelijk een
+      // image-only scan. Render elke pagina als JPEG en stuur naar OCR endpoint.
+      if (fullText.trim().length < 200) {
+        setProgress('PDF lijkt gescand — tekst herkennen via AI Vision...')
+        let ocrText = ''
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+          setProgress(`Scan herkennen (${pageNum}/${totalPages})...`)
+          try {
+            const page = await pdf.getPage(pageNum)
+            const viewport = page.getViewport({ scale: 1.6 })
+            const canvas = document.createElement('canvas')
+            canvas.width = viewport.width
+            canvas.height = viewport.height
+            const ctx = canvas.getContext('2d')!
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await page.render({ canvasContext: ctx, viewport, canvas } as any).promise
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.78)
+            const base64 = dataUrl.replace(/^data:image\/jpeg;base64,/, '')
+            canvas.remove()
+            const res = await fetch('/api/ai/ocr-pdf-page', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageBase64: base64 }),
+            })
+            if (res.ok) {
+              const j = await res.json() as { text?: string; empty?: boolean }
+              if (j.text && !j.empty) ocrText += j.text + '\n\n'
+            }
+          } catch (ocrErr) {
+            console.warn(`OCR pagina ${pageNum} mislukt:`, ocrErr)
+          }
+        }
+        if (ocrText.trim().length > 100) {
+          fullText = ocrText
+        }
+      }
+
       // Stap A.1: detect leverancier via Haiku 4.5
       setProgress('Leverancier herkennen...')
       let detectie: DetectieResultaat
