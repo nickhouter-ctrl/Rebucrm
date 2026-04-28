@@ -6,17 +6,23 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { navigationItems } from '@/lib/constants'
 import { cn } from '@/lib/utils'
-import { GripVertical, Settings2, RotateCcw } from 'lucide-react'
+import { GripVertical, Settings2, RotateCcw, X } from 'lucide-react'
 
 const SIDEBAR_ORDER_KEY = 'rebu-sidebar-order'
 const medewerkerNavHrefs = ['/', '/agenda', '/taken', '/uren']
 
-export function Sidebar({ rol }: { rol?: string }) {
+export function Sidebar({ rol, mobileOpen, onMobileClose }: { rol?: string; mobileOpen?: boolean; onMobileClose?: () => void }) {
   const pathname = usePathname()
   const [editMode, setEditMode] = useState(false)
   const [order, setOrder] = useState<string[]>([])
   const [draggedItem, setDraggedItem] = useState<string | null>(null)
   const [dragOverItem, setDragOverItem] = useState<string | null>(null)
+
+  // Sluit mobiele drawer automatisch wanneer route verandert
+  useEffect(() => {
+    if (mobileOpen && onMobileClose) onMobileClose()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname])
 
   const baseItems = rol === 'medewerker'
     ? navigationItems.filter(item => medewerkerNavHrefs.includes(item.href))
@@ -93,9 +99,31 @@ export function Sidebar({ rol }: { rol?: string }) {
   }
 
   return (
-    <aside className="w-60 bg-sidebar text-white flex flex-col h-screen fixed left-0 top-0">
-      <div className="p-4 border-b border-white/10">
+    <>
+      {/* Mobiele backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
+    <aside className={cn(
+      "w-60 bg-sidebar text-white flex flex-col h-screen fixed left-0 top-0 z-50 transition-transform",
+      mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+    )}>
+      <div className="p-4 border-b border-white/10 flex items-center justify-between">
         <Image src="/images/logo-rebu.png" alt="Rebu Kozijnen" width={140} height={45} className="h-9 w-auto brightness-0 invert" />
+        {onMobileClose && (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            className="md:hidden p-1 text-white/70 hover:text-white"
+            aria-label="Sluiten"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
@@ -162,5 +190,6 @@ export function Sidebar({ rol }: { rol?: string }) {
         </div>
       </div>
     </aside>
+    </>
   )
 }

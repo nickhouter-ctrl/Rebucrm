@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ChevronDown, LogOut, User } from 'lucide-react'
+import { ChevronDown, LogOut, User, Menu } from 'lucide-react'
 import { SearchBar } from './search-bar'
 
-export function Header() {
+export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [userNaam, setUserNaam] = useState<string>('')
   const [userEmail, setUserEmail] = useState<string>('')
@@ -35,10 +35,23 @@ export function Header() {
   const initials = displayNaam.split(' ').map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
 
   return (
-    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-6">
-      <div className="flex items-center gap-4" />
+    <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-3 sm:px-4 md:px-6 gap-2 sticky top-0 z-30">
+      <div className="flex items-center gap-2">
+        {onMenuClick && (
+          <button
+            type="button"
+            onClick={onMenuClick}
+            className="md:hidden p-2 -ml-2 text-gray-700 hover:bg-gray-100 rounded"
+            aria-label="Menu openen"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+        )}
+      </div>
 
-      <SearchBar />
+      <div className="flex-1 max-w-md hidden sm:block">
+        <SearchBar />
+      </div>
 
       <div className="relative">
         <button

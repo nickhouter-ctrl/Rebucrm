@@ -1,6 +1,6 @@
 import { Suspense } from 'react'
-import { Sidebar } from '@/components/layout/sidebar'
-import { Header } from '@/components/layout/header'
+import { DashboardShell } from '@/components/layout/dashboard-shell'
+import { MobileBottomNav } from '@/components/layout/mobile-bottom-nav'
 import { ToastContainer } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -19,8 +19,6 @@ export default async function DashboardLayout({
   const { data: { user } } = await supabase.auth.getUser()
   let rol = 'gebruiker'
   if (user) {
-    // Admin-client bypassed RLS en is daardoor merkbaar sneller dan de
-    // user-client voor deze kleine lookup (geen policy-evaluatie nodig).
     const supabaseAdmin = createAdminClient()
     const { data: profiel } = await supabaseAdmin
       .from('profielen')
@@ -33,14 +31,9 @@ export default async function DashboardLayout({
   return (
     <Suspense fallback={null}>
       <NavHistoryProvider>
-        <div className="min-h-screen">
-          <Sidebar rol={rol} />
-          <div className="ml-60">
-            <Header />
-            <main className="p-6">{children}</main>
-          </div>
-          <ToastContainer />
-        </div>
+        <DashboardShell rol={rol}>{children}</DashboardShell>
+        <MobileBottomNav rol={rol} />
+        <ToastContainer />
       </NavHistoryProvider>
     </Suspense>
   )
