@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
 import { z } from 'zod'
 import { aiModel } from '@/lib/ai-model'
+import { rateLimit, getRateLimitKey } from '@/lib/rate-limit'
 
 // Correctie-loop endpoint. Krijgt:
 // - de huidige concept-state (regels, zichtbaarheid per element, marges)
@@ -72,6 +73,10 @@ const requestSchema = z.object({
 export async function POST(req: NextRequest) {
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  }
+  const rl = rateLimit(getRateLimitKey(req, 'apply-corr'), 30, 60_000)
+  if (!rl.ok) {
+    return NextResponse.json({ error: `Te veel verzoeken — probeer over ${Math.ceil(rl.resetIn / 1000)}s opnieuw` }, { status: 429 })
   }
 
   let parsed

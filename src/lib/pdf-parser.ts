@@ -781,7 +781,7 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
 // Autodetect op basis van regex-patronen. Wordt gebruikt als second-opinion
 // voor de AI-detectie (om confidence te verhogen) of als fallback bij AI-fout.
 export function detectLeverancierFromText(text: string): LeverancierKey | null {
-  const cleaned = text.replace(/[-]/g, '')
+  const cleaned = text.replace(/[--]/g, '')
   if (/(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(cleaned)) return 'aluplast'
   if (/Productie\s+maten/i.test(cleaned) && /Netto\s*prijs/i.test(cleaned) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(cleaned) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(cleaned)) return 'gealan-nl'
   if (/Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(cleaned) && /Netto\s*totaal/i.test(cleaned) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(cleaned)) return 'gealan'

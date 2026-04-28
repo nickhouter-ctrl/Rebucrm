@@ -993,6 +993,10 @@ export async function markOrderBesteld(orderId: string) {
 
 export async function deleteOfferte(id: string) {
   const supabase = await createClient()
+  const { logAudit } = await import('@/lib/audit')
+
+  // Snapshot voor audit-log
+  const { data: orig } = await supabase.from('offertes').select('offertenummer, totaal, status').eq('id', id).maybeSingle()
 
   // Verwijder gekoppelde orders (en hun regels) eerst
   const { data: orders } = await supabase.from('orders').select('id').eq('offerte_id', id)
@@ -1004,6 +1008,7 @@ export async function deleteOfferte(id: string) {
 
   const { error } = await supabase.from('offertes').delete().eq('id', id)
   if (error) return { error: error.message }
+  await logAudit({ actie: 'offerte.delete', entiteitType: 'offerte', entiteitId: id, details: orig || undefined })
   revalidatePath('/offertes')
   revalidatePath('/')
   return { success: true }

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { aiModel } from '@/lib/ai-model'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { detectLeverancierFromText } from '@/lib/pdf-parser'
+import { rateLimit, getRateLimitKey } from '@/lib/rate-limit'
 
 // Snel + goedkoop classification-endpoint: Haiku 4.5 leest de eerste paar
 // pagina's PDF-tekst en zegt welke leverancier het is. Het resultaat wordt
@@ -28,6 +29,10 @@ export async function POST(req: NextRequest) {
   // ANTHROPIC_API_KEY voor lokale dev als provider-credentials.
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  }
+  const rl = rateLimit(getRateLimitKey(req, 'detect-lev'), 60, 60_000)
+  if (!rl.ok) {
+    return NextResponse.json({ error: `Te veel verzoeken — probeer over ${Math.ceil(rl.resetIn / 1000)}s opnieuw` }, { status: 429 })
   }
 
   const { text, offerteId } = (await req.json()) as { text: string; offerteId?: string }

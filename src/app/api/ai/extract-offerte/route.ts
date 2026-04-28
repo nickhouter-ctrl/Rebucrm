@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
 import { z } from 'zod'
 import { aiModel } from '@/lib/ai-model'
+import { rateLimit, getRateLimitKey } from '@/lib/rate-limit'
 
 // AI-driven offerte extractie. Claude scant de volledige leverancier-PDF tekst
 // en geeft een gevalideerde element-lijst terug: naam, hoeveelheid, systeem,
@@ -42,6 +43,12 @@ const schema = z.object({
 export async function POST(req: NextRequest) {
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  }
+
+  // Rate-limit: 20 requests per minuut per IP — voorkomt spam/loops
+  const rl = rateLimit(getRateLimitKey(req, 'extract'), 20, 60_000)
+  if (!rl.ok) {
+    return NextResponse.json({ error: `Te veel verzoeken — probeer over ${Math.ceil(rl.resetIn / 1000)}s opnieuw` }, { status: 429 })
   }
 
   const { text, regexResult, leverancier, profiel } = (await req.json()) as {
