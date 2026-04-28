@@ -7,17 +7,18 @@ import { Loader2 } from 'lucide-react'
 
 interface MaandData {
   maand: string
-  offertes: number
-  offertesAantal?: number
-  facturen: number
-  facturenAantal?: number
+  geofferreerd: number
+  geofferreerdAantal: number
+  geaccepteerd: number
+  geaccepteerdAantal: number
   betaald: number
 }
 
 const MAAND_NAMEN = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec']
 
-// Eenvoudige bar chart voor maand-omzet — geen externe library, pure SVG.
-// Toont 3 series per maand: verzonden offertes, gefactureerd, betaald.
+// Funnel-chart per maand: Geofferreerd (uitgebracht) → Geaccepteerd (akkoord van klant) → Betaald.
+// Per verkoopkans uniek (laatste versie). Geïmporteerde records uit migratie
+// (april 2026, met historische datum vóór april) worden gefilterd.
 export function OmzetChart() {
   const [data, setData] = useState<MaandData[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,7 +28,7 @@ export function OmzetChart() {
     getMaandOmzetAnalytics()
       .then(r => {
         console.log('[OmzetChart] response:', r)
-        setData(r.maanden || [])
+        setData((r.maanden as MaandData[]) || [])
         setLoading(false)
       })
       .catch(err => {
@@ -45,9 +46,11 @@ export function OmzetChart() {
     )
   }
 
-  const maxValue = Math.max(...data.map(d => Math.max(d.offertes, d.facturen, d.betaald)), 1)
+  const maxValue = Math.max(...data.map(d => Math.max(d.geofferreerd, d.geaccepteerd, d.betaald)), 1)
+  const totaalGeofferreerd = data.reduce((s, d) => s + d.geofferreerd, 0)
+  const totaalGeaccepteerd = data.reduce((s, d) => s + d.geaccepteerd, 0)
   const totaalBetaald = data.reduce((s, d) => s + d.betaald, 0)
-  const totaalGefactureerd = data.reduce((s, d) => s + d.facturen, 0)
+  const conversieAcc = totaalGeofferreerd > 0 ? (totaalGeaccepteerd / totaalGeofferreerd) * 100 : 0
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -55,34 +58,28 @@ export function OmzetChart() {
         <div>
           <h3 className="font-semibold text-gray-900 text-sm">Omzet per maand</h3>
           <p className="text-xs text-gray-500">
-            Laatste 12 maanden · Bedragen excl. BTW · Per verkoopkans uniek geteld
+            Laatste 12 maanden · excl. BTW · alleen laatste versie per verkoopkans · CRM-import van april uitgesloten
           </p>
         </div>
-        <div className="flex items-center gap-3 text-[11px]">
+        <div className="flex items-center gap-3 text-[11px] flex-wrap">
           <Legend kleur="bg-blue-400" label="Geofferreerd" />
-          <Legend kleur="bg-amber-400" label="Gefactureerd" />
+          <Legend kleur="bg-amber-400" label="Geaccepteerd" />
           <Legend kleur="bg-green-500" label="Betaald" />
         </div>
       </div>
 
       <div className="relative" style={{ height: 220 }}>
-        {/* Y-as gridlijnen */}
         <div className="absolute inset-x-0 top-0 bottom-7 pointer-events-none">
           {[0, 0.25, 0.5, 0.75, 1].map(p => (
-            <div
-              key={p}
-              className="absolute inset-x-0 border-t border-gray-100"
-              style={{ bottom: `${p * 100}%` }}
-            />
+            <div key={p} className="absolute inset-x-0 border-t border-gray-100" style={{ bottom: `${p * 100}%` }} />
           ))}
         </div>
-        {/* Bars area */}
         <div className="absolute inset-x-0 top-0 bottom-7 flex gap-1.5">
           {data.map((d, i) => {
             const isHover = hoverIdx === i
-            const chartHeight = 193 // 220 - 7 - kleine marge
-            const offerteH = Math.round((d.offertes / maxValue) * chartHeight)
-            const factuurH = Math.round((d.facturen / maxValue) * chartHeight)
+            const chartHeight = 193
+            const offerteH = Math.round((d.geofferreerd / maxValue) * chartHeight)
+            const accepteerdH = Math.round((d.geaccepteerd / maxValue) * chartHeight)
             const betaaldH = Math.round((d.betaald / maxValue) * chartHeight)
             return (
               <div
@@ -91,22 +88,22 @@ export function OmzetChart() {
                 onMouseEnter={() => setHoverIdx(i)}
                 onMouseLeave={() => setHoverIdx(null)}
               >
-                {isHover && (d.offertes > 0 || d.facturen > 0 || d.betaald > 0) && (
+                {isHover && (d.geofferreerd > 0 || d.geaccepteerd > 0 || d.betaald > 0) && (
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white text-xs rounded-md px-2 py-1.5 whitespace-nowrap shadow-lg">
                     <div className="font-medium">{maandLabel(d.maand)}</div>
-                    <div>Geofferreerd: {formatCurrency(d.offertes)} {d.offertesAantal ? <span className="text-gray-400">({d.offertesAantal} st.)</span> : null}</div>
-                    <div>Gefactureerd: {formatCurrency(d.facturen)} {d.facturenAantal ? <span className="text-gray-400">({d.facturenAantal} st.)</span> : null}</div>
+                    <div>Geofferreerd: {formatCurrency(d.geofferreerd)} <span className="text-gray-400">({d.geofferreerdAantal} st.)</span></div>
+                    <div>Geaccepteerd: {formatCurrency(d.geaccepteerd)} <span className="text-gray-400">({d.geaccepteerdAantal} st.)</span></div>
                     <div>Betaald: {formatCurrency(d.betaald)}</div>
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-0.5 px-0.5">
                   <div
                     className="flex-1 bg-blue-400 rounded-t transition-opacity group-hover:opacity-80"
-                    style={{ height: d.offertes > 0 ? Math.max(2, offerteH) : 0 }}
+                    style={{ height: d.geofferreerd > 0 ? Math.max(2, offerteH) : 0 }}
                   />
                   <div
                     className="flex-1 bg-amber-400 rounded-t transition-opacity group-hover:opacity-80"
-                    style={{ height: d.facturen > 0 ? Math.max(2, factuurH) : 0 }}
+                    style={{ height: d.geaccepteerd > 0 ? Math.max(2, accepteerdH) : 0 }}
                   />
                   <div
                     className="flex-1 bg-green-500 rounded-t transition-opacity group-hover:opacity-80"
@@ -117,7 +114,6 @@ export function OmzetChart() {
             )
           })}
         </div>
-        {/* X-as labels */}
         <div className="absolute bottom-0 inset-x-0 h-7 flex gap-1.5 items-end">
           {data.map((d) => (
             <div key={d.maand} className="flex-1 text-center text-[10px] text-gray-500">{maandLabel(d.maand, true)}</div>
@@ -125,16 +121,17 @@ export function OmzetChart() {
         </div>
       </div>
 
-      {/* Y-as schaal-indicator */}
-      <div className="text-[10px] text-gray-400 text-right -mt-1 mb-2">
-        max: {formatCurrency(maxValue)}
-      </div>
+      <div className="text-[10px] text-gray-400 text-right -mt-1 mb-2">max: {formatCurrency(maxValue)}</div>
 
-      <div className="mt-3 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
+      <div className="mt-3 pt-2 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
         <div className="text-gray-600">
-          Totaal gefactureerd: <strong className="text-gray-900">{formatCurrency(totaalGefactureerd)}</strong>
+          Totaal geofferreerd: <strong className="text-gray-900">{formatCurrency(totaalGeofferreerd)}</strong>
         </div>
-        <div className="text-gray-600 text-right">
+        <div className="text-gray-600">
+          Totaal geaccepteerd: <strong className="text-amber-700">{formatCurrency(totaalGeaccepteerd)}</strong>
+          <span className="text-gray-400 ml-1">({Math.round(conversieAcc)}% conversie)</span>
+        </div>
+        <div className="text-gray-600 sm:text-right">
           Totaal betaald: <strong className="text-green-700">{formatCurrency(totaalBetaald)}</strong>
         </div>
       </div>

@@ -2932,27 +2932,35 @@ export async function saveAdministratie(formData: FormData) {
 }
 
 // === DASHBOARD ===
-// Maandelijkse omzet-analytics: bedragen per maand voor de laatste 12 maanden,
-// gesplitst tussen offertes (verzonden) en facturen (betaald).
-// Bedoeld voor dashboard-grafiek + conversie-trend.
+// Maandelijkse omzet-analytics: 3 series voor laatste 12 maanden:
+// - Geofferreerd  → offertes uitgebracht naar klant (verzonden + geaccepteerd)
+// - Geaccepteerd  → daarvan: klant heeft akkoord gegeven (status = geaccepteerd)
+// - Betaald       → daarvan: factuur betaald (uit facturen.betaald_bedrag)
+//
+// Regels die user heeft afgesproken:
+// 1. Per verkoopkans uniek geteld (op groep_id), alleen de LAATSTE (= hoogste
+//    versie_nummer) versie wordt meegeteld.
+// 2. Datum = datum van de laatste versie (= meest recent uitgebracht).
+// 3. Geïmporteerde data uit april 2026 (CRM-migratie) wordt genegeerd:
+//    records met created_at >= 2026-04-01 maar datum < 2026-04-01 zijn
+//    historische records die in de migratie zijn ingevoerd — die vertekenen
+//    de cijfers en sluiten we uit.
 export async function getMaandOmzetAnalytics() {
   const sb = createAdminClient()
   const adminId = await getAdministratieId()
 
-  // 12 maanden terug
   const startDate = new Date()
   startDate.setMonth(startDate.getMonth() - 11)
   startDate.setDate(1)
   startDate.setHours(0, 0, 0, 0)
   const startStr = startDate.toISOString().slice(0, 10)
 
-  // Bouw lege buckets eerst zodat output altijd 12 maanden heeft
-  const maanden: { maand: string; offertes: number; offertesAantal: number; facturen: number; facturenAantal: number; betaald: number }[] = []
+  const maanden: { maand: string; geofferreerd: number; geofferreerdAantal: number; geaccepteerd: number; geaccepteerdAantal: number; betaald: number }[] = []
   for (let i = 11; i >= 0; i--) {
     const d = new Date()
     d.setMonth(d.getMonth() - i)
     d.setDate(1)
-    maanden.push({ maand: d.toISOString().slice(0, 7), offertes: 0, offertesAantal: 0, facturen: 0, facturenAantal: 0, betaald: 0 })
+    maanden.push({ maand: d.toISOString().slice(0, 7), geofferreerd: 0, geofferreerdAantal: 0, geaccepteerd: 0, geaccepteerdAantal: 0, betaald: 0 })
   }
 
   if (!adminId) {
@@ -2960,54 +2968,76 @@ export async function getMaandOmzetAnalytics() {
     return { maanden }
   }
 
-  // GEOFFERREERD = offertes die uitgebracht zijn naar de klant (verzonden of
-  // geaccepteerd). Concept/afgewezen/verlopen tellen niet — die zijn nooit
-  // de deur uit of niet doorgegaan.
-  // Per verkoopkans (groep_id) tellen we alleen de meest recente versie zodat
-  // herzieningen niet dubbel worden geteld. Datum = datum van die versie.
+  // CRM-migratie batch-dagen: 22 + 23 april 2026 (374 + 1695 records).
+  // Records met created_at op die bulk-import dagen zijn migraties en tellen niet,
+  // ongeacht welke datum ze in de oude data hadden.
+  const migratieStartDag = '2026-04-13'
+  const migratieEindDag = '2026-04-23'
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const offertesRaw = await fetchAllRows<any>((from, to) =>
-    sb.from('offertes').select('id, datum, totaal, subtotaal, status, versie_nummer, groep_id').eq('administratie_id', adminId).in('status', ['verzonden', 'geaccepteerd']).gte('datum', startStr).range(from, to),
+    sb.from('offertes')
+      .select('id, datum, created_at, totaal, subtotaal, status, versie_nummer, groep_id')
+      .eq('administratie_id', adminId)
+      .in('status', ['verzonden', 'geaccepteerd'])
+      .gte('datum', startStr)
+      .range(from, to),
   )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const facturen = await fetchAllRows<any>((from, to) =>
-    sb.from('facturen').select('datum, totaal, subtotaal, status, betaald_bedrag').eq('administratie_id', adminId).gte('datum', startStr).range(from, to),
+  const facturenRaw = await fetchAllRows<any>((from, to) =>
+    sb.from('facturen')
+      .select('datum, created_at, totaal, subtotaal, status, betaald_bedrag')
+      .eq('administratie_id', adminId)
+      .gte('datum', startStr)
+      .range(from, to),
   )
 
-  // Per groep_id: hoogste versie (meest actuele uitgebrachte offerte)
+  const isImport = (createdAt: string | null) => {
+    if (!createdAt) return false
+    const dag = createdAt.slice(0, 10)
+    return dag >= migratieStartDag && dag <= migratieEindDag
+  }
+
+  // Per groep_id alleen de LAATSTE versie (hoogste versie_nummer)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groepLaatste = new Map<string, any>()
   for (const o of offertesRaw) {
+    if (isImport(o.created_at)) continue
     const key = o.groep_id || o.id
     const huidig = groepLaatste.get(key)
     if (!huidig || (o.versie_nummer || 1) > (huidig.versie_nummer || 1)) {
       groepLaatste.set(key, o)
     }
   }
+
   let totalIncluded = 0
   for (const [, o] of groepLaatste) {
     if (!o.datum) continue
     const m = (o.datum as string).slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
     if (!bucket) continue
-    bucket.offertes += Number(o.subtotaal || o.totaal) || 0
-    bucket.offertesAantal += 1
+    const bedrag = Number(o.subtotaal || o.totaal) || 0
+    bucket.geofferreerd += bedrag
+    bucket.geofferreerdAantal += 1
+    if (o.status === 'geaccepteerd') {
+      bucket.geaccepteerd += bedrag
+      bucket.geaccepteerdAantal += 1
+    }
     totalIncluded++
   }
-  for (const f of facturen) {
+
+  for (const f of facturenRaw) {
     if (!f.datum) continue
+    if (isImport(f.created_at)) continue
     const m = (f.datum as string).slice(0, 7)
     const bucket = maanden.find(x => x.maand === m)
-    if (bucket) {
-      // Subtotaal (excl BTW) is de "echte" omzet
-      bucket.facturen += Number(f.subtotaal || f.totaal) || 0
-      bucket.facturenAantal += 1
-      bucket.betaald += Number(f.betaald_bedrag) || 0
-    }
+    if (bucket) bucket.betaald += Number(f.betaald_bedrag) || 0
   }
-  console.log('[getMaandOmzetAnalytics]', { adminId, offertes_unieke: totalIncluded, facturen: facturen.length, maanden })
+
+  console.log('[getMaandOmzetAnalytics]', { adminId, geofferreerd_unieke: totalIncluded, facturen: facturenRaw.length, maanden })
   return { maanden }
 }
+
 
 export async function getDashboardData() {
   const supabase = await createClient()
