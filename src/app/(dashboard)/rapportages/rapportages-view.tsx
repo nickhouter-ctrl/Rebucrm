@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { OmzetChart } from '@/components/dashboard/omzet-chart'
+import { ConversieFunnel } from '@/components/dashboard/conversie-funnel'
 
 interface Factuur {
   id: string
@@ -194,6 +195,11 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
       {/* Maandelijkse omzet trend (laatste 12 maanden) */}
       <div className="mb-4">
         <OmzetChart />
+      </div>
+
+      {/* Conversie-funnel van aanvraag tot betaald */}
+      <div className="mb-4">
+        <ConversieFunnel />
       </div>
 
       {/* Jaar selector + tabs */}

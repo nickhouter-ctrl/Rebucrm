@@ -2542,6 +2542,79 @@ export async function getOfferteVersies(offerteId: string) {
   return versies || []
 }
 
+// Conversie-funnel statistieken: van aanvraag → offerte → akkoord → gefactureerd → betaald.
+// Per stap aantal + bedrag + conversie-% van vorige stap.
+export async function getConversieFunnel() {
+  const sb = createAdminClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  // Skip migratie-imports zoals bij omzet-chart
+  const isImport = (createdAt: string | null) => {
+    if (!createdAt) return false
+    const dag = createdAt.slice(0, 10)
+    return dag >= '2026-04-13' && dag <= '2026-04-23'
+  }
+
+  const [{ data: projecten }, { data: offertes }, { data: facturen }] = await Promise.all([
+    sb.from('projecten').select('id, status, created_at').eq('administratie_id', adminId),
+    sb.from('offertes').select('id, status, subtotaal, project_id, versie_nummer, groep_id, created_at, datum').eq('administratie_id', adminId),
+    sb.from('facturen').select('id, status, subtotaal, betaald_bedrag, created_at').eq('administratie_id', adminId),
+  ])
+
+  const projectenFiltered = (projecten || []).filter(p => !isImport(p.created_at))
+  const offertesFiltered = (offertes || []).filter(o => !isImport(o.created_at))
+  const facturenFiltered = (facturen || []).filter(f => !isImport(f.created_at))
+
+  // Per groep_id alleen de hoogste versie offerte voor unieke deal-tracking
+  const deals = new Map<string, { status: string; subtotaal: number; project_id: string | null; versie: number }>()
+  for (const o of offertesFiltered) {
+    const key = o.groep_id || o.id
+    const v = o.versie_nummer || 1
+    const cur = deals.get(key)
+    if (!cur || v > cur.versie) {
+      deals.set(key, { status: o.status, subtotaal: Number(o.subtotaal) || 0, project_id: o.project_id, versie: v })
+    }
+  }
+  const dealsArr = [...deals.values()]
+
+  const stappen = [
+    {
+      label: 'Verkoopkansen',
+      aantal: projectenFiltered.length,
+      bedrag: 0,
+    },
+    {
+      label: 'Offertes uitgebracht',
+      aantal: dealsArr.filter(d => d.status === 'verzonden' || d.status === 'geaccepteerd').length,
+      bedrag: dealsArr.filter(d => d.status === 'verzonden' || d.status === 'geaccepteerd').reduce((s, d) => s + d.subtotaal, 0),
+    },
+    {
+      label: 'Geaccepteerd',
+      aantal: dealsArr.filter(d => d.status === 'geaccepteerd').length,
+      bedrag: dealsArr.filter(d => d.status === 'geaccepteerd').reduce((s, d) => s + d.subtotaal, 0),
+    },
+    {
+      label: 'Gefactureerd',
+      aantal: facturenFiltered.length,
+      bedrag: facturenFiltered.reduce((s, f) => s + Number(f.subtotaal || 0), 0),
+    },
+    {
+      label: 'Betaald',
+      aantal: facturenFiltered.filter(f => f.status === 'betaald').length,
+      bedrag: facturenFiltered.reduce((s, f) => s + Number(f.betaald_bedrag || 0), 0),
+    },
+  ]
+
+  // Conversie-% per stap (t.o.v. vorige stap)
+  const stappenMetConversie = stappen.map((s, i) => ({
+    ...s,
+    conversie_pct: i === 0 ? 100 : stappen[i - 1].aantal > 0 ? Math.round((s.aantal / stappen[i - 1].aantal) * 100) : 0,
+  }))
+
+  return { stappen: stappenMetConversie }
+}
+
 // Pipeline-fase voor verkoopkansen kanban — afgeleid uit project-status +
 // offerte-status. Geen DB-migratie nodig.
 export type PipelineFase = 'aanvraag' | 'concept' | 'verzonden' | 'geaccepteerd' | 'afgerond' | 'verloren'
