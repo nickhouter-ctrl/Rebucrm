@@ -19,6 +19,13 @@ interface DataTableProps<T> {
   data: T[]
   searchPlaceholder?: string
   onRowClick?: (row: T) => void
+  // Optionele bulk-selectie: als getRowId is meegegeven krijgen rijen
+  // checkboxes en wordt onSelectionChange aangeroepen met geselecteerde IDs.
+  selectable?: boolean
+  getRowId?: (row: T) => string
+  onSelectionChange?: (selectedIds: string[]) => void
+  // Bulk-acties balk die boven de tabel verschijnt zodra ≥1 rij geselecteerd is
+  bulkActions?: (selectedIds: string[], clearSelection: () => void) => React.ReactNode
 }
 
 export function DataTable<T>({
@@ -26,9 +33,43 @@ export function DataTable<T>({
   data,
   searchPlaceholder = 'Zoeken...',
   onRowClick,
+  selectable,
+  getRowId,
+  onSelectionChange,
+  bulkActions,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+
+  const idOf = (row: T): string => (getRowId ? getRowId(row) : (row as unknown as { id: string }).id)
+  function toggleRow(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      onSelectionChange?.([...next])
+      return next
+    })
+  }
+  function clearSelection() {
+    setSelected(new Set())
+    onSelectionChange?.([])
+  }
+  function toggleAllVisible() {
+    setSelected(prev => {
+      const visibleIds = table.getRowModel().rows.map(r => idOf(r.original))
+      const allSelected = visibleIds.every(id => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const id of visibleIds) next.delete(id)
+      } else {
+        for (const id of visibleIds) next.add(id)
+      }
+      onSelectionChange?.([...next])
+      return next
+    })
+  }
 
   const table = useReactTable({
     data,
@@ -60,12 +101,42 @@ export function DataTable<T>({
         </div>
       </div>
 
+      {selectable && selected.size > 0 && bulkActions && (
+        <div className="mb-3 px-4 py-2 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between">
+          <span className="text-sm text-blue-900">
+            <strong>{selected.size}</strong> {selected.size === 1 ? 'item' : 'items'} geselecteerd
+          </span>
+          <div className="flex items-center gap-2">
+            {bulkActions([...selected], clearSelection)}
+            <button
+              onClick={clearSelection}
+              className="text-xs text-blue-700 hover:underline"
+            >
+              Selectie wissen
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="border-b border-gray-200 bg-gray-50">
+                  {selectable && (
+                    <th className="px-3 py-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={
+                          table.getRowModel().rows.length > 0 &&
+                          table.getRowModel().rows.every(r => selected.has(idOf(r.original)))
+                        }
+                        onChange={toggleAllVisible}
+                        className="h-3.5 w-3.5"
+                      />
+                    </th>
+                  )}
                   {headerGroup.headers.map((header) => (
                     <th
                       key={header.id}
@@ -90,29 +161,47 @@ export function DataTable<T>({
               {table.getRowModel().rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={columns.length}
+                    colSpan={columns.length + (selectable ? 1 : 0)}
                     className="px-4 py-8 text-center text-sm text-gray-500"
                   >
                     Geen resultaten gevonden
                   </td>
                 </tr>
               ) : (
-                table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      'border-b border-gray-100 hover:bg-gray-50 transition-colors group/row',
-                      onRowClick && 'cursor-pointer'
-                    )}
-                    onClick={() => onRowClick?.(row.original)}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className="px-4 py-3 text-sm text-gray-700">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
-                  </tr>
-                ))
+                table.getRowModel().rows.map((row) => {
+                  const rowId = idOf(row.original)
+                  const isChecked = selected.has(rowId)
+                  return (
+                    <tr
+                      key={row.id}
+                      className={cn(
+                        'border-b border-gray-100 hover:bg-gray-50 transition-colors group/row',
+                        onRowClick && 'cursor-pointer',
+                        isChecked && 'bg-blue-50/40',
+                      )}
+                      onClick={() => onRowClick?.(row.original)}
+                    >
+                      {selectable && (
+                        <td
+                          className="px-3 py-3 w-8"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleRow(rowId)}
+                            className="h-3.5 w-3.5"
+                          />
+                        </td>
+                      )}
+                      {row.getVisibleCells().map((cell) => (
+                        <td key={cell.id} className="px-4 py-3 text-sm text-gray-700">
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
