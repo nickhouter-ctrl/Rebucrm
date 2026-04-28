@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2 } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2, History } from 'lucide-react'
+import { VersieDiffDialog } from '@/components/offerte/versie-diff-dialog'
 import { RecentTracker } from '@/components/layout/recent-tracker'
 
 import { WizardStepper } from './wizard-stepper'
@@ -446,6 +447,7 @@ function EditOfferteView({
   const [emailAttachments, setEmailAttachments] = useState<File[]>([])
   const [sending, setSending] = useState(false)
   const [showFactuurDialog, setShowFactuurDialog] = useState(false)
+  const [showVersieDiff, setShowVersieDiff] = useState(false)
 
   // Chat state
   const [showChat, setShowChat] = useState(false)
@@ -640,6 +642,12 @@ function EditOfferteView({
               <Copy className="h-4 w-4" />
               Nieuwe versie
             </Button>
+            {((offerte.versie_nummer as number) || 1) > 1 && (
+              <Button variant="secondary" onClick={() => setShowVersieDiff(true)}>
+                <History className="h-4 w-4" />
+                Versies vergelijken
+              </Button>
+            )}
             <a href={`/api/pdf/offerte/${offerte.id}`} target="_blank" rel="noopener noreferrer">
               <Button variant="secondary">
                 <Download className="h-4 w-4" />
@@ -1048,6 +1056,12 @@ function EditOfferteView({
           </CardContent>
         )}
       </Card>
+
+      <VersieDiffDialog
+        offerteId={offerte.id as string}
+        open={showVersieDiff}
+        onClose={() => setShowVersieDiff(false)}
+      />
     </div>
   )
 }

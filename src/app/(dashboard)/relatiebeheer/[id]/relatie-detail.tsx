@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie } from '@/lib/actions'
 import { EmailLogDialog } from '@/components/email-log-dialog'
+import { RelatieTimeline } from '@/components/relaties/timeline'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -391,6 +392,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
   const tabs = [
     { key: 'overzicht' as const, label: 'Overzicht' },
+    { key: 'tijdlijn' as const, label: 'Tijdlijn' },
     { key: 'projecten' as const, label: `Verkoopkansen (${projecten.length})` },
     { key: 'offertes' as const, label: `Offertes (${offertes.length})` },
     { key: 'facturen' as const, label: `Facturen (${facturen.length})` },
@@ -861,6 +863,14 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               </CardContent>
             </Card>
           )}
+        </div>
+      )}
+
+      {tab === 'tijdlijn' && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Alle contactmomenten</h3>
+          <p className="text-xs text-gray-500 mb-4">Notities, in/uit emails, offertes, facturen en taken in chronologische volgorde.</p>
+          <RelatieTimeline relatieId={relatie.id as string} />
         </div>
       )}
 

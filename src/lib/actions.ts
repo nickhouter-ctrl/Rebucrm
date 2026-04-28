@@ -2524,6 +2524,24 @@ export async function getProjecten() {
   })
 }
 
+// Alle versies van een offerte (per groep_id) ophalen voor versie-diff view
+export async function getOfferteVersies(offerteId: string) {
+  const supabase = await createClient()
+  const { data: huidige } = await supabase
+    .from('offertes')
+    .select('groep_id, id')
+    .eq('id', offerteId)
+    .maybeSingle()
+  if (!huidige) return []
+  const groepId = huidige.groep_id || huidige.id
+  const { data: versies } = await supabase
+    .from('offertes')
+    .select('id, offertenummer, datum, versie_nummer, status, totaal, subtotaal, regels:offerte_regels(omschrijving, aantal, prijs, btw_percentage)')
+    .eq('groep_id', groepId)
+    .order('versie_nummer', { ascending: true })
+  return versies || []
+}
+
 // Pipeline-fase voor verkoopkansen kanban — afgeleid uit project-status +
 // offerte-status. Geen DB-migratie nodig.
 export type PipelineFase = 'aanvraag' | 'concept' | 'verzonden' | 'geaccepteerd' | 'afgerond' | 'verloren'
