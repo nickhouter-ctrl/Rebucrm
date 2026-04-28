@@ -280,7 +280,29 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
       {takenLijst.length === 0 ? (
         <EmptyState icon={CheckSquare} title="Geen taken" description={activeTab === 'afgerond' ? 'Geen afgeronde taken.' : 'Geen taken in deze categorie.'} action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
       ) : (
-        <DataTable columns={getColumns(isAdmin, handleToggle)} data={takenLijst} searchPlaceholder="Zoek taak..." onRowClick={(row) => router.push(`/taken/${row.id}`)} />
+        <DataTable
+          columns={getColumns(isAdmin, handleToggle)}
+          data={takenLijst}
+          searchPlaceholder="Zoek taak..."
+          onRowClick={(row) => router.push(`/taken/${row.id}`)}
+          mobileCard={(t) => ({
+            title: t.titel,
+            subtitle: <>
+              {t.relatie?.bedrijfsnaam ? <span className="truncate">{t.relatie.bedrijfsnaam}</span> : null}
+              {t.project?.naam ? <span className="text-gray-400"> · {t.project.naam}</span> : null}
+              {t.toegewezen?.naam ? <span className="text-gray-400"> · {t.toegewezen.naam}</span> : null}
+            </>,
+            rightTop: <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              t.status === 'afgerond' ? 'bg-green-100 text-green-700'
+              : t.prioriteit === 'hoog' ? 'bg-red-100 text-red-700'
+              : t.prioriteit === 'normaal' ? 'bg-blue-100 text-blue-700'
+              : 'bg-gray-100 text-gray-600'
+            }`}>{t.status === 'afgerond' ? 'afgerond' : t.prioriteit}</span>,
+            rightBottom: t.deadline
+              ? <span className="text-xs text-gray-500">deadline {t.deadline}{t.deadline_tijd ? ` ${t.deadline_tijd}` : ''}</span>
+              : null,
+          })}
+        />
       )}
     </div>
   )

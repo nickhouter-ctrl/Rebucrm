@@ -26,6 +26,14 @@ interface DataTableProps<T> {
   onSelectionChange?: (selectedIds: string[]) => void
   // Bulk-acties balk die boven de tabel verschijnt zodra ≥1 rij geselecteerd is
   bulkActions?: (selectedIds: string[], clearSelection: () => void) => React.ReactNode
+  // Op mobiel kan een card-renderer meegegeven worden ter vervanging van de
+  // horizontale tabel. Indien niet meegegeven: tabel blijft, gewoon horizontaal scrollen.
+  mobileCard?: (row: T) => {
+    title: React.ReactNode
+    subtitle?: React.ReactNode
+    rightTop?: React.ReactNode
+    rightBottom?: React.ReactNode
+  }
 }
 
 export function DataTable<T>({
@@ -37,6 +45,7 @@ export function DataTable<T>({
   getRowId,
   onSelectionChange,
   bulkActions,
+  mobileCard,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [globalFilter, setGlobalFilter] = useState('')
@@ -118,7 +127,71 @@ export function DataTable<T>({
         </div>
       )}
 
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+      {/* Mobiel: cards (alleen als mobileCard prop is meegegeven) */}
+      {mobileCard && (
+        <div className="md:hidden space-y-2">
+          {table.getRowModel().rows.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-lg px-4 py-8 text-center text-sm text-gray-500">
+              Geen resultaten gevonden
+            </div>
+          ) : (
+            table.getRowModel().rows.map((row) => {
+              const card = mobileCard(row.original)
+              const rowId = idOf(row.original)
+              const isChecked = selectable && selected.has(rowId)
+              return (
+                <div
+                  key={row.id}
+                  onClick={() => onRowClick?.(row.original)}
+                  className={cn(
+                    'bg-white border rounded-lg p-3 flex items-start gap-2 active:bg-gray-50',
+                    onRowClick && 'cursor-pointer',
+                    isChecked ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200',
+                  )}
+                >
+                  {selectable && (
+                    <input
+                      type="checkbox"
+                      checked={!!isChecked}
+                      onChange={(e) => { e.stopPropagation(); toggleRow(rowId) }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-3.5 w-3.5 mt-1 flex-shrink-0"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-gray-900 text-sm truncate">{card.title}</div>
+                        {card.subtitle && <div className="text-xs text-gray-500 truncate mt-0.5">{card.subtitle}</div>}
+                      </div>
+                      {card.rightTop && <div className="text-xs text-gray-500 flex-shrink-0 text-right">{card.rightTop}</div>}
+                    </div>
+                    {card.rightBottom && <div className="mt-1.5 text-xs">{card.rightBottom}</div>}
+                  </div>
+                </div>
+              )
+            })
+          )}
+          {/* Mobiel paginatie onderin */}
+          {table.getPageCount() > 1 && (
+            <div className="flex items-center justify-center gap-3 pt-2 text-sm text-gray-600">
+              <button onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} className="p-1 rounded hover:bg-gray-100 disabled:opacity-40">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="text-xs">Pagina {table.getState().pagination.pageIndex + 1} van {table.getPageCount()}</span>
+              <button onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} className="p-1 rounded hover:bg-gray-100 disabled:opacity-40">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Desktop: tabel — verberg op mobiel als er een mobileCard is */}
+      <div className={cn(
+        'bg-white border border-gray-200 rounded-lg overflow-hidden',
+        mobileCard && 'hidden md:block',
+      )}>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

@@ -150,6 +150,23 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
             data={filteredOffertes}
             searchPlaceholder="Zoek offerte..."
             onRowClick={(row) => router.push(`/offertes/${row.id}`)}
+            mobileCard={(o) => ({
+              title: <>
+                {o.offertenummer}{o.versie_nummer && o.versie_nummer > 1 ? <span className="text-gray-400 ml-1">v{o.versie_nummer}</span> : null}
+                {o.onderwerp ? <span className="text-gray-500 font-normal ml-1.5">— {o.onderwerp}</span> : null}
+              </>,
+              subtitle: <>
+                {o.relatie?.bedrijfsnaam || '—'}
+                {o.project?.naam && <span className="text-gray-400"> · {o.project.naam}</span>}
+              </>,
+              rightTop: <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                o.status === 'geaccepteerd' ? 'bg-green-100 text-green-700'
+                : o.status === 'verzonden' ? 'bg-blue-100 text-blue-700'
+                : o.status === 'afgewezen' ? 'bg-red-100 text-red-700'
+                : 'bg-gray-100 text-gray-600'
+              }`}>{o.status}</span>,
+              rightBottom: <span className="font-medium text-gray-900">{formatCurrency(o.totaal)}</span>,
+            })}
           />
         </>
       )}

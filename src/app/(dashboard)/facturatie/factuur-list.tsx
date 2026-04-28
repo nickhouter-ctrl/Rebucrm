@@ -259,6 +259,18 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             data={facturen}
             searchPlaceholder="Zoek factuur..."
             onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+            mobileCard={(f) => ({
+              title: f.factuurnummer,
+              subtitle: f.relatie?.bedrijfsnaam || '—',
+              rightTop: <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                f.status === 'betaald' ? 'bg-green-100 text-green-700'
+                : f.status === 'verzonden' ? 'bg-blue-100 text-blue-700'
+                : f.status === 'vervallen' ? 'bg-red-100 text-red-700'
+                : f.status === 'gecrediteerd' ? 'bg-gray-200 text-gray-600'
+                : 'bg-gray-100 text-gray-600'
+              }`}>{f.status}</span>,
+              rightBottom: <span className="font-medium text-gray-900">{formatCurrency(f.totaal)}</span>,
+            })}
           />
         )
       )}

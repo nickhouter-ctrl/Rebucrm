@@ -258,6 +258,14 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
           onRowClick={(row) => router.push(`/relatiebeheer/${row.id}`)}
           selectable
           getRowId={(row) => row.id}
+          mobileCard={(r) => ({
+            title: r.bedrijfsnaam,
+            subtitle: [r.contactpersoon, r.plaats].filter(Boolean).join(' · '),
+            rightTop: r.actieve_verkoopkansen > 0 ? `${r.actieve_verkoopkansen} verkoopkans${r.actieve_verkoopkansen === 1 ? '' : 'en'}` : null,
+            rightBottom: r.openstaand_bedrag > 0
+              ? <span className={r.heeft_vervallen ? 'text-red-600' : 'text-gray-700'}>{formatCurrency(r.openstaand_bedrag)} openstaand</span>
+              : null,
+          })}
           bulkActions={(selectedIds) => (
             <button
               type="button"
