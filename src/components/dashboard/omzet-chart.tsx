@@ -61,21 +61,33 @@ export function OmzetChart() {
         </div>
       </div>
 
-      <div className="relative h-48">
-        <div className="absolute inset-0 flex items-end gap-1.5 pb-6">
+      <div className="relative" style={{ height: 220 }}>
+        {/* Y-as gridlijnen */}
+        <div className="absolute inset-x-0 top-0 bottom-7 pointer-events-none">
+          {[0, 0.25, 0.5, 0.75, 1].map(p => (
+            <div
+              key={p}
+              className="absolute inset-x-0 border-t border-gray-100"
+              style={{ bottom: `${p * 100}%` }}
+            />
+          ))}
+        </div>
+        {/* Bars area */}
+        <div className="absolute inset-x-0 top-0 bottom-7 flex gap-1.5">
           {data.map((d, i) => {
-            const offerteH = (d.offertes / maxValue) * 100
-            const factuurH = (d.facturen / maxValue) * 100
-            const betaaldH = (d.betaald / maxValue) * 100
             const isHover = hoverIdx === i
+            const chartHeight = 193 // 220 - 7 - kleine marge
+            const offerteH = Math.round((d.offertes / maxValue) * chartHeight)
+            const factuurH = Math.round((d.facturen / maxValue) * chartHeight)
+            const betaaldH = Math.round((d.betaald / maxValue) * chartHeight)
             return (
               <div
                 key={d.maand}
-                className="flex-1 flex flex-col items-center group cursor-pointer relative"
+                className="flex-1 relative cursor-pointer group"
                 onMouseEnter={() => setHoverIdx(i)}
                 onMouseLeave={() => setHoverIdx(null)}
               >
-                {isHover && (
+                {isHover && (d.offertes > 0 || d.facturen > 0 || d.betaald > 0) && (
                   <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 bg-gray-900 text-white text-xs rounded-md px-2 py-1.5 whitespace-nowrap shadow-lg">
                     <div className="font-medium">{maandLabel(d.maand)}</div>
                     <div>Offertes: {formatCurrency(d.offertes)}</div>
@@ -83,20 +95,35 @@ export function OmzetChart() {
                     <div>Betaald: {formatCurrency(d.betaald)}</div>
                   </div>
                 )}
-                <div className="flex-1 w-full flex items-end gap-0.5 px-0.5">
-                  <div className="flex-1 bg-blue-400 rounded-t" style={{ height: `${offerteH}%`, minHeight: d.offertes > 0 ? 2 : 0 }} />
-                  <div className="flex-1 bg-amber-400 rounded-t" style={{ height: `${factuurH}%`, minHeight: d.facturen > 0 ? 2 : 0 }} />
-                  <div className="flex-1 bg-green-500 rounded-t" style={{ height: `${betaaldH}%`, minHeight: d.betaald > 0 ? 2 : 0 }} />
+                <div className="absolute inset-x-0 bottom-0 flex items-end justify-center gap-0.5 px-0.5">
+                  <div
+                    className="flex-1 bg-blue-400 rounded-t transition-opacity group-hover:opacity-80"
+                    style={{ height: d.offertes > 0 ? Math.max(2, offerteH) : 0 }}
+                  />
+                  <div
+                    className="flex-1 bg-amber-400 rounded-t transition-opacity group-hover:opacity-80"
+                    style={{ height: d.facturen > 0 ? Math.max(2, factuurH) : 0 }}
+                  />
+                  <div
+                    className="flex-1 bg-green-500 rounded-t transition-opacity group-hover:opacity-80"
+                    style={{ height: d.betaald > 0 ? Math.max(2, betaaldH) : 0 }}
+                  />
                 </div>
               </div>
             )
           })}
         </div>
-        <div className="absolute bottom-0 inset-x-0 flex gap-1.5 px-0.5">
+        {/* X-as labels */}
+        <div className="absolute bottom-0 inset-x-0 h-7 flex gap-1.5 items-end">
           {data.map((d) => (
             <div key={d.maand} className="flex-1 text-center text-[10px] text-gray-500">{maandLabel(d.maand, true)}</div>
           ))}
         </div>
+      </div>
+
+      {/* Y-as schaal-indicator */}
+      <div className="text-[10px] text-gray-400 text-right -mt-1 mb-2">
+        max: {formatCurrency(maxValue)}
       </div>
 
       <div className="mt-3 pt-2 border-t border-gray-100 grid grid-cols-2 gap-2 text-xs">
