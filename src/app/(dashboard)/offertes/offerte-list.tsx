@@ -12,7 +12,6 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { offerteStatussen, statusKleuren } from '@/lib/constants'
 import { Plus, FileText, Download } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 const statusLabels: Record<string, string> = {
   concept: 'Concept', verzonden: 'Verzonden', geaccepteerd: 'Geaccepteerd',
