@@ -35,7 +35,7 @@ interface BestaandeLead {
   relatie_id: string | null
 }
 
-export function AiScout({ bestaande }: { bestaande: BestaandeLead[] }) {
+export function AiScout({ bestaande, embedded = false }: { bestaande: BestaandeLead[]; embedded?: boolean }) {
   const router = useRouter()
   const [tekst, setTekst] = useState('')
   const [bezig, setBezig] = useState(false)
@@ -102,16 +102,23 @@ export function AiScout({ bestaande }: { bestaande: BestaandeLead[] }) {
 
   return (
     <div>
-      <PageHeader
-        title="AI Lead-Scout"
-        description="Plak tekst van Marktplaats, Werkspot, Facebook of een email — de AI extraheert lead-info, scoort relevantie en bewaart hem hier"
-        actions={
-          <Button variant="ghost" onClick={() => router.push('/relatiebeheer/leads')}>
-            <ArrowLeft className="h-4 w-4" />
-            Terug naar leads
-          </Button>
-        }
-      />
+      {!embedded && (
+        <PageHeader
+          title="AI Lead-Scout"
+          description="Plak tekst van Marktplaats, Werkspot, Facebook of een email — de AI extraheert lead-info, scoort relevantie en bewaart hem hier"
+          actions={
+            <Button variant="ghost" onClick={() => router.push('/relatiebeheer/leads')}>
+              <ArrowLeft className="h-4 w-4" />
+              Terug naar leads
+            </Button>
+          }
+        />
+      )}
+      {embedded && (
+        <p className="text-sm text-gray-600 mb-4">
+          Plak tekst van Marktplaats, Werkspot, Facebook of een email — de AI extraheert lead-info, scoort relevantie en bewaart hem hier.
+        </p>
+      )}
 
       <Card className="mb-6">
         <CardContent className="pt-6">

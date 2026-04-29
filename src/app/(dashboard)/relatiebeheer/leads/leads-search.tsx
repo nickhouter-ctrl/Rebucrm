@@ -1,13 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { saveLeadAsRelatie } from '@/lib/actions'
-import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle, Sparkles } from 'lucide-react'
+import { Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle } from 'lucide-react'
 
 interface PlaceResult {
   place_id: string
@@ -22,7 +20,6 @@ interface PlaceResult {
 }
 
 export function LeadsSearch() {
-  const router = useRouter()
   const [query, setQuery] = useState('')
   const [postcode, setPostcode] = useState('')
   const [results, setResults] = useState<PlaceResult[]>([])
@@ -90,23 +87,6 @@ export function LeadsSearch() {
 
   return (
     <div>
-      <PageHeader
-        title="Leads zoeken"
-        description="Zoek potentiële klanten op bedrijfsnaam, branche of locatie"
-        actions={
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="secondary" onClick={() => router.push('/relatiebeheer/leads/ai-scout')}>
-              <Sparkles className="h-4 w-4" />
-              AI Lead-Scout
-            </Button>
-            <Button variant="ghost" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-              Terug
-            </Button>
-          </div>
-        }
-      />
-
       {success && <div className="bg-green-50 text-green-600 text-sm p-3 rounded-md mb-4">{success}</div>}
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
 
