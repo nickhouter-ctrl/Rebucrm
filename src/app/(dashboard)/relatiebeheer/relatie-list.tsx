@@ -32,6 +32,7 @@ interface Relatie {
   laatste_contact: string | null
   totaal_geoffereerd?: number
   totaal_geaccepteerd?: number
+  totaal_gefactureerd?: number
 }
 
 function relatieveDatum(datum: string): string {
@@ -119,6 +120,15 @@ const columns: ColumnDef<Relatie, unknown>[] = [
     },
   },
   {
+    accessorKey: 'totaal_gefactureerd',
+    header: 'Gefactureerd excl.',
+    cell: ({ getValue }) => {
+      const v = (getValue() as number) || 0
+      if (!v) return <span className="text-gray-400">—</span>
+      return <span className="text-sm font-semibold text-gray-900">{formatCurrency(v)}</span>
+    },
+  },
+  {
     accessorKey: 'openstaand_bedrag',
     header: 'Openstaand',
     cell: ({ row }) => {
@@ -157,7 +167,8 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   if (filterType === 'alle') {
     gefilterd = relaties
   } else if (filterType === 'top') {
-    gefilterd = [...relaties].sort((a, b) => (b.totaal_geaccepteerd || 0) - (a.totaal_geaccepteerd || 0))
+    // Sortering matcht het dashboard: totaal gefactureerd (excl.) aflopend.
+    gefilterd = [...relaties].sort((a, b) => (b.totaal_gefactureerd || 0) - (a.totaal_gefactureerd || 0))
   } else {
     gefilterd = relaties.filter(r => r.type === filterType)
   }

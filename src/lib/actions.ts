@@ -75,7 +75,7 @@ export async function getRelaties() {
 
   if (relaties.length === 0) return []
 
-  const [notities, projecten, taken, facturen, emails, offertes] = await Promise.all([
+  const [notities, projecten, taken, facturen, emails, offertes, alleFacturen] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase.from('notities')
         .select('relatie_id, tekst, created_at')
@@ -115,6 +115,15 @@ export async function getRelaties() {
       supabase.from('offertes')
         .select('relatie_id, status, subtotaal, totaal')
         .not('relatie_id', 'is', null)
+        .range(from, to)
+    ),
+    // Alle facturen (excl. concept/gecrediteerd) voor "totaal gefactureerd" — zelfde
+    // metric als dashboard topKlanten gebruikt zodat ranking overeenkomt.
+    fetchAllRows((from, to) =>
+      supabase.from('facturen')
+        .select('relatie_id, subtotaal, totaal, status')
+        .not('relatie_id', 'is', null)
+        .not('status', 'in', '(concept,gecrediteerd)')
         .range(from, to)
     ),
   ])
@@ -169,6 +178,15 @@ export async function getRelaties() {
     if (o.status === 'geaccepteerd') e.geaccepteerd += sub
   }
 
+  // Totaal gefactureerd per relatie — zelfde definitie als dashboard
+  // topKlanten (subtotaal van facturen excl. concept/gecrediteerd).
+  const gefactureerdMap = new Map<string, number>()
+  for (const f of alleFacturen) {
+    if (!f.relatie_id) continue
+    const sub = Number(f.subtotaal || 0) || (Number(f.totaal || 0) / 1.21)
+    gefactureerdMap.set(f.relatie_id, (gefactureerdMap.get(f.relatie_id) || 0) + sub)
+  }
+
   return relaties.map(r => {
     const notitie = laatsteNotitieMap.get(r.id)
     const emailDatum = laatsteEmailMap.get(r.id)
@@ -191,6 +209,7 @@ export async function getRelaties() {
       laatste_contact: laatsteContact,
       totaal_geoffereerd: Math.round(offBedrag.geoffereerd * 100) / 100,
       totaal_geaccepteerd: Math.round(offBedrag.geaccepteerd * 100) / 100,
+      totaal_gefactureerd: Math.round((gefactureerdMap.get(r.id) || 0) * 100) / 100,
     }
   })
 }
