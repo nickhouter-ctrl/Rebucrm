@@ -1203,10 +1203,15 @@ export async function maakEindafrekening(aanbetalingId: string) {
 
   let offerteSubtotaal = 0
   let offertenummer = ''
+  let offerteOnderwerp: string | null = null
   const offerteId = aanbet.offerte_id as string | null
   if (offerteId) {
-    const { data: off } = await supabase.from('offertes').select('subtotaal, totaal, offertenummer').eq('id', offerteId).single()
-    if (off) { offerteSubtotaal = Number(off.subtotaal || 0); offertenummer = off.offertenummer }
+    const { data: off } = await supabase.from('offertes').select('subtotaal, totaal, offertenummer, onderwerp').eq('id', offerteId).single()
+    if (off) {
+      offerteSubtotaal = Number(off.subtotaal || 0)
+      offertenummer = off.offertenummer
+      offerteOnderwerp = off.onderwerp || null
+    }
   }
   // Ook via order: als offerte niet direct gekoppeld is, haal via order.offerte_id
   if (!offerteSubtotaal && aanbet.order_id) {
@@ -1320,15 +1325,52 @@ export async function maakEindafrekening(aanbetalingId: string) {
   const restBtw = Math.round(restSubtotaal * 0.21 * 100) / 100
   const restTotaal = Math.round((restSubtotaal + restBtw) * 100) / 100
 
-  // Sanity-check: weiger automatisch een rest aan te maken als de uitkomst
-  // implausibel is. Bv. Andy: aanbetaling €10.585 maar systeem-fallback pakte
-  // verkeerde offerte van €42.945 → rest €32.360 was 3x de aanbetaling. Of
-  // omgekeerd: rest 0 omdat 'matched' offerte kleiner is dan de aanbetaling.
-  // Drempels: rest mag niet > 4x de aanbetaling zijn, en niet > 95% van het
-  // offerte-totaal (zou betekenen dat aanbetaling < 5% was — dat is geen
-  // aanbetaling). Bij twijfel terug naar de gebruiker — beter handmatig
-  // koppelen dan een bizarre factuur de wereld in.
+  // Sanity-checks — voorkomen dat een verkeerde aanbetaling/offerte koppeling
+  // leidt tot een bizarre factuur. Lessen uit eerdere bugs:
+  //   • Andy: aanbet €10.585 / offerte €42.945 (verkeerde offerte) → rest €32.360
+  //   • Geerlofs (Bram): aanbet "Bram" / offerte "Kirsten" → onderwerp-mismatch
+  //   • DS Bouw (nieuwemeerdijk): aanbet €7.569 / offerte €5.575 → aanbet > offerte
+  // Liever weigeren dan de fout maken.
   const aanbetSubNum = Number(aanbet.subtotaal || 0)
+  const aanbetOnderwerpRaw = (aanbet.onderwerp || '').toLowerCase()
+
+  // Check A — aanbetaling > offerte: onmogelijk dat dit de juiste offerte is.
+  if (offerteSubtotaal > 0 && aanbetSubNum > offerteSubtotaal * 1.02) {
+    return {
+      error: `Eindafrekening kan niet worden gemaakt: aanbetaling €${aanbetSubNum.toFixed(2)} is groter dan offerte-subtotaal €${offerteSubtotaal.toFixed(2)}` +
+             `${offertenummer ? ` (${offertenummer})` : ''}. ` +
+             `Dit betekent dat de aanbetaling aan de verkeerde offerte gekoppeld is. ` +
+             `Open de aanbetaling en koppel hem aan de juiste offerte voordat u de eindafrekening maakt.`
+    }
+  }
+
+  // Check B — onderwerp-mismatch: als beide onderwerpen niet leeg zijn maar
+  // ZERO keyword-overlap hebben, gaat het bijna zeker over twee verschillende
+  // deals. Strip eerst standaard-prefixes ("1e Factuur / Aanbetaling …",
+  // "Aanbetaling 70% …") zodat we naar de échte onderwerpen vergelijken.
+  const stripPref = (s: string) => s.toLowerCase()
+    .replace(/^(?:1e|2e|3e)\s*factuur\s*[\/\-—]?\s*/i, '')
+    .replace(/^aanbetaling\s*\d{0,3}\s*%?\s*[\/\-—]?\s*/i, '')
+    .replace(/^restbetaling\s*[\/\-—]?\s*/i, '')
+    .replace(/offerte\s+o-?\d+-?\d+/gi, '')
+    .replace(/^offerte\s+/i, '')
+    .trim()
+  const aanbetKern = stripPref(aanbetOnderwerpRaw)
+  const offerteKern = stripPref(offerteOnderwerp || '')
+  if (aanbetKern.length >= 4 && offerteKern.length >= 4) {
+    const aTokens = aanbetKern.split(/[\s,\/\-—]+/).filter(t => t.length >= 3 && !/^\d+$/.test(t))
+    const oTokens = offerteKern.split(/[\s,\/\-—]+/).filter(t => t.length >= 3 && !/^\d+$/.test(t))
+    const overlap = aTokens.filter(t => oTokens.some(ot => ot.includes(t) || t.includes(ot))).length
+    if (overlap === 0 && aTokens.length > 0 && oTokens.length > 0) {
+      return {
+        error: `Eindafrekening kan niet worden gemaakt: het onderwerp van de aanbetaling ("${aanbetKern}") komt niet overeen met de offerte ("${offerteKern}"). ` +
+               `Dit duidt erop dat de aanbetaling aan de verkeerde offerte gekoppeld is. ` +
+               `Controleer en koppel handmatig aan de juiste offerte.`
+      }
+    }
+  }
+
+  // Check C — bekende bandbreedte-checks
   if (aanbetSubNum > 0 && restSubtotaal > aanbetSubNum * 4) {
     return {
       error: `Eindafrekening lijkt onjuist: rest €${restSubtotaal.toFixed(2)} is meer dan 4× de aanbetaling €${aanbetSubNum.toFixed(2)}. ` +
@@ -1340,6 +1382,15 @@ export async function maakEindafrekening(aanbetalingId: string) {
     return {
       error: `Eindafrekening lijkt onjuist: aanbetaling €${aanbetSubNum.toFixed(2)} is < 5% van offerte-totaal €${offerteSubtotaal.toFixed(2)}. ` +
              `Controleer of de juiste offerte gekoppeld is. Geen factuur aangemaakt.`
+    }
+  }
+  // Check D — rest is precies 0 maar er is wel een offerte: dan is aanbet
+  // gelijk aan offerte (=100% betaald al, geen rest nodig) OF aanbet > offerte
+  // (al gevangen door check A). 0 als rest is dus alleen valide bij 100%-betaald,
+  // wat sowieso geen rest-factuur hoort op te leveren.
+  if (restSubtotaal === 0 && offerteSubtotaal > 0) {
+    return {
+      error: `Eindafrekening niet nodig: aanbetaling €${aanbetSubNum.toFixed(2)} dekt de hele offerte €${offerteSubtotaal.toFixed(2)} al. Geen restbetaling vereist.`
     }
   }
 
