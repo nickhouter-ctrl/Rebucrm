@@ -146,19 +146,21 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const router = useRouter()
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [filterType, setFilterType] = useState<'alle' | 'zakelijk' | 'particulier'>('alle')
+  const [filterType, setFilterType] = useState<'alle' | 'zakelijk' | 'particulier' | 'top'>('alle')
   const [bulkMailDialog, setBulkMailDialog] = useState<{ ids: string[] } | null>(null)
   const [bulkOnderwerp, setBulkOnderwerp] = useState('')
   const [bulkBericht, setBulkBericht] = useState('')
   const [bulkSending, setBulkSending] = useState(false)
 
-  const gefilterd = filterType === 'alle' ? relaties : relaties.filter(r => r.type === filterType)
-
-  // Top 10 klanten op geaccepteerd offerte-bedrag (excl. BTW)
-  const topKlanten = [...relaties]
-    .filter(r => (r.totaal_geaccepteerd || 0) > 0)
-    .sort((a, b) => (b.totaal_geaccepteerd || 0) - (a.totaal_geaccepteerd || 0))
-    .slice(0, 10)
+  // Filter + (eventueel) sortering op geaccepteerd-bedrag voor de Top-tab.
+  let gefilterd: Relatie[]
+  if (filterType === 'alle') {
+    gefilterd = relaties
+  } else if (filterType === 'top') {
+    gefilterd = [...relaties].sort((a, b) => (b.totaal_geaccepteerd || 0) - (a.totaal_geaccepteerd || 0))
+  } else {
+    gefilterd = relaties.filter(r => r.type === filterType)
+  }
 
   async function handleExport() {
     setExporting(true)
@@ -250,42 +252,24 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
 
       {/* Filter zakelijk/particulier */}
       <div className="mb-4 flex items-center gap-2">
-        {(['alle', 'zakelijk', 'particulier'] as const).map(type => (
+        {([
+          { value: 'alle' as const, label: 'Alle' },
+          { value: 'zakelijk' as const, label: 'Zakelijk' },
+          { value: 'particulier' as const, label: 'Particulier' },
+          { value: 'top' as const, label: 'Top klanten' },
+        ]).map(t => (
           <button
-            key={type}
-            onClick={() => setFilterType(type)}
+            key={t.value}
+            onClick={() => setFilterType(t.value)}
             className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-              filterType === type ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              filterType === t.value ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            {type.charAt(0).toUpperCase() + type.slice(1)}
+            {t.label}
           </button>
         ))}
         <span className="text-sm text-gray-400 ml-2">{gefilterd.length} relaties</span>
       </div>
-
-      {topKlanten.length > 0 && (
-        <div className="mb-6 bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">Top klanten</h3>
-            <span className="text-[11px] text-gray-400">op geaccepteerd offerte-bedrag (excl.)</span>
-          </div>
-          <div className="divide-y divide-gray-100">
-            {topKlanten.map((r, i) => (
-              <button
-                key={r.id}
-                onClick={() => router.push(`/relatiebeheer/${r.id}`)}
-                className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 transition-colors"
-              >
-                <span className="w-6 text-xs text-gray-400 font-mono">#{i + 1}</span>
-                <span className="flex-1 text-sm font-medium text-gray-900 truncate">{r.bedrijfsnaam}</span>
-                <span className="text-xs text-gray-500 hidden sm:inline">{formatCurrency(r.totaal_geoffereerd || 0)} geoffereerd</span>
-                <span className="text-sm font-semibold text-[#00a66e]">{formatCurrency(r.totaal_geaccepteerd || 0)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {gefilterd.length === 0 ? (
         <EmptyState
