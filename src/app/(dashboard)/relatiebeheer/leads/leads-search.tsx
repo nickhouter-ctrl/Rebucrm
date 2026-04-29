@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { saveLeadAsRelatie } from '@/lib/actions'
+import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle } from 'lucide-react'
 
 interface PlaceResult {
   place_id: string
@@ -20,6 +22,7 @@ interface PlaceResult {
 }
 
 export function LeadsSearch() {
+  const router = useRouter()
   const [query, setQuery] = useState('')
   const [postcode, setPostcode] = useState('')
   const [results, setResults] = useState<PlaceResult[]>([])
@@ -87,6 +90,17 @@ export function LeadsSearch() {
 
   return (
     <div>
+      <PageHeader
+        title="Leads zoeken"
+        description="Zoek potentiële klanten op bedrijfsnaam, branche of locatie"
+        actions={
+          <Button variant="ghost" onClick={() => router.back()}>
+            <ArrowLeft className="h-4 w-4" />
+            Terug
+          </Button>
+        }
+      />
+
       {success && <div className="bg-green-50 text-green-600 text-sm p-3 rounded-md mb-4">{success}</div>}
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
 

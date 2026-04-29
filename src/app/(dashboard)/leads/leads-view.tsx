@@ -10,11 +10,12 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
 import { Dialog } from '@/components/ui/dialog'
-import { Plus, UserSearch, Loader2, Phone, Upload, Mail } from 'lucide-react'
+import { Plus, UserSearch, Loader2, Phone, Upload, Mail, Sparkles } from 'lucide-react'
 import { createLead } from '@/lib/actions'
 import { ImportLeadsDialog } from './import-leads-dialog'
 import { ZoekKvkDialog } from './zoek-kvk-dialog'
 import { BulkMailDialog } from './bulk-mail-dialog'
+import { AiScout } from '../relatiebeheer/leads/ai-scout/ai-scout'
 import { KvkSearch } from '@/components/kvk-search'
 import { formatDateShort } from '@/lib/utils'
 
@@ -99,7 +100,20 @@ function buildColumns(
   ]
 }
 
-export function LeadsView({ leads }: { leads: Lead[] }) {
+interface AiScoutLead {
+  id: string
+  bedrijfsnaam: string
+  contactpersoon: string | null
+  email: string | null
+  telefoon: string | null
+  plaats: string | null
+  status: string
+  notities: string | null
+  created_at: string
+  relatie_id: string | null
+}
+
+export function LeadsView({ leads, aiScoutLeads = [] }: { leads: Lead[]; aiScoutLeads?: AiScoutLead[] }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('alle')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -109,6 +123,7 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
   const [kvkImportResult, setKvkImportResult] = useState<string | null>(null)
   const [bulkMailOpen, setBulkMailOpen] = useState(false)
   const [mailResult, setMailResult] = useState<string | null>(null)
+  const [aiScoutOpen, setAiScoutOpen] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -156,6 +171,10 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
             <Button variant="secondary" onClick={() => setBulkMailOpen(true)} disabled={mailLeads.length === 0}>
               <Mail className="h-4 w-4" />
               Mail naar {mailLeads.length}{selected.size > 0 ? ' (geselecteerd)' : ''}
+            </Button>
+            <Button variant="secondary" onClick={() => setAiScoutOpen(true)}>
+              <Sparkles className="h-4 w-4" />
+              AI Scout
             </Button>
             <Button variant="secondary" onClick={() => setKvkOpen(true)}>
               <UserSearch className="h-4 w-4" />
@@ -287,6 +306,10 @@ export function LeadsView({ leads }: { leads: Lead[] }) {
             </Button>
           </div>
         </form>
+      </Dialog>
+
+      <Dialog open={aiScoutOpen} onClose={() => { setAiScoutOpen(false); router.refresh() }} title="AI Lead-Scout" className="max-w-3xl">
+        <AiScout embedded bestaande={aiScoutLeads} />
       </Dialog>
 
       <ImportLeadsDialog open={importOpen} onClose={() => { setImportOpen(false); router.refresh() }} />
