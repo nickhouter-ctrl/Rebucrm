@@ -30,6 +30,8 @@ interface Relatie {
   openstaand_bedrag: number
   heeft_vervallen: boolean
   laatste_contact: string | null
+  totaal_geoffereerd?: number
+  totaal_geaccepteerd?: number
 }
 
 function relatieveDatum(datum: string): string {
@@ -99,6 +101,24 @@ const columns: ColumnDef<Relatie, unknown>[] = [
     },
   },
   {
+    accessorKey: 'totaal_geoffereerd',
+    header: 'Geoffereerd excl.',
+    cell: ({ getValue }) => {
+      const v = (getValue() as number) || 0
+      if (!v) return <span className="text-gray-400">—</span>
+      return <span className="text-sm text-gray-700">{formatCurrency(v)}</span>
+    },
+  },
+  {
+    accessorKey: 'totaal_geaccepteerd',
+    header: 'Geaccepteerd excl.',
+    cell: ({ getValue }) => {
+      const v = (getValue() as number) || 0
+      if (!v) return <span className="text-gray-400">—</span>
+      return <span className="text-sm font-medium text-[#00a66e]">{formatCurrency(v)}</span>
+    },
+  },
+  {
     accessorKey: 'openstaand_bedrag',
     header: 'Openstaand',
     cell: ({ row }) => {
@@ -133,6 +153,12 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const [bulkSending, setBulkSending] = useState(false)
 
   const gefilterd = filterType === 'alle' ? relaties : relaties.filter(r => r.type === filterType)
+
+  // Top 10 klanten op geaccepteerd offerte-bedrag (excl. BTW)
+  const topKlanten = [...relaties]
+    .filter(r => (r.totaal_geaccepteerd || 0) > 0)
+    .sort((a, b) => (b.totaal_geaccepteerd || 0) - (a.totaal_geaccepteerd || 0))
+    .slice(0, 10)
 
   async function handleExport() {
     setExporting(true)
@@ -237,6 +263,29 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
         ))}
         <span className="text-sm text-gray-400 ml-2">{gefilterd.length} relaties</span>
       </div>
+
+      {topKlanten.length > 0 && (
+        <div className="mb-6 bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900">Top klanten</h3>
+            <span className="text-[11px] text-gray-400">op geaccepteerd offerte-bedrag (excl.)</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {topKlanten.map((r, i) => (
+              <button
+                key={r.id}
+                onClick={() => router.push(`/relatiebeheer/${r.id}`)}
+                className="w-full px-4 py-2 flex items-center gap-3 text-left hover:bg-gray-50 transition-colors"
+              >
+                <span className="w-6 text-xs text-gray-400 font-mono">#{i + 1}</span>
+                <span className="flex-1 text-sm font-medium text-gray-900 truncate">{r.bedrijfsnaam}</span>
+                <span className="text-xs text-gray-500 hidden sm:inline">{formatCurrency(r.totaal_geoffereerd || 0)} geoffereerd</span>
+                <span className="text-sm font-semibold text-[#00a66e]">{formatCurrency(r.totaal_geaccepteerd || 0)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {gefilterd.length === 0 ? (
         <EmptyState

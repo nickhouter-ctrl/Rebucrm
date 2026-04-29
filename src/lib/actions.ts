@@ -75,7 +75,7 @@ export async function getRelaties() {
 
   if (relaties.length === 0) return []
 
-  const [notities, projecten, taken, facturen, emails] = await Promise.all([
+  const [notities, projecten, taken, facturen, emails, offertes] = await Promise.all([
     fetchAllRows((from, to) =>
       supabase.from('notities')
         .select('relatie_id, tekst, created_at')
@@ -109,6 +109,12 @@ export async function getRelaties() {
         .select('relatie_id, datum')
         .not('relatie_id', 'is', null)
         .order('datum', { ascending: false })
+        .range(from, to)
+    ),
+    fetchAllRows((from, to) =>
+      supabase.from('offertes')
+        .select('relatie_id, status, subtotaal, totaal')
+        .not('relatie_id', 'is', null)
         .range(from, to)
     ),
   ])
@@ -150,6 +156,19 @@ export async function getRelaties() {
     if (e.relatie_id && !laatsteEmailMap.has(e.relatie_id)) laatsteEmailMap.set(e.relatie_id, e.datum)
   }
 
+  // Offerte-bedragen per relatie: totaal geoffereerd (excl. BTW) + totaal
+  // geaccepteerd (excl. BTW). Excl. concept-status zodat je niet on-going
+  // bezigheid meetelt.
+  const offerteMap = new Map<string, { geoffereerd: number; geaccepteerd: number }>()
+  for (const o of offertes) {
+    if (!o.relatie_id || o.status === 'concept') continue
+    if (!offerteMap.has(o.relatie_id)) offerteMap.set(o.relatie_id, { geoffereerd: 0, geaccepteerd: 0 })
+    const e = offerteMap.get(o.relatie_id)!
+    const sub = Number(o.subtotaal || 0) || (Number(o.totaal || 0) / 1.21)
+    e.geoffereerd += sub
+    if (o.status === 'geaccepteerd') e.geaccepteerd += sub
+  }
+
   return relaties.map(r => {
     const notitie = laatsteNotitieMap.get(r.id)
     const emailDatum = laatsteEmailMap.get(r.id)
@@ -160,6 +179,7 @@ export async function getRelaties() {
       laatsteContact = notitie?.datum || emailDatum || null
     }
 
+    const offBedrag = offerteMap.get(r.id) || { geoffereerd: 0, geaccepteerd: 0 }
     return {
       ...r,
       laatste_notitie: notitie?.tekst || null,
@@ -169,6 +189,8 @@ export async function getRelaties() {
       openstaand_bedrag: facturenMap.get(r.id)?.openstaand || 0,
       heeft_vervallen: facturenMap.get(r.id)?.heeft_vervallen || false,
       laatste_contact: laatsteContact,
+      totaal_geoffereerd: Math.round(offBedrag.geoffereerd * 100) / 100,
+      totaal_geaccepteerd: Math.round(offBedrag.geaccepteerd * 100) / 100,
     }
   })
 }
@@ -3654,7 +3676,7 @@ export async function getDashboardData() {
   const [facturenData, offertesData, takenData] = await Promise.all([
     fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type').eq('administratie_id', adminId).or(`datum.gte.${grensStr},status.in.(concept,verzonden,deels_betaald,vervallen)`).range(from, to)),
     fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).gte('datum', grensStr).range(from, to)),
-    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).or(`status.neq.afgerond,deadline.gte.${grensStr}`).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, medewerker_id, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).or(`status.neq.afgerond,deadline.gte.${grensStr}`).range(from, to)),
   ])
 
   const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
@@ -3714,8 +3736,25 @@ export async function getDashboardData() {
     if (!f.vervaldatum || f.vervaldatum > vandaagStr) return sum
     return sum + bedrag
   }, 0)
-  const openOffertes = offertesData.filter(o => o.status === 'verzonden').length
-  const openTaken = takenData.filter(t => t.status !== 'afgerond').length
+  // Open offertes = verzonden + recent (laatste 90 dagen). Oudere imports
+  // uit Tribe staan ook op 'verzonden' maar zijn al lang dood; tel ze niet.
+  const negentigDagen = new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
+  const openOffertes = offertesData.filter(o => o.status === 'verzonden' && (o.datum || '') >= negentigDagen).length
+  // Open taken = niet afgerond EN gekoppeld aan een actieve medewerker
+  // (anders tellen we 570 oude wees-taken zonder medewerker mee).
+  const actieveMedewerkerIds = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: actieveMws } = await supabase.from('medewerkers').select('id, profiel_id, actief').eq('administratie_id', adminId).eq('actief', true)
+  for (const mw of (actieveMws || [])) {
+    actieveMedewerkerIds.add(mw.id)
+    if (mw.profiel_id) actieveMedewerkerIds.add(mw.profiel_id)
+  }
+  const openTaken = takenData.filter(t => {
+    if (t.status === 'afgerond') return false
+    const heeftActieveMedewerker = (t.medewerker_id && actieveMedewerkerIds.has(t.medewerker_id))
+      || (t.toegewezen_aan && actieveMedewerkerIds.has(t.toegewezen_aan))
+    return heeftActieveMedewerker
+  }).length
 
   // Maandomzet (afgelopen 12 maanden)
   const maandOmzet: { maand: string; bedrag: number }[] = []
