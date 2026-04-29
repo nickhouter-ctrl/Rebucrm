@@ -132,7 +132,7 @@ const columns: ColumnDef<Factuur, unknown>[] = [
   },
 ]
 
-type TabType = 'alle' | 'openstaand' | 'per-klus'
+type TabType = 'alle' | 'openstaand' | 'aanbetaling' | 'restbetaling' | 'per-klus'
 
 export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]; ordersMetStatus: OrderMetStatus[] }) {
   const router = useRouter()
@@ -140,6 +140,8 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const [syncing, setSyncing] = useState(false)
 
   const openstaandFacturen = facturen.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
+  const aanbetalingFacturen = facturen.filter(f => f.factuur_type === 'aanbetaling')
+  const restbetalingFacturen = facturen.filter(f => f.factuur_type === 'restbetaling')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
 
   async function handleSyncSnelstart() {
@@ -164,11 +166,16 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const tabs: { key: TabType; label: string; count?: number }[] = [
     { key: 'alle', label: 'Alle facturen' },
     { key: 'openstaand', label: 'Openstaand', count: openstaandFacturen.length },
+    { key: 'aanbetaling', label: 'Aanbetalingen', count: aanbetalingFacturen.length },
+    { key: 'restbetaling', label: 'Restbetalingen', count: restbetalingFacturen.length },
     { key: 'per-klus', label: 'Per klus', count: ordersMetActie.length > 0 ? ordersMetActie.length : undefined },
   ]
 
   async function exportXlsx() {
-    const data = tab === 'openstaand' ? openstaandFacturen : facturen
+    const data = tab === 'openstaand' ? openstaandFacturen
+      : tab === 'aanbetaling' ? aanbetalingFacturen
+      : tab === 'restbetaling' ? restbetalingFacturen
+      : facturen
     if (data.length === 0) return
     const rows = data.map(f => ({
       Factuurnummer: f.factuurnummer,
@@ -315,6 +322,40 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             columns={columns}
             data={openstaandFacturen}
             searchPlaceholder="Zoek factuur..."
+            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+          />
+        )
+      )}
+
+      {tab === 'aanbetaling' && (
+        aanbetalingFacturen.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="Geen aanbetalingen"
+            description="Er zijn nog geen aanbetalingsfacturen aangemaakt."
+          />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={aanbetalingFacturen}
+            searchPlaceholder="Zoek aanbetaling..."
+            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+          />
+        )
+      )}
+
+      {tab === 'restbetaling' && (
+        restbetalingFacturen.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="Geen restbetalingen"
+            description="Er zijn nog geen restbetalingsfacturen aangemaakt."
+          />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={restbetalingFacturen}
+            searchPlaceholder="Zoek restbetaling..."
             onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
           />
         )
