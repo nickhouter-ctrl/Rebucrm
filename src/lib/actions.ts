@@ -4141,7 +4141,7 @@ export async function deleteFaalkost(id: string) {
 }
 
 // === E-MAILS ===
-export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaand' = 'alle', zoekterm = '', toonIrrelevant = false) {
+export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaand' = 'alle', zoekterm = '', toonIrrelevant = false, imapFolder?: string) {
   const adminId = await getAdministratieId()
   if (!adminId) return { emails: [], total: 0 }
 
@@ -4163,12 +4163,53 @@ export async function getEmails(page = 1, filter: 'alle' | 'inkomend' | 'uitgaan
   if (!toonIrrelevant) {
     query = query.not('labels', 'cs', '{irrelevant}')
   }
+  if (imapFolder) {
+    query = query.eq('imap_folder', imapFolder)
+  }
 
   const { data, count } = await query
     .order('datum', { ascending: false })
     .range(offset, offset + pageSize - 1)
 
   return { emails: data || [], total: count || 0 }
+}
+
+// Geeft alle IMAP-folders met bijbehorend aantal mails (incl. ongelezen).
+// Wordt gebruikt door de email-pagina om een mailbox-stijl folder-sidebar
+// te renderen, gelijk aan een normale mailclient.
+export async function getEmailFolders() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+  const sb = createAdminClient()
+  const { data } = await sb
+    .from('emails')
+    .select('imap_folder, gelezen')
+    .eq('administratie_id', adminId)
+    .not('imap_folder', 'is', null)
+    .limit(50000)
+  const counts: Record<string, { totaal: number; ongelezen: number }> = {}
+  for (const row of (data || [])) {
+    const f = (row.imap_folder as string) || 'INBOX'
+    if (!counts[f]) counts[f] = { totaal: 0, ongelezen: 0 }
+    counts[f].totaal++
+    if (!row.gelezen) counts[f].ongelezen++
+  }
+  return Object.entries(counts)
+    .map(([folder, c]) => ({ folder, ...c }))
+    .sort((a, b) => {
+      // Vaste volgorde: INBOX eerst, dan Verzonden/Sent, dan Concepten, daarna alfabetisch
+      const orderKey = (f: string) => {
+        const lf = f.toLowerCase()
+        if (lf === 'inbox') return '0'
+        if (lf.includes('sent') || lf.includes('verzonden')) return '1'
+        if (lf.includes('draft') || lf.includes('concept')) return '2'
+        if (lf.includes('archive') || lf.includes('archief')) return '3'
+        if (lf.includes('spam') || lf.includes('junk')) return '4'
+        if (lf.includes('trash') || lf.includes('prullen') || lf.includes('deleted')) return '5'
+        return '6_' + f
+      }
+      return orderKey(a.folder).localeCompare(orderKey(b.folder))
+    })
 }
 
 export async function markEmailGelezen(emailId: string) {

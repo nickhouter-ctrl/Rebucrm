@@ -54,17 +54,20 @@ export function EmailView({
   syncStatus,
   medewerkers = [],
   projecten = [],
+  folders = [],
 }: {
   initialEmails: Email[]
   initialTotal: number
   syncStatus: SyncStatus | null
   medewerkers?: Medewerker[]
   projecten?: Project[]
+  folders?: { folder: string; totaal: number; ongelezen: number }[]
 }) {
   const router = useRouter()
   const [emails, setEmails] = useState(initialEmails)
   const [total, setTotal] = useState(initialTotal)
   const [filter, setFilter] = useState<'alle' | 'inkomend' | 'uitgaand'>('alle')
+  const [activeFolder, setActiveFolder] = useState<string | null>(null)
   const [zoekterm, setZoekterm] = useState('')
   const [zoekInput, setZoekInput] = useState('')
   const [page, setPage] = useState(1)
@@ -171,9 +174,9 @@ export function EmailView({
     return () => clearInterval(interval)
   }, [])
 
-  async function loadEmails(newPage: number, newFilter: typeof filter, newZoekterm: string, showIrrelevant = toonIrrelevant) {
+  async function loadEmails(newPage: number, newFilter: typeof filter, newZoekterm: string, showIrrelevant = toonIrrelevant, folder = activeFolder) {
     startTransition(async () => {
-      const result = await getEmails(newPage, newFilter, newZoekterm, showIrrelevant)
+      const result = await getEmails(newPage, newFilter, newZoekterm, showIrrelevant, folder || undefined)
       setEmails(result.emails as Email[])
       setTotal(result.total)
     })
@@ -183,6 +186,12 @@ export function EmailView({
     setFilter(newFilter)
     setPage(1)
     loadEmails(1, newFilter, zoekterm)
+  }
+
+  function handleFolderChange(folder: string | null) {
+    setActiveFolder(folder)
+    setPage(1)
+    loadEmails(1, filter, zoekterm, toonIrrelevant, folder)
   }
 
   function handleSearch() {
@@ -342,9 +351,55 @@ export function EmailView({
     { label: 'Uitgaand', value: 'uitgaand' },
   ]
 
+  // Folder-display naam (Inbox → "Inkomend", Sent → "Verstuurd", etc.)
+  function folderLabel(f: string): string {
+    const lf = f.toLowerCase()
+    if (lf === 'inbox') return 'Inkomend'
+    if (lf === 'sent' || lf === 'sent items' || lf === 'verzonden items') return 'Verstuurd'
+    if (lf === 'drafts' || lf === 'concepten') return 'Concepten'
+    if (lf === 'archive' || lf === 'archief') return 'Archief'
+    if (lf === 'spam' || lf === 'junk' || lf === 'junk e-mail') return 'Spam'
+    if (lf === 'trash' || lf === 'deleted' || lf === 'deleted items' || lf === 'prullenmand') return 'Prullenmand'
+    return f.replace(/^INBOX[./]/i, '').replace(/[._]/g, ' ')
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="flex gap-4">
       <ToastContainer />
+      {/* Folder-sidebar — mailbox-stijl, links */}
+      {folders.length > 0 && (
+        <aside className="hidden md:block w-52 flex-shrink-0">
+          <div className="sticky top-4 bg-gray-50 border border-gray-200 rounded-lg p-2 space-y-0.5 text-sm">
+            <button
+              onClick={() => handleFolderChange(null)}
+              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md transition-colors ${
+                activeFolder === null ? 'bg-[#00a66e]/10 text-[#00a66e] font-medium' : 'text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <span>Alle e-mails</span>
+              <span className="text-xs text-gray-400">{folders.reduce((s, f) => s + f.totaal, 0)}</span>
+            </button>
+            <div className="border-t border-gray-200 my-1" />
+            {folders.map(f => (
+              <button
+                key={f.folder}
+                onClick={() => handleFolderChange(f.folder)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md transition-colors ${
+                  activeFolder === f.folder ? 'bg-[#00a66e]/10 text-[#00a66e] font-medium' : 'text-gray-700 hover:bg-gray-100'
+                }`}
+                title={f.folder}
+              >
+                <span className="truncate">{folderLabel(f.folder)}</span>
+                <span className={`text-xs flex-shrink-0 ${f.ongelezen > 0 ? 'text-[#00a66e] font-semibold' : 'text-gray-400'}`}>
+                  {f.ongelezen > 0 ? f.ongelezen : f.totaal}
+                </span>
+              </button>
+            ))}
+          </div>
+        </aside>
+      )}
+
+      <div className="flex-1 space-y-6 min-w-0">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">E-mail</h1>
         <div className="flex items-center gap-3">
@@ -916,6 +971,7 @@ export function EmailView({
           </div>
         </div>
       )}
+      </div>
     </div>
   )
 }
