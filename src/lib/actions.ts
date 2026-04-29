@@ -2,6 +2,13 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+
+// Medewerkers met een eigen mailbox: bij offerte/factuur-verzending komt
+// de mail uit hun eigen adres en reacties komen daar terecht. Alle andere
+// medewerkers gebruiken de gedeelde info@-postbus (default SMTP_FROM).
+const EIGEN_MAILBOX_EMAILS = new Set<string>([
+  'verkoop@rebukozijnen.nl',  // Jordy
+])
 import { revalidatePath } from 'next/cache'
 import { sendEmail } from '@/lib/email'
 import { buildRebuEmailHtml } from '@/lib/email-template'
@@ -2160,6 +2167,9 @@ export async function sendFactuurEmail(factuurId: string, options: {
   }
 
   try {
+    // Alleen medewerkers met een eigen mailbox versturen vanuit hun eigen
+    // adres. Andere medewerkers gebruiken de gedeelde info@-postbus.
+    const eigenMailbox = mwInfo?.email && EIGEN_MAILBOX_EMAILS.has(mwInfo.email.toLowerCase())
     await sendEmail({
       to: options.to,
       subject: options.subject,
@@ -2169,8 +2179,8 @@ export async function sendFactuurEmail(factuurId: string, options: {
         content: Buffer.from(a.content, 'base64'),
       })),
       fromName: mwInfo?.naam || 'Rebu Kozijnen',
-      fromEmail: mwInfo?.email || undefined,
-      replyTo: mwInfo?.email || undefined,
+      fromEmail: eigenMailbox ? mwInfo!.email : undefined,
+      replyTo: eigenMailbox ? mwInfo!.email : undefined,
     })
   } catch (err) {
     console.error('Factuur e-mail verzenden mislukt:', err)
@@ -5838,6 +5848,7 @@ export async function sendOfferteEmail(offerteId: string, options: {
   }
 
   try {
+    const eigenMailbox = medewerkerInfo?.email && EIGEN_MAILBOX_EMAILS.has(medewerkerInfo.email.toLowerCase())
     await sendEmail({
       to: options.to,
       subject: options.subject,
@@ -5847,8 +5858,8 @@ export async function sendOfferteEmail(offerteId: string, options: {
         content: Buffer.from(a.content, 'base64'),
       })),
       fromName: medewerkerInfo?.naam || 'Rebu Kozijnen',
-      fromEmail: medewerkerInfo?.email || undefined,
-      replyTo: medewerkerInfo?.email || undefined,
+      fromEmail: eigenMailbox ? medewerkerInfo!.email : undefined,
+      replyTo: eigenMailbox ? medewerkerInfo!.email : undefined,
     })
   } catch (err) {
     console.error('E-mail verzenden mislukt:', err)
