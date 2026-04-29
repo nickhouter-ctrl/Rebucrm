@@ -22,6 +22,17 @@ const { parseLeverancierPdfText } = await import('../src/lib/pdf-parser.ts').cat
   process.exit(1)
 })
 
+// Test 1: zonder hint (auto-detect)
+console.log('=== Auto-detect ===')
+const result0 = parseLeverancierPdfText(fullText)
+console.log('Total elementen:', result0.elementen.length, 'eerste prijs:', result0.elementen[0]?.prijs)
+
+// Test 2: hint='aluplast' (oude flow — moet ook werken)
+console.log('\n=== Hint=aluplast (legacy) ===')
+const result1 = parseLeverancierPdfText(fullText, 'aluplast')
+console.log('Total elementen:', result1.elementen.length, 'eerste prijs:', result1.elementen[0]?.prijs)
+
+console.log('\n=== Hint=eko-okna ===')
 const result = parseLeverancierPdfText(fullText, 'eko-okna')
 console.log('TOTAAL:', result.totaal)
 console.log('ELEMENTEN:')

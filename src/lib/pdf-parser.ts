@@ -87,6 +87,9 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
   // was te breed en ving ook Aluplast PDFs waar 'Merk A Aantal: 1' toevallig voorkomt.
   // Hint heeft voorrang: als de aanroeper (of AI) zeker weet welke leverancier het is,
   // skippen we autodetect en gebruiken we direct het juiste pad.
+  // Aluplast is een PROFIELSYSTEEM dat door EKO-Okna wordt geleverd, geen
+  // aparte leverancier. Mapping naar eko-okna voor backwards-compat met
+  // bestaande hint='aluplast' referenties.
   const useAluplast = hint === 'aluplast'
   const useGealanNL = hint === 'gealan-nl'
   const useGealan = hint === 'gealan'
@@ -96,15 +99,25 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
   const useDefault = hint === 'default' || hint === 'reynaers'
   const hasHint = !!hint
 
-  const isAluplast = hasHint ? useAluplast : /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
-  const isGealanNL = hasHint ? useGealanNL : (!isAluplast && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text))
-  const isGealan = hasHint ? useGealan : (!isAluplast && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
-  const isSchuco = hasHint ? useSchuco : (!isAluplast && !isGealanNL && !isGealan && (
+  // EKO-Okna detectie: tekst-vingerafdruk OF expliciete hint (incl. legacy
+  // 'aluplast' want Aluplast is gewoon een profielsysteem binnen EKO-PDFs).
+  const ekoFingerprint = /EKO[\s\-]?OKNA/i.test(text)
+    || /Hoev\.\s*:\s*\d+/.test(text)
+    || (/Prijs\s+(?:Element|Deur)\s+(?:\d+\s*x\s*)?€/i.test(text) && /Hoeveelheid\s*:/i.test(text))
+    || /(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(text)
+
+  const isEkoOkna = hasHint ? (useEkoOkna || useAluplast) : ekoFingerprint
+  // isAluplast wordt nu nooit meer 'true' in praktijk — alle Aluplast-PDFs
+  // worden als EKO-Okna geclassificeerd. Variabele blijft staan voor
+  // type-compatibility maar is altijd false.
+  const isAluplast = false
+  const isGealanNL = hasHint ? useGealanNL : (!isAluplast && !isEkoOkna && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text))
+  const isGealan = hasHint ? useGealan : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
+  const isSchuco = hasHint ? useSchuco : (!isAluplast && !isEkoOkna && !isGealanNL && !isGealan && (
     /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
     /Sch[üu¿\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(text)
   ))
-  const isKochs = hasHint ? useKochs : (!isGealan && !isGealanNL && !isSchuco && !isAluplast && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text)))
-  const isEkoOkna = hasHint ? useEkoOkna : (!isGealan && !isGealanNL && !isKochs && !isSchuco && !isAluplast && /Hoev\.\s*:\s*\d+/.test(text))
+  const isKochs = hasHint ? useKochs : (!isGealan && !isGealanNL && !isSchuco && !isAluplast && !isEkoOkna && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text)))
   // useDefault valt vanzelf in de else-branch onderin
   void useDefault
 
