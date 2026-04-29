@@ -2168,7 +2168,9 @@ export async function sendFactuurEmail(factuurId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
-      fromName: 'Rebu Kozijnen',
+      fromName: mwInfo?.naam || 'Rebu Kozijnen',
+      fromEmail: mwInfo?.email || undefined,
+      replyTo: mwInfo?.email || undefined,
     })
   } catch (err) {
     console.error('Factuur e-mail verzenden mislukt:', err)
@@ -5844,7 +5846,9 @@ export async function sendOfferteEmail(offerteId: string, options: {
         filename: a.filename,
         content: Buffer.from(a.content, 'base64'),
       })),
-      fromName: 'Rebu Kozijnen',
+      fromName: medewerkerInfo?.naam || 'Rebu Kozijnen',
+      fromEmail: medewerkerInfo?.email || undefined,
+      replyTo: medewerkerInfo?.email || undefined,
     })
   } catch (err) {
     console.error('E-mail verzenden mislukt:', err)
