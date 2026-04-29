@@ -688,8 +688,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verkoopkans</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Factuur</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Type</th>
-                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal verkoopkans</th>
-                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand</th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal verkoopkans <span className="text-gray-300 normal-case">excl.</span></th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand <span className="text-gray-300 normal-case">excl.</span></th>
                     <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verloop</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Status</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2"></th>
