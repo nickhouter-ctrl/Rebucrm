@@ -3,6 +3,8 @@ import { generateObject } from 'ai'
 import { z } from 'zod'
 import { aiModel } from '@/lib/ai-model'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { rateLimit } from '@/lib/rate-limit'
 
 // Claude Vision identificeert REGIO'S DIE WEG MOETEN op een leverancier-tekening
 // pagina: prijs-tabellen, losse prijsbedragen en "Geen garantie"/"No warranty" teksten.
@@ -28,6 +30,16 @@ const schema = z.object({
 })
 
 export async function POST(req: NextRequest) {
+  // Auth-check: alleen ingelogde users mogen Claude Vision aanroepen
+  // (anders kan een willekeurige bezoeker AI-credits opslokken).
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 })
+
+  // Rate-limit per user-id: 30 calls per minuut.
+  const rl = rateLimit(`detect-regions:${user.id}`, 30, 60_000)
+  if (!rl.ok) return NextResponse.json({ error: `Te veel verzoeken — wacht ${Math.ceil(rl.resetIn / 1000)}s` }, { status: 429 })
+
   if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }

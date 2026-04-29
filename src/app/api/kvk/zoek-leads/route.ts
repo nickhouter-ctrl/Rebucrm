@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { rateLimit } from '@/lib/rate-limit'
 
 // Rebu zit in Wormerveer — center voor radius filter
 const REBU_CENTER = { lat: 52.492, lng: 4.779 }
@@ -51,6 +53,14 @@ async function postcodeNaarLatLng(postcode: string): Promise<{ lat: number; lng:
 }
 
 export async function GET(request: NextRequest) {
+  // Auth-check: KVK API kost geld per call — alleen voor ingelogde users.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 })
+  // Rate-limit: 20 zoekopdrachten per minuut per user.
+  const rl = rateLimit(`kvk:${user.id}`, 20, 60_000)
+  if (!rl.ok) return NextResponse.json({ error: `Te veel verzoeken — wacht ${Math.ceil(rl.resetIn / 1000)}s` }, { status: 429 })
+
   const { searchParams } = new URL(request.url)
   const naamFilter = searchParams.get('naam') || ''
   const plaats = searchParams.get('plaats') || ''

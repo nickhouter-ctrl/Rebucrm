@@ -3,6 +3,8 @@ import { generateObject } from 'ai'
 import { anthropic } from '@ai-sdk/anthropic'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
+import { rateLimit } from '@/lib/rate-limit'
 
 // Claude Vision identificeert de bounding box van wat we aan de klant tonen:
 // de kozijn-tekening + specs, zonder leveranciersprijzen, logo's of footers.
@@ -24,6 +26,13 @@ const schema = z.object({
 })
 
 export async function POST(req: NextRequest) {
+  // Auth + rate-limit zodat anonymous users geen Claude-credits kunnen opslokken.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Niet ingelogd' }, { status: 401 })
+  const rl = rateLimit(`detect-box:${user.id}`, 30, 60_000)
+  if (!rl.ok) return NextResponse.json({ error: `Te veel verzoeken — wacht ${Math.ceil(rl.resetIn / 1000)}s` }, { status: 429 })
+
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }

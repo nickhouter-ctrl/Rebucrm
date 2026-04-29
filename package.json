@@ -23,7 +23,7 @@
     "imapflow": "^1.2.11",
     "lucide-react": "^0.564.0",
     "mailparser": "^3.9.6",
-    "next": "16.1.6",
+    "next": "^16.2.4",
     "nodemailer": "^8.0.1",
     "papaparse": "^5.5.3",
     "pdfjs-dist": "^5.4.624",
