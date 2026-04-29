@@ -372,6 +372,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
                 renderedTekeningen={renderedTekeningen}
                 margePercentage={margePercentage}
                 elementMarges={elementMarges}
+                detectedLeverancier={detectedLeverancier}
                 onSaved={handleSaved}
                 onBack={() => setStep(4)}
               />
@@ -1002,6 +1003,7 @@ function EditOfferteView({
         onRegelsChange={setRegels}
         producten={producten}
         pendingPdfFile={null}
+        detectedLeverancier={detectedLeverancier}
         onSaved={(id) => router.push('/offertes')}
         onBack={() => router.push('/offertes')}
       />

@@ -18,9 +18,19 @@ interface Regel {
   product_id?: string
 }
 
-const BEZORGKOSTEN_DREMPEL = 1750
-const BEZORGKOSTEN_BEDRAG = 150
+// Standaard bezorgkosten-regel: €150 onder €1750.
+// Uitzondering voor Gealan en Schüco (zwaardere/lange-route leveringen):
+// €300 onder €6000.
 const BEZORGKOSTEN_LABEL = 'Bezorgkosten'
+const BEZORGKOSTEN_STANDAARD = { drempel: 1750, bedrag: 150 }
+const BEZORGKOSTEN_GEALAN_SCHUCO = { drempel: 6000, bedrag: 300 }
+function bezorgkostenRegel(leverancier: string | undefined): { drempel: number; bedrag: number } {
+  const lev = (leverancier || '').toLowerCase()
+  if (lev.includes('gealan') || lev.includes('schüco') || lev.includes('schuco')) {
+    return BEZORGKOSTEN_GEALAN_SCHUCO
+  }
+  return BEZORGKOSTEN_STANDAARD
+}
 
 export function StapControleren({
   offerte,
@@ -39,6 +49,7 @@ export function StapControleren({
   renderedTekeningen,
   margePercentage,
   elementMarges,
+  detectedLeverancier,
   onSaved,
   onBack,
 }: {
@@ -58,6 +69,7 @@ export function StapControleren({
   renderedTekeningen?: RenderedTekening[]
   margePercentage?: number
   elementMarges?: Record<string, number>
+  detectedLeverancier?: { leverancier?: string; display_naam?: string; profiel?: string } | null
   onSaved: (offerteId: string) => void
   onBack: () => void
 }) {
@@ -90,10 +102,11 @@ export function StapControleren({
   }, [offerte])
 
   // Auto-bezorgkosten logica.
-  // Eerder werd alleen de "Kunststof kozijnen leveren" regel meegerekend, maar
-  // bij PDF-import zijn regels "Element 001", "Deur 008", "Aluplast IDEAL"
-  // etc. — die match werkte dan niet en bezorgkosten werden niet toegevoegd.
-  // Nu: tellen we ALLE product-regels op (excl. bezorgkosten en korting-regels).
+  // Standaard: €150 bij producttotaal < €1750.
+  // Gealan/Schüco: €300 bij producttotaal < €6000.
+  // Telt ALLE product-regels op (excl. bezorgkosten en korting).
+  const leverancierNaam = detectedLeverancier?.display_naam || detectedLeverancier?.leverancier || ''
+  const bezorgConfig = bezorgkostenRegel(leverancierNaam)
   const updateBezorgkosten = useCallback((currentRegels: Regel[]) => {
     const productTotaal = currentRegels.reduce((sum, r) => {
       const o = r.omschrijving.toLowerCase()
@@ -106,10 +119,18 @@ export function StapControleren({
 
     const bezorgIndex = currentRegels.findIndex(r => r.omschrijving === BEZORGKOSTEN_LABEL)
     const heeftBezorgkosten = bezorgIndex !== -1
+    const huidigBedrag = heeftBezorgkosten ? Number(currentRegels[bezorgIndex].prijs) : 0
 
-    if (productTotaal < BEZORGKOSTEN_DREMPEL && productTotaal > 0) {
+    if (productTotaal < bezorgConfig.drempel && productTotaal > 0) {
       if (!heeftBezorgkosten) {
-        return [...currentRegels, { omschrijving: BEZORGKOSTEN_LABEL, aantal: 1, prijs: BEZORGKOSTEN_BEDRAG, btw_percentage: 21 }]
+        return [...currentRegels, { omschrijving: BEZORGKOSTEN_LABEL, aantal: 1, prijs: bezorgConfig.bedrag, btw_percentage: 21 }]
+      }
+      // Bezorgkosten staat erin maar bedrag klopt niet (bv. switch
+      // standaard ↔ Gealan/Schüco) — corrigeer
+      if (huidigBedrag !== bezorgConfig.bedrag) {
+        const updated = [...currentRegels]
+        updated[bezorgIndex] = { ...updated[bezorgIndex], prijs: bezorgConfig.bedrag, aantal: 1 }
+        return updated
       }
     } else {
       if (heeftBezorgkosten) {
@@ -117,7 +138,7 @@ export function StapControleren({
       }
     }
     return currentRegels
-  }, [])
+  }, [bezorgConfig.drempel, bezorgConfig.bedrag])
 
   // Hash van product-regels — verandert wanneer prijzen/aantallen wijzigen,
   // zodat de bezorgkosten-update meeloopt. Bezorg/korting-regels uitgesloten
@@ -135,7 +156,7 @@ export function StapControleren({
     const updated = updateBezorgkosten(regels)
     if (updated !== regels) onRegelsChange(updated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productHash, offerteType])
+  }, [productHash, offerteType, bezorgConfig.drempel, bezorgConfig.bedrag])
 
   function addRegel() {
     onRegelsChange([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
@@ -707,7 +728,7 @@ export function StapControleren({
               <h3 className="font-semibold text-gray-900">Regelitems</h3>
               {regels.some(r => r.omschrijving === BEZORGKOSTEN_LABEL) && (
                 <p className="text-xs text-orange-600 mt-0.5">
-                  Bezorgkosten automatisch toegevoegd (kozijnen onder {formatCurrency(BEZORGKOSTEN_DREMPEL)})
+                  Bezorgkosten automatisch toegevoegd ({formatCurrency(bezorgConfig.bedrag)} bij producttotaal onder {formatCurrency(bezorgConfig.drempel)}{leverancierNaam ? ` — ${leverancierNaam}` : ''})
                 </p>
               )}
             </div>
