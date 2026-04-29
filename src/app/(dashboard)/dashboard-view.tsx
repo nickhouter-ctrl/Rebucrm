@@ -10,7 +10,7 @@ import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Penc
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 
 interface TePlannenOrder {
@@ -83,7 +83,9 @@ interface DashboardData {
   openstaandeFacturen: {
     id: string
     factuurnummer: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
+    project_id: string | null
     totaal: number
     betaald_bedrag: number
     openstaand_bedrag: number
@@ -305,6 +307,27 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
   const [besteldLoading, setBesteldLoading] = useState<string | null>(null)
+  const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
+  const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
+
+  async function handleSnelVersturen(e: React.MouseEvent, factuurId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (versturenLoading) return
+    setVersturenLoading(factuurId)
+    try {
+      const res = await verstuurFactuurSnel(factuurId)
+      if ('error' in res && res.error) {
+        setVersturenStatus(prev => ({ ...prev, [factuurId]: 'error' }))
+        alert(`Versturen mislukt: ${res.error}`)
+      } else {
+        setVersturenStatus(prev => ({ ...prev, [factuurId]: 'ok' }))
+        router.refresh()
+      }
+    } finally {
+      setVersturenLoading(null)
+    }
+  }
   const [showDoelenEdit, setShowDoelenEdit] = useState(false)
   const [doelenSaving, setDoelenSaving] = useState(false)
   const [doelenTab, setDoelenTab] = useState<'week' | 'maand' | 'jaar'>('maand')
@@ -664,9 +687,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verkoopkans</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Factuur</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Type</th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal / Betaald</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand</th>
                     <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verloop</th>
-                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Status</th>
+                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Status</th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -675,15 +700,43 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     const dagen = f.vervaldatum ? Math.abs(dagenVerschil(f.vervaldatum)) : null
                     const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : '-'
                     const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
+                    const kanVerstuurd = f.status === 'concept' || f.status === 'vervallen'
+                    const verstuurStatus = versturenStatus[f.id]
                     return (
                       <tr key={f.id} className={`border-t border-gray-50 hover:bg-gray-50/50 transition-colors ${isVervallen ? 'bg-red-50/20' : ''}`}>
-                        <td className="px-5 py-3 text-sm font-medium text-gray-900">{f.relatie_bedrijfsnaam}</td>
-                        <td className="px-3 py-3 text-sm text-gray-700">{f.verkoopkans_naam || f.onderwerp || <span className="text-gray-300">—</span>}</td>
+                        <td className="px-5 py-3 text-sm font-medium text-gray-900">
+                          {f.relatie_id ? (
+                            <Link href={`/relatiebeheer/${f.relatie_id}`} className="hover:text-[#00a66e] hover:underline">{f.relatie_bedrijfsnaam}</Link>
+                          ) : f.relatie_bedrijfsnaam}
+                        </td>
+                        <td className="px-3 py-3 text-sm text-gray-700">
+                          {f.verkoopkans_naam && f.project_id ? (
+                            <Link href={`/projecten/${f.project_id}`} className="hover:text-[#00a66e] hover:underline">{f.verkoopkans_naam}</Link>
+                          ) : (f.verkoopkans_naam || f.onderwerp || <span className="text-gray-300">—</span>)}
+                        </td>
                         <td className="px-3 py-3"><Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{f.factuurnummer}</Link></td>
                         <td className="px-3 py-3"><span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span></td>
+                        <td className="px-3 py-3 text-right text-xs">
+                          <div className="text-gray-700">{formatCurrency(f.totaal)}</div>
+                          {f.betaald_bedrag > 0 && <div className="text-green-700">betaald: {formatCurrency(f.betaald_bedrag)}</div>}
+                        </td>
                         <td className={`px-3 py-3 text-sm text-right font-semibold ${isVervallen ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(f.openstaand_bedrag)}</td>
                         <td className="px-3 py-3 text-center">{dagen !== null && <DagenPill dagen={dagen} isOver={!!isVervallen} />}</td>
-                        <td className="px-5 py-3"><Badge status={f.status} /></td>
+                        <td className="px-3 py-3"><Badge status={f.status} /></td>
+                        <td className="px-5 py-3 text-right">
+                          {kanVerstuurd && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 text-xs"
+                              onClick={(e) => handleSnelVersturen(e, f.id)}
+                              disabled={versturenLoading === f.id}
+                              title="Versturen via e-mail naar de klant"
+                            >
+                              {versturenLoading === f.id ? '...' : verstuurStatus === 'ok' ? '✓' : 'Versturen'}
+                            </Button>
+                          )}
+                        </td>
                       </tr>
                     )
                   })}

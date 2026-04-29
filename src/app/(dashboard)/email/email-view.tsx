@@ -6,10 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ToastContainer, showToast } from '@/components/ui/toast'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check, Sparkles } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check, Sparkles, FileText } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties, maakOfferteVanuitEmail } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -84,6 +84,23 @@ export function EmailView({
   const [assignLoading, setAssignLoading] = useState(false)
   const [linkingEmail, setLinkingEmail] = useState<string | null>(null)
   const [projectZoek, setProjectZoek] = useState('')
+  const [offerteMaken, setOfferteMaken] = useState<string | null>(null)
+
+  async function handleMaakOfferte(e: React.MouseEvent, emailId: string) {
+    e.stopPropagation()
+    if (offerteMaken) return
+    setOfferteMaken(emailId)
+    try {
+      const res = await maakOfferteVanuitEmail(emailId)
+      if ('error' in res && res.error) { showToast(res.error, 'error'); return }
+      if ('offerteId' in res && res.offerteId) {
+        showToast(`Concept-offerte ${res.offertenummer} aangemaakt`, 'success')
+        router.push(`/offertes/${res.offerteId}`)
+      }
+    } finally {
+      setOfferteMaken(null)
+    }
+  }
 
   // AI reply state
   const [aiReplyEmail, setAiReplyEmail] = useState<Email | null>(null)
@@ -686,6 +703,18 @@ export function EmailView({
                                 </div>
                               )}
                             </div>
+
+                            {/* Maak concept-offerte vanuit deze e-mail */}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => handleMaakOfferte(e, email.id)}
+                              disabled={offerteMaken === email.id}
+                              title="Maak een concept-offerte aan vanuit deze aanvraag"
+                            >
+                              {offerteMaken === email.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+                              Maak offerte
+                            </Button>
 
                             {/* Koppelen aan verkoopkans */}
                             <div className="relative">

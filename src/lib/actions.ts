@@ -1828,6 +1828,134 @@ ${medewerkerNaam}`
   }
 }
 
+// Schone lei: verwijder ALLE concept-offertes zonder geldige inhoud — d.w.z.
+// concept-offertes met subtotaal=0 of zonder regels. Die ontstonden vroeger
+// automatisch uit binnenkomende e-mails (een lege placeholder per aanvraag).
+// Veilig: handmatig opgestelde concept-offertes met inhoud blijven bestaan.
+export async function schoneLeiConceptOffertes() {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+
+  // Haal alle concepten op
+  const { data: concepten } = await sb
+    .from('offertes')
+    .select('id, offertenummer, subtotaal, totaal, regels:offerte_regels(id)')
+    .eq('administratie_id', adminId)
+    .eq('status', 'concept')
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teVerwijderen = (concepten || []).filter((o: any) => {
+    const heeftRegels = Array.isArray(o.regels) && o.regels.length > 0
+    const heeftBedrag = Number(o.subtotaal || 0) > 0 || Number(o.totaal || 0) > 0
+    return !heeftRegels && !heeftBedrag
+  })
+
+  if (teVerwijderen.length === 0) return { aantal: 0, message: 'Geen lege concept-offertes gevonden' }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ids = teVerwijderen.map((o: any) => o.id as string)
+  // Eerst regels (als die er stiekem toch zijn), dan offertes
+  await sb.from('offerte_regels').delete().in('offerte_id', ids)
+  const { error } = await sb.from('offertes').delete().in('id', ids)
+  if (error) return { error: error.message }
+
+  revalidatePath('/offertes')
+  revalidatePath('/')
+  return { aantal: ids.length, message: `${ids.length} lege concept-offerte(s) verwijderd` }
+}
+
+// Maak handmatig een concept-offerte aan vanuit een binnenkomende e-mail.
+// Gebruikt voor: "deze e-mail is een offerte-aanvraag → ik wil 'm in de
+// concept-offertes lijst zien". Knop in email-view roept dit aan.
+export async function maakOfferteVanuitEmail(emailId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const sb = createAdminClient()
+
+  const { data: email } = await sb.from('emails').select('*').eq('id', emailId).single()
+  if (!email) return { error: 'Email niet gevonden' }
+
+  // Zoek of maak relatie obv afzender
+  let relatieId: string | null = email.relatie_id
+  if (!relatieId && email.van_email) {
+    const { data: bestaand } = await sb.from('relaties').select('id').eq('administratie_id', adminId).ilike('email', email.van_email).maybeSingle()
+    if (bestaand) relatieId = bestaand.id
+    else {
+      const { data: nieuw } = await sb.from('relaties').insert({
+        administratie_id: adminId,
+        bedrijfsnaam: email.van_naam || email.van_email || 'Onbekend',
+        type: 'particulier',
+        email: email.van_email,
+        contactpersoon: email.van_naam || null,
+      }).select('id').single()
+      relatieId = nieuw?.id || null
+    }
+  }
+  if (!relatieId) return { error: 'Geen afzender-email om relatie van te maken' }
+
+  // Maak verkoopkans (project) als die nog niet bestaat voor deze email
+  let projectId: string | null = email.project_id
+  if (!projectId) {
+    const naam = (email.onderwerp || 'Aanvraag uit e-mail').slice(0, 200)
+    const { data: nieuwProject } = await sb.from('projecten').insert({
+      administratie_id: adminId,
+      relatie_id: relatieId,
+      naam,
+      status: 'actief',
+      bron: 'email',
+    }).select('id').single()
+    projectId = nieuwProject?.id || null
+  }
+
+  // Maak concept-offerte aan
+  const offertenummer = await getVolgendeNummer('offerte')
+  const datum = new Date().toISOString().slice(0, 10)
+  const geldigTot = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
+  const { data: offerte, error } = await sb.from('offertes').insert({
+    administratie_id: adminId,
+    relatie_id: relatieId,
+    project_id: projectId,
+    offertenummer,
+    datum,
+    geldig_tot: geldigTot,
+    status: 'concept',
+    onderwerp: email.onderwerp || 'Aanvraag uit e-mail',
+    inleiding: email.tekst?.slice(0, 500) || null,
+    subtotaal: 0,
+    btw_totaal: 0,
+    totaal: 0,
+  }).select('id, offertenummer').single()
+  if (error) return { error: error.message }
+
+  // Koppel email aan project
+  await sb.from('emails').update({ project_id: projectId, relatie_id: relatieId }).eq('id', emailId)
+
+  // Audit-log
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({ actie: 'offerte.aangemaakt_uit_email', entiteitType: 'offerte', entiteitId: offerte.id, details: { emailId, offertenummer } })
+  } catch { /* niet kritiek */ }
+
+  revalidatePath('/offertes')
+  revalidatePath('/email')
+  return { offerteId: offerte.id, offertenummer: offerte.offertenummer, projectId, relatieId }
+}
+
+// One-shot factuur versturen vanuit dashboard. Gebruikt de defaults zonder
+// dialog — snelle flow voor "verstuur deze factuur nu".
+export async function verstuurFactuurSnel(factuurId: string) {
+  const defaults = await getFactuurEmailDefaults(factuurId)
+  if (defaults.error || !defaults.to) return { error: defaults.error || 'Geen e-mailadres bekend bij deze klant' }
+  const result = await sendFactuurEmail(factuurId, {
+    to: defaults.to,
+    subject: defaults.subject,
+    body: defaults.body,
+  })
+  return result
+}
+
 /**
  * Verstuurt in bulk een herinnerings-mail voor alle openstaande facturen.
  * Wordt alleen de mail opnieuw gegenereerd (met de nieuwe, 30-dagen geldige
@@ -1932,18 +2060,43 @@ export async function sendFactuurEmail(factuurId: string, options: {
   // moet een Mollie link mee'. Bij openstaand=0 (al betaald) of credit-factuur
   // is een link niet zinvol — dan slaan we hem over.
   const openstaandBedrag = Number(factuur.totaal || 0) - Number(factuur.betaald_bedrag || 0)
-  let betaalLink = (factuur.betaal_link as string | null) || null
-  if (!betaalLink && openstaandBedrag > 0 && factuur.status !== 'gecrediteerd' && factuur.status !== 'betaald') {
+  const huidigeBetaalLink = (factuur.betaal_link as string | null) || null
+
+  // PARALLEL: Mollie betaal-link aanmaken (indien nodig) + Factuur-PDF renderen.
+  // Eerder gebeurde dit sequentieel waardoor versturen 5–10s duurde. Beide
+  // takken zijn idempotent en kunnen tegelijk lopen.
+  const mollieDoNothing = !!huidigeBetaalLink || openstaandBedrag <= 0
+    || factuur.status === 'gecrediteerd' || factuur.status === 'betaald'
+
+  const molliePromise: Promise<string | null | { error: string }> = (async () => {
+    if (mollieDoNothing) return huidigeBetaalLink
     if (!process.env.MOLLIE_API_KEY) {
       return { error: 'Mollie is niet geconfigureerd — kan factuur niet versturen zonder betaal-link.' }
     }
     const { ensureFactuurBetaalLink } = await import('@/lib/mollie')
-    const result = await ensureFactuurBetaalLink(factuurId)
-    betaalLink = result.link
-    if (!betaalLink) {
-      return { error: 'Mollie payment-link kon niet worden aangemaakt — factuur is niet verstuurd. Probeer het over enkele minuten opnieuw.' }
+    const r = await ensureFactuurBetaalLink(factuurId)
+    if (!r.link) return { error: 'Mollie payment-link kon niet worden aangemaakt — probeer over enkele minuten opnieuw.' }
+    return r.link
+  })()
+
+  const pdfPromise: Promise<string | null> = (async () => {
+    try {
+      const { renderToBuffer } = await import('@react-pdf/renderer')
+      const { FactuurDocument } = await import('@/lib/pdf/factuur-template')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfBuffer = await renderToBuffer(FactuurDocument({ factuur }) as any)
+      return Buffer.from(pdfBuffer).toString('base64')
+    } catch (err) {
+      console.error('Factuur PDF generatie voor email mislukt:', err)
+      return null
     }
+  })()
+
+  const [mollieResult, pdfBase64] = await Promise.all([molliePromise, pdfPromise])
+  if (mollieResult && typeof mollieResult === 'object' && 'error' in mollieResult) {
+    return { error: mollieResult.error }
   }
+  const betaalLink = (mollieResult as string | null) || null
 
   // CTA knop: permanente Rebu-URL die bij klikken de actuele Mollie-link
   // ophaalt (of een verse genereert als de huidige verlopen is).
@@ -1953,27 +2106,11 @@ export async function sendFactuurEmail(factuurId: string, options: {
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
     : (betaalLink || undefined)
   const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
-
-  // De groene CTA-knop in de e-mail-template is de enige plek waar de
-  // Mollie-link verschijnt. We injecteren géén URL meer in de body — dat
-  // gaf in de editor lelijke afgebroken links. De knop is gegarandeerd
-  // aanwezig zolang ctaLink gezet is (zie de hard-block hierboven).
   const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
 
-  // Genereer factuur PDF als bijlage
   const attachments: { filename: string; content: string }[] = []
-  try {
-    const { renderToBuffer } = await import('@react-pdf/renderer')
-    const { FactuurDocument } = await import('@/lib/pdf/factuur-template')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfBuffer = await renderToBuffer(FactuurDocument({ factuur }) as any)
-    const pdfBase64 = Buffer.from(pdfBuffer).toString('base64')
-    attachments.push({
-      filename: `Factuur-${factuur.factuurnummer}.pdf`,
-      content: pdfBase64,
-    })
-  } catch (err) {
-    console.error('Factuur PDF generatie voor email mislukt:', err)
+  if (pdfBase64) {
+    attachments.push({ filename: `Factuur-${factuur.factuurnummer}.pdf`, content: pdfBase64 })
   }
 
   // Extra bijlagen
@@ -3528,7 +3665,7 @@ export async function getDashboardData() {
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
-    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie:relaties(bedrijfsnaam), order:orders(id, ordernummer, onderwerp, offerte:offertes(id, project:projecten(id, naam)))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('status').order('vervaldatum', { ascending: true }),
+    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, offerte:offertes(id, project:projecten(id, naam))), offerte:offertes(id, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
@@ -3828,15 +3965,16 @@ export async function getDashboardData() {
   // Openstaande facturen (concept, verzonden, deels_betaald, vervallen)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const openstaandeFacturen = (openstaandeFacturenRes.data || []).map((f: any) => {
-    // Project (verkoopkans) via order → offerte → project
-    const projectNaam: string | null =
-      f.order?.offerte?.project?.naam || null
-    // Onderwerp: factuur.onderwerp > order.onderwerp > project.naam fallback
+    // Project (verkoopkans): via direct offerte → project of via order → offerte → project
+    const projectNaam: string | null = f.offerte?.project?.naam || f.order?.offerte?.project?.naam || null
+    const projectId: string | null = f.offerte?.project?.id || f.order?.offerte?.project?.id || null
     const onderwerp: string | null = f.onderwerp || f.order?.onderwerp || projectNaam || null
     return {
       id: f.id,
       factuurnummer: f.factuurnummer,
+      relatie_id: f.relatie?.id || f.relatie_id || null,
       relatie_bedrijfsnaam: f.relatie?.bedrijfsnaam || '-',
+      project_id: projectId,
       totaal: f.totaal || 0,
       betaald_bedrag: f.betaald_bedrag || 0,
       openstaand_bedrag: (f.totaal || 0) - (f.betaald_bedrag || 0),
@@ -3847,6 +3985,9 @@ export async function getDashboardData() {
       onderwerp,
     }
   })
+  // Sorteer op factuurnummer aflopend (nieuwste eerst). DB-sortering werkt
+  // alfabetisch maar het format "F-YYYY-NNNNN" is zero-padded dus correct.
+  openstaandeFacturen.sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
 
   // Top 50 klanten: aggregate by relatie_id
   const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
