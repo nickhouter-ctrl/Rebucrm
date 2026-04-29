@@ -139,9 +139,12 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const [tab, setTab] = useState<TabType>('alle')
   const [syncing, setSyncing] = useState(false)
 
-  const openstaandFacturen = facturen.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
-  const aanbetalingFacturen = facturen.filter(f => f.factuur_type === 'aanbetaling')
-  const restbetalingFacturen = facturen.filter(f => f.factuur_type === 'restbetaling')
+  // Sorteer op factuurnummer aflopend (nieuwste eerst). Format `F-YYYY-NNNNN`
+  // is zero-padded dus string-vergelijking is voldoende.
+  const sorted = [...facturen].sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
+  const openstaandFacturen = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
+  const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
+  const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
 
   async function handleSyncSnelstart() {
@@ -175,7 +178,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     const data = tab === 'openstaand' ? openstaandFacturen
       : tab === 'aanbetaling' ? aanbetalingFacturen
       : tab === 'restbetaling' ? restbetalingFacturen
-      : facturen
+      : sorted
     if (data.length === 0) return
     const rows = data.map(f => ({
       Factuurnummer: f.factuurnummer,
@@ -276,7 +279,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 
       {/* Tab content */}
       {tab === 'alle' && (
-        facturen.length === 0 ? (
+        sorted.length === 0 ? (
           <EmptyState
             icon={Receipt}
             title="Geen facturen"
@@ -291,7 +294,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         ) : (
           <DataTable
             columns={columns}
-            data={facturen}
+            data={sorted}
             searchPlaceholder="Zoek factuur..."
             onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
             mobileCard={(f) => ({
