@@ -6855,6 +6855,8 @@ export async function createProjectInline(data: {
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
+  // Markeer als wizard-draft. Als binnen 24u geen offerte aan dit project
+  // hangt, ruimt /api/cron/cleanup-concept-state hem op (zie cron-route).
   const { data: project, error } = await supabase
     .from('projecten')
     .insert({
@@ -6863,6 +6865,7 @@ export async function createProjectInline(data: {
       relatie_id: data.relatie_id,
       omschrijving: data.omschrijving || null,
       status: 'actief',
+      bron: 'wizard-draft',
     })
     .select('id, naam')
     .single()

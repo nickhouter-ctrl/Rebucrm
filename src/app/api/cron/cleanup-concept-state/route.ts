@@ -42,8 +42,34 @@ export async function GET(req: NextRequest) {
     }, { status: 500 })
   }
 
+  // Wizard-draft projecten: aangemaakt via createProjectInline tijdens een
+  // offerte-wizard. Als er na 24u nog geen offerte aan hangt, is de wizard
+  // afgebroken zonder save → opruimen. Taken worden ontkoppeld zodat ze op
+  // de relatie blijven hangen.
+  const eenDagGeleden = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { data: draftCandidates } = await sb
+    .from('projecten')
+    .select('id, offertes:offertes(id)')
+    .eq('bron', 'wizard-draft')
+    .lt('created_at', eenDagGeleden)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const draftIds = (draftCandidates || []).filter((p: any) => !p.offertes?.length).map((p: any) => p.id as string)
+  let draftsDeleted = 0
+  if (draftIds.length > 0) {
+    const BATCH = 200
+    for (let i = 0; i < draftIds.length; i += BATCH) {
+      const batch = draftIds.slice(i, i + BATCH)
+      await sb.from('taken').update({ project_id: null }).in('project_id', batch)
+      await sb.from('notities').delete().in('project_id', batch)
+      await sb.from('projecten').delete().in('id', batch)
+    }
+    draftsDeleted = draftIds.length
+  }
+
   return NextResponse.json({
     approved_deleted: deletedApproved?.length || 0,
     abandoned_deleted: deletedAbandoned?.length || 0,
+    wizard_drafts_deleted: draftsDeleted,
   })
 }
