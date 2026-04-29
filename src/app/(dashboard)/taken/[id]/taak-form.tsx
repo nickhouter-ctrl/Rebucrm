@@ -10,11 +10,13 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { SearchSelect } from '@/components/ui/search-select'
-import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw, Pencil, Phone, Mail, User } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, MessageSquare, Plus, Check, CheckCircle2, RotateCcw, Pencil, Phone, Mail, User, FileText, Paperclip, Send } from 'lucide-react'
 import Link from 'next/link'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { RecentTracker } from '@/components/layout/recent-tracker'
+import { EmailLogDialog } from '@/components/email-log-dialog'
+import { formatCurrency } from '@/lib/utils'
 
 type Notitie = {
   id: string
@@ -23,7 +25,7 @@ type Notitie = {
   gebruiker: { naam: string } | null
 }
 
-export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId, currentMedewerkerId }: {
+export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId, currentMedewerkerId, offerteStatus, offerteEmails = [] }: {
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string; relatie_id?: string }[]
   medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
@@ -32,7 +34,11 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   notities?: Notitie[]
   defaultRelatieId?: string
   currentMedewerkerId?: string | null
+  offerteStatus?: { status: string; offertenummer: string; datum: string | null; totaal: number | null } | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  offerteEmails?: any[]
 }) {
+  const [openEmailLogId, setOpenEmailLogId] = useState<string | null>(null)
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -295,6 +301,81 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
           </CardFooter>
         </Card>
       </form>
+
+      {/* Gekoppelde offerte — status + verzonden mails (alleen bij bestaande
+          taak met een offerte koppeling). Geeft de medewerker direct inzicht:
+          - Is de offerte verzonden?
+          - Wat heeft de klant ontvangen (inclusief bijlagen)? */}
+      {!isNew && offerteStatus && taak?.offerte_id && (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-gray-500" />
+            Gekoppelde offerte
+          </h3>
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+                <Link
+                  href={`/offertes/${taak.offerte_id as string}`}
+                  className="text-sm font-medium text-gray-900 hover:text-[#00a66e] inline-flex items-center gap-1"
+                >
+                  {offerteStatus.offertenummer}
+                  <span className="text-gray-400 hover:text-[#00a66e]">→</span>
+                </Link>
+                <div className="flex items-center gap-2">
+                  {offerteStatus.totaal != null && (
+                    <span className="text-xs text-gray-500">{formatCurrency(offerteStatus.totaal)}</span>
+                  )}
+                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium ${
+                    offerteStatus.status === 'geaccepteerd' ? 'bg-green-100 text-green-700'
+                    : offerteStatus.status === 'verzonden' ? 'bg-blue-100 text-blue-700'
+                    : offerteStatus.status === 'afgewezen' ? 'bg-red-100 text-red-700'
+                    : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {offerteStatus.status === 'verzonden' && <Send className="h-3 w-3" />}
+                    {offerteStatus.status === 'concept' ? 'Nog niet verzonden' : offerteStatus.status}
+                  </span>
+                </div>
+              </div>
+
+              {offerteEmails.length === 0 ? (
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  Deze offerte is nog niet per e-mail verstuurd.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-400 font-medium">Verzonden e-mails ({offerteEmails.length})</p>
+                  {offerteEmails.map((e) => {
+                    const bijlagen = Array.isArray(e.bijlagen) ? e.bijlagen : []
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => setOpenEmailLogId(e.id)}
+                        className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-[#00a66e] hover:bg-gray-50 transition-colors flex items-start gap-3"
+                      >
+                        <Mail className="h-4 w-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">{e.onderwerp || '(geen onderwerp)'}</div>
+                          <div className="text-xs text-gray-500 truncate">naar {e.aan} · {e.verstuurd_op ? format(new Date(e.verstuurd_op), 'd MMM yyyy HH:mm', { locale: nl }) : '—'}</div>
+                          {bijlagen.length > 0 && (
+                            <div className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+                              <Paperclip className="h-3 w-3" />
+                              {bijlagen.length} bijlage{bijlagen.length === 1 ? '' : 'n'}: {bijlagen.map((b: { filename: string }) => b.filename).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <EmailLogDialog emailLogId={openEmailLogId} onClose={() => setOpenEmailLogId(null)} />
 
       {/* Notities sectie - alleen bij bestaande taken */}
       {!isNew && (
