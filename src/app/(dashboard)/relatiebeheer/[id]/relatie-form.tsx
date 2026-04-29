@@ -8,7 +8,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { Save, Trash2, ArrowLeft, Search, Building2, Loader2, MapPin } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Search, Building2, Loader2, MapPin, Sparkles } from 'lucide-react'
 
 interface RelatieData {
   id: string
@@ -61,6 +61,57 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const emailRef = useRef<HTMLInputElement>(null)
   const telefoonRef = useRef<HTMLInputElement>(null)
   const websiteRef = useRef<HTMLInputElement>(null)
+  const opmerkingenRef = useRef<HTMLTextAreaElement>(null)
+  const [verrijken, setVerrijken] = useState(false)
+  const [verrijkResultaat, setVerrijkResultaat] = useState<string | null>(null)
+
+  async function aiVerrijk() {
+    const url = (websiteRef.current?.value || '').trim()
+    if (!url) { setError('Vul eerst een website-URL in'); return }
+    const finalUrl = url.startsWith('http') ? url : `https://${url}`
+    setError('')
+    setVerrijken(true)
+    setVerrijkResultaat(null)
+    try {
+      const res = await fetch('/api/ai/verrijk-bedrijf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ website: finalUrl, bedrijfsnaam: bedrijfsnaamRef.current?.value || '' }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Kon niet verrijken'); return }
+
+      // Vul lege velden — overschrijf NIETS dat al ingevuld is
+      const lege = (ref: React.RefObject<HTMLInputElement | null>) => !ref.current?.value?.trim()
+      if (data.algemeenEmail && lege(emailRef)) emailRef.current!.value = data.algemeenEmail
+      if (data.algemeenTelefoon && lege(telefoonRef)) telefoonRef.current!.value = data.algemeenTelefoon
+      // Eerste contactpersoon (indien geen contact gevuld)
+      const eersteContact = (data.contactpersonen || [])[0]
+      if (eersteContact?.naam) {
+        const contactInput = document.getElementById('contactpersoon') as HTMLInputElement | null
+        if (contactInput && !contactInput.value.trim()) contactInput.value = eersteContact.naam
+        if (eersteContact.email && lege(emailRef)) emailRef.current!.value = eersteContact.email
+        if (eersteContact.telefoon && lege(telefoonRef)) telefoonRef.current!.value = eersteContact.telefoon
+      }
+
+      // Voeg samenvatting toe aan opmerkingen
+      const samenvatting = [
+        data.omschrijving,
+        data.sector && `Sector: ${data.sector}`,
+        data.diensten?.length && `Diensten: ${data.diensten.join(', ')}`,
+        (data.contactpersonen || []).length > 1 && `Andere contacten: ${(data.contactpersonen as Array<{ naam: string; functie?: string }>).slice(1).map(c => `${c.naam}${c.functie ? ` (${c.functie})` : ''}`).join(', ')}`,
+        data.notities,
+      ].filter(Boolean).join('\n\n')
+      if (samenvatting && opmerkingenRef.current && !opmerkingenRef.current.value.trim()) {
+        opmerkingenRef.current.value = samenvatting
+      }
+      setVerrijkResultaat(`✓ Velden ingevuld op basis van ${finalUrl}`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Netwerkfout')
+    } finally {
+      setVerrijken(false)
+    }
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -292,10 +343,23 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
               <Input ref={kvkNummerRef} id="kvk_nummer" name="kvk_nummer" label="KVK-nummer" defaultValue={relatie?.kvk_nummer || ''} />
               <Input id="btw_nummer" name="btw_nummer" label="BTW-nummer" defaultValue={relatie?.btw_nummer || ''} />
               <Input id="iban" name="iban" label="IBAN" defaultValue={relatie?.iban || ''} />
+              <div className="flex gap-2 items-end">
+                <div className="flex-1">
+                  <Input ref={websiteRef} id="website" name="website" label="Website" defaultValue={(relatie as Record<string, unknown> | undefined)?.website as string || ''} placeholder="https://..." />
+                </div>
+                <Button type="button" variant="secondary" size="sm" onClick={aiVerrijk} disabled={verrijken} title="Vul lege velden + opmerkingen aan via AI op basis van de website">
+                  {verrijken ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  AI verrijken
+                </Button>
+              </div>
             </div>
+            {verrijkResultaat && (
+              <p className="text-xs text-green-700 bg-green-50 px-3 py-2 rounded-md">{verrijkResultaat}</p>
+            )}
             <div>
               <label htmlFor="opmerkingen" className="block text-sm font-medium text-gray-700 mb-1">Opmerkingen</label>
               <textarea
+                ref={opmerkingenRef}
                 id="opmerkingen"
                 name="opmerkingen"
                 rows={3}

@@ -7,7 +7,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle } from 'lucide-react'
+import { ArrowLeft, Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle, Sparkles } from 'lucide-react'
 
 interface PlaceResult {
   place_id: string
@@ -94,10 +94,16 @@ export function LeadsSearch() {
         title="Leads zoeken"
         description="Zoek potentiële klanten op bedrijfsnaam, branche of locatie"
         actions={
-          <Button variant="ghost" onClick={() => router.back()}>
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="secondary" onClick={() => router.push('/relatiebeheer/leads/ai-scout')}>
+              <Sparkles className="h-4 w-4" />
+              AI Lead-Scout
+            </Button>
+            <Button variant="ghost" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
               Terug
-          </Button>
+            </Button>
+          </div>
         }
       />
 

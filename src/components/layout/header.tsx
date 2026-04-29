@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronDown, LogOut, User, Menu } from 'lucide-react'
 import { SearchBar } from './search-bar'
 import { NotificationBell } from './notification-bell'
+import { VraagAanRebu } from './vraag-aan-rebu'
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -54,7 +55,8 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
         <SearchBar />
       </div>
 
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        <VraagAanRebu />
         <NotificationBell />
       <div className="relative">
         <button

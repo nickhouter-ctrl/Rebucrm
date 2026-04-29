@@ -284,6 +284,7 @@ export async function saveRelatie(formData: FormData) {
     kvk_nummer: formData.get('kvk_nummer') as string || null,
     btw_nummer: formData.get('btw_nummer') as string || null,
     iban: formData.get('iban') as string || null,
+    website: formData.get('website') as string || null,
     opmerkingen: formData.get('opmerkingen') as string || null,
     standaard_marge: formData.get('standaard_marge') ? parseFloat(formData.get('standaard_marge') as string) : null,
   }
@@ -5246,6 +5247,36 @@ export async function getRelatieDetail(id: string) {
 }
 
 // === LEADS ===
+// Converteer een AI-gescoute lead (uit `leads` tabel) naar een echte relatie.
+// Markeert de lead als geconverteerd via relatie_id zodat hij in de scout-lijst
+// blijft staan met "open relatie" knop.
+export async function convertAiLeadToRelatie(leadId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { data: lead } = await supabase.from('leads').select('*').eq('id', leadId).eq('administratie_id', adminId).maybeSingle()
+  if (!lead) return { error: 'Lead niet gevonden' }
+  if (lead.relatie_id) return { relatieId: lead.relatie_id as string, success: true }
+
+  const { data: nieuw, error } = await supabase.from('relaties').insert({
+    administratie_id: adminId,
+    bedrijfsnaam: lead.bedrijfsnaam,
+    contactpersoon: lead.contactpersoon || null,
+    email: lead.email || null,
+    telefoon: lead.telefoon || null,
+    postcode: lead.postcode || null,
+    plaats: lead.plaats || null,
+    type: lead.bedrijfsnaam?.toLowerCase().includes('particulier') ? 'particulier' : 'zakelijk',
+    opmerkingen: lead.notities || null,
+  }).select('id').single()
+  if (error) return { error: error.message }
+
+  await supabase.from('leads').update({ relatie_id: nieuw.id, status: 'geconverteerd' }).eq('id', leadId)
+  revalidatePath('/relatiebeheer')
+  revalidatePath('/relatiebeheer/leads/ai-scout')
+  return { relatieId: nieuw.id, success: true }
+}
+
 export async function saveLeadAsRelatie(data: {
   name: string
   address: string
