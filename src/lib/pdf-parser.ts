@@ -293,8 +293,9 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     let hm
     while ((hm = headerPattern.exec(text)) !== null) {
       const absIdx = hm.index
-      const immediate = text.substring(absIdx, absIdx + 80)
-      const hasFields = /Hoev\.\s*:\s*\d|Systeem\s*:/i.test(immediate)
+      const immediate = text.substring(absIdx, absIdx + 100)
+      // Accepteer zowel "Hoev.: 10" (oud) als "Hoeveelheid: 10" (nieuw)
+      const hasFields = /Hoev(?:\.|eelheid)\s*:\s*\d|Systeem\s*:/i.test(immediate)
       if (!hasFields) continue
       if (headerMatches.some(x => Math.abs(x.idx - absIdx) < 50)) continue
       headerMatches.push({ naam: hm[1].trim(), idx: absIdx })
@@ -303,7 +304,8 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
       const h = headerMatches[i]
       const sectionEnd = i + 1 < headerMatches.length ? headerMatches[i + 1].idx : text.length
       const section = text.substring(h.idx, sectionEnd)
-      const hoevMatch = section.match(/Hoev\.\s*:\s*(\d+)/)
+      // Oud EKO: "Hoev.: 10". Nieuw EKO (2026+): "Hoeveelheid: 10".
+      const hoevMatch = section.match(/Hoev(?:\.|eelheid)\s*:\s*(\d+)/)
       const kleurMatch = section.match(/Kleur\s*:\s*([\s\S]*?)(?:Systeem\s*:|Afmeting|\n\n)/)
       const systeemMatch = section.match(/Systeem\s*:\s*([^\n]+)/)
       headers.push({
@@ -371,6 +373,25 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     while ((priceMatch = pricePattern.exec(text)) !== null) {
       const prijsStr = priceMatch[2] || priceMatch[3]
       allPrices.push(parseFloat(prijsStr.replace(/\./g, '').replace(',', '.')))
+    }
+  }
+
+  // EKO-Okna nieuw format (2026+): "Prijs Element 10 x € 337,79 € 3.377,90"
+  // of "Prijs Deur € 2.077,11" — verzamel alle stukprijzen in volgorde van
+  // verschijning. Match-volgorde is identiek aan element-header-volgorde,
+  // dus de i-de prijs hoort bij het i-de element. Het aantal vóór "x" wordt
+  // ook bewaard zodat we later kunnen valideren dat hoeveelheden kloppen.
+  const ekoNieuwFormatPrijzen: number[] = []
+  const ekoNieuwFormatHoeveelheden: (number | null)[] = []
+  if (isEkoOkna) {
+    // Eerste groep = optioneel aantal, tweede groep = stukprijs (voor evt. 2e bedrag totaal)
+    const re = /Prijs\s+(?:Element|Deur)\s+(?:(\d+)\s*x\s*)?€\s*([\d][\d\s.]*,\d{2})/gi
+    let m
+    while ((m = re.exec(text)) !== null) {
+      const aantal = m[1] ? parseInt(m[1]) : null
+      const stuk = parseFloat(m[2].replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
+      ekoNieuwFormatPrijzen.push(stuk)
+      ekoNieuwFormatHoeveelheden.push(aantal)
     }
   }
 
@@ -467,8 +488,19 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
         }
       }
     } else if (isEkoOkna) {
-      // Prijs kan op meerdere manieren staan. Flexibele patronen met
-      // optionele whitespace/newlines tussen label en getal:
+      // EKO-Okna heeft TWEE formaten:
+      //
+      // 1. OUD: prijs in element-sectie, labels "Prijs van het element ...",
+      //    "Deurprijs ...", "Prijs gekoppeld element ...".
+      //
+      // 2. NIEUW (2026+): prijs staat op één regel ergens vóór of na de
+      //    element-header, format "Prijs Element 10 x € 337,79 € 3.377,90"
+      //    of "Prijs Deur € 2.077,11". Het aantal vóór "x" geeft hoeveelheid,
+      //    het eerste bedrag is de stukprijs en het tweede is totaal.
+      //
+      // We proberen eerst het oude format binnen de sectie. Als dat niets
+      // oplevert, gebruiken we de globale prijs-volgorde-mapping (zie hieronder
+      // bij `ekoNieuwFormatPrijzen`) en pakken de i-de prijs uit die lijst.
       const patterns = [
         /Prijs\s+van\s+het\s+element[\s\n]*\d+\s*x\s*([\d\s.]+,\d{2})/i,
         /Prijs\s+van\s+het\s+element[\s\n]*([\d\s.]+,\d{2})/i,
@@ -480,22 +512,14 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
         const m = searchText.match(p)
         if (m) { ekoPriceMatch = m; break }
       }
-      // Laatste redmiddel: pak het GROOTSTE bedrag in de sectie met formaat
-      // "X,XX E" of "X.XXX,XX E" — dit is vrijwel altijd de element-prijs
-      // omdat kleinere getallen afmetingen/gewicht zijn en "Prijs op aanvraag"
-      // niet matcht. Beperk tot bedragen > 30 om false positives uit te sluiten.
-      if (!ekoPriceMatch) {
-        const allPriceMatches = [...searchText.matchAll(/([\d][\d\s.]*,\d{2})\s*E\b/g)]
-        let maxPrijs = 0
-        for (const m of allPriceMatches) {
-          const v = parseFloat(m[1].replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
-          if (v > 30 && v > maxPrijs) maxPrijs = v
-        }
-        if (maxPrijs > 0) prijs = maxPrijs
-      }
       if (ekoPriceMatch) {
         const prijsStr = ekoPriceMatch[1].trim()
         prijs = parseFloat(prijsStr.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
+      } else {
+        // Nieuw format — pak via index uit de globale lijst (verzameld vóór
+        // deze loop, in volgorde van verschijning in de PDF).
+        const ekoPrijs = ekoNieuwFormatPrijzen[i]
+        if (ekoPrijs != null) prijs = ekoPrijs
       }
     } else {
       prijs = i < allPrices.length ? allPrices[i] : 0
