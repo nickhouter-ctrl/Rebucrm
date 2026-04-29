@@ -11,8 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { offerteStatussen, statusKleuren } from '@/lib/constants'
-import { Plus, FileText, Download, Trash2 } from 'lucide-react'
-import { schoneLeiConceptOffertes } from '@/lib/actions'
+import { Plus, FileText, Download } from 'lucide-react'
 
 const statusLabels: Record<string, string> = {
   concept: 'Concept', verzonden: 'Verzonden', geaccepteerd: 'Geaccepteerd',
@@ -77,17 +76,6 @@ const columns: ColumnDef<Offerte, unknown>[] = [
 export function OfferteList({ offertes }: { offertes: Offerte[] }) {
   const router = useRouter()
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
-  const [schoneLeiBezig, setSchoneLeiBezig] = useState(false)
-
-  async function handleSchoneLei() {
-    if (!confirm('Alle lege concept-offertes (zonder regels of bedrag) verwijderen?\n\nHandmatige concepten met inhoud blijven bestaan.')) return
-    setSchoneLeiBezig(true)
-    const res = await schoneLeiConceptOffertes()
-    setSchoneLeiBezig(false)
-    if ('error' in res && res.error) { alert(res.error); return }
-    alert(res.message)
-    router.refresh()
-  }
 
   const filteredOffertes = statusFilter
     ? offertes.filter(o => o.status === statusFilter)
@@ -124,10 +112,6 @@ export function OfferteList({ offertes }: { offertes: Offerte[] }) {
             <Button variant="ghost" size="sm" onClick={exportXlsx} disabled={filteredOffertes.length === 0}>
               <Download className="h-3.5 w-3.5" />
               Excel
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleSchoneLei} disabled={schoneLeiBezig} title="Verwijdert lege concept-offertes (zonder regels of bedrag) — handmatige concepten met inhoud blijven staan">
-              <Trash2 className="h-3.5 w-3.5" />
-              {schoneLeiBezig ? 'Bezig...' : 'Schone lei'}
             </Button>
             <Link href="/offertes/archief">
               <Button variant="ghost">Archief</Button>
