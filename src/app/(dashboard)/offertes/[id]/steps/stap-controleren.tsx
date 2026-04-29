@@ -89,19 +89,25 @@ export function StapControleren({
     })
   }, [offerte])
 
-  // Auto-bezorgkosten logica
+  // Auto-bezorgkosten logica.
+  // Eerder werd alleen de "Kunststof kozijnen leveren" regel meegerekend, maar
+  // bij PDF-import zijn regels "Element 001", "Deur 008", "Aluplast IDEAL"
+  // etc. — die match werkte dan niet en bezorgkosten werden niet toegevoegd.
+  // Nu: tellen we ALLE product-regels op (excl. bezorgkosten en korting-regels).
   const updateBezorgkosten = useCallback((currentRegels: Regel[]) => {
-    const kozijnenRegel = currentRegels.find(r => {
+    const productTotaal = currentRegels.reduce((sum, r) => {
       const o = r.omschrijving.toLowerCase()
-      return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
-    })
-    if (!kozijnenRegel) return currentRegels
+      if (o === BEZORGKOSTEN_LABEL.toLowerCase()) return sum
+      if (o.includes('korting')) return sum
+      const aantal = parseFloat(String(r.aantal)) || 0
+      const prijs = parseFloat(String(r.prijs)) || 0
+      return sum + aantal * prijs
+    }, 0)
 
-    const kozijnenTotaal = (parseFloat(String(kozijnenRegel.aantal)) || 0) * (parseFloat(String(kozijnenRegel.prijs)) || 0)
     const bezorgIndex = currentRegels.findIndex(r => r.omschrijving === BEZORGKOSTEN_LABEL)
     const heeftBezorgkosten = bezorgIndex !== -1
 
-    if (kozijnenTotaal < BEZORGKOSTEN_DREMPEL && kozijnenTotaal > 0) {
+    if (productTotaal < BEZORGKOSTEN_DREMPEL && productTotaal > 0) {
       if (!heeftBezorgkosten) {
         return [...currentRegels, { omschrijving: BEZORGKOSTEN_LABEL, aantal: 1, prijs: BEZORGKOSTEN_BEDRAG, btw_percentage: 21 }]
       }
@@ -113,18 +119,23 @@ export function StapControleren({
     return currentRegels
   }, [])
 
+  // Hash van product-regels — verandert wanneer prijzen/aantallen wijzigen,
+  // zodat de bezorgkosten-update meeloopt. Bezorg/korting-regels uitgesloten
+  // om infinite loop te voorkomen.
+  const productHash = regels
+    .filter(r => {
+      const o = r.omschrijving.toLowerCase()
+      return o !== BEZORGKOSTEN_LABEL.toLowerCase() && !o.includes('korting')
+    })
+    .map(r => `${r.aantal}x${r.prijs}`)
+    .join('|')
+
   useEffect(() => {
     if (!offerteType) return
     const updated = updateBezorgkosten(regels)
     if (updated !== regels) onRegelsChange(updated)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [regels.find(r => {
-    const o = r.omschrijving.toLowerCase()
-    return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
-  })?.prijs, regels.find(r => {
-    const o = r.omschrijving.toLowerCase()
-    return o.includes('kozijn') && (o.includes('lever') || o.includes('kunststof'))
-  })?.aantal])
+  }, [productHash, offerteType])
 
   function addRegel() {
     onRegelsChange([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
