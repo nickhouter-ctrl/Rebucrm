@@ -3665,7 +3665,7 @@ export async function getDashboardData() {
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
-    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, offerte:offertes(id, project:projecten(id, naam))), offerte:offertes(id, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
+    supabase.from('facturen').select('id, factuurnummer, totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, offerte:offertes(id, totaal, project:projecten(id, naam))), offerte:offertes(id, totaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
@@ -3968,6 +3968,8 @@ export async function getDashboardData() {
     // Project (verkoopkans): via direct offerte → project of via order → offerte → project
     const projectNaam: string | null = f.offerte?.project?.naam || f.order?.offerte?.project?.naam || null
     const projectId: string | null = f.offerte?.project?.id || f.order?.offerte?.project?.id || null
+    // Verkoopkans-totaal = totaal van de bron-offerte (of de order indien geen offerte)
+    const verkoopkansTotaal = Number(f.offerte?.totaal || f.order?.offerte?.totaal || f.order?.totaal || 0) || null
     const onderwerp: string | null = f.onderwerp || f.order?.onderwerp || projectNaam || null
     return {
       id: f.id,
@@ -3976,6 +3978,7 @@ export async function getDashboardData() {
       relatie_bedrijfsnaam: f.relatie?.bedrijfsnaam || '-',
       project_id: projectId,
       totaal: f.totaal || 0,
+      verkoopkans_totaal: verkoopkansTotaal,
       betaald_bedrag: f.betaald_bedrag || 0,
       openstaand_bedrag: (f.totaal || 0) - (f.betaald_bedrag || 0),
       vervaldatum: f.vervaldatum,

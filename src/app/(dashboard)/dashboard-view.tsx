@@ -87,6 +87,7 @@ interface DashboardData {
     relatie_bedrijfsnaam: string
     project_id: string | null
     totaal: number
+    verkoopkans_totaal: number | null
     betaald_bedrag: number
     openstaand_bedrag: number
     vervaldatum: string | null
@@ -687,7 +688,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verkoopkans</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Factuur</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Type</th>
-                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal / Betaald</th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal verkoopkans</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand</th>
                     <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verloop</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Status</th>
@@ -716,9 +717,10 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                         </td>
                         <td className="px-3 py-3"><Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{f.factuurnummer}</Link></td>
                         <td className="px-3 py-3"><span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span></td>
-                        <td className="px-3 py-3 text-right text-xs">
-                          <div className="text-gray-700">{formatCurrency(f.totaal)}</div>
-                          {f.betaald_bedrag > 0 && <div className="text-green-700">betaald: {formatCurrency(f.betaald_bedrag)}</div>}
+                        <td className="px-3 py-3 text-right text-sm text-gray-700">
+                          {f.verkoopkans_totaal != null && f.verkoopkans_totaal > 0
+                            ? formatCurrency(f.verkoopkans_totaal)
+                            : <span className="text-gray-300">—</span>}
                         </td>
                         <td className={`px-3 py-3 text-sm text-right font-semibold ${isVervallen ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(f.openstaand_bedrag)}</td>
                         <td className="px-3 py-3 text-center">{dagen !== null && <DagenPill dagen={dagen} isOver={!!isVervallen} />}</td>
