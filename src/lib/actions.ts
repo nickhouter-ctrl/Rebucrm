@@ -1213,6 +1213,20 @@ export async function maakEindafrekening(aanbetalingId: string) {
       offerteOnderwerp = off.onderwerp || null
     }
   }
+
+  // Tribe-override: voor de 22 aanbetalingen die we zelf in TRIBE_EINDAFREKENING
+  // hebben verzameld, kennen we het 'echte' offerte-subtotaal (handmatig gechecked
+  // tegen Tribe). Als de gekoppelde offerte een ander bedrag of onderwerp heeft
+  // (verkeerde koppeling), wint Tribe — dat is de ground-truth voor deze klanten.
+  // Voorbeelden: Geerlofs/Bram aanbet was foutief gekoppeld aan offerte "Kirsten"
+  // (€12k) terwijl het echt €5.607,85 moest zijn.
+  const tribeTotaal = TRIBE_OFFERTE_TOTALEN.get(aanbet.factuurnummer)
+  if (tribeTotaal && Math.abs(tribeTotaal - offerteSubtotaal) > 1) {
+    offerteSubtotaal = tribeTotaal
+    if (!offertenummer) offertenummer = '(Tribe)'
+    // Onderwerp-mismatch check skippen — we vertrouwen Tribe expliciet.
+    offerteOnderwerp = null
+  }
   // Ook via order: als offerte niet direct gekoppeld is, haal via order.offerte_id
   if (!offerteSubtotaal && aanbet.order_id) {
     const { data: order } = await supabase.from('orders').select('subtotaal, offerte:offertes(subtotaal, offertenummer)').eq('id', aanbet.order_id).single()
