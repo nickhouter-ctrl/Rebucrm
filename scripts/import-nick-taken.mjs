@@ -215,35 +215,33 @@ if (!dryRun) {
   else console.log(`✓ ${burgersInserts.length} taken aangemaakt voor Nick Burgers`)
 }
 
-// === Stap 2: Nick Houter — additief, skip duplicaten ===
+// === Stap 2: Nick Houter — full reset, exact de 66 uit CSV ===
 console.log(`\n=== Nick Houter ===`)
 const { data: huidigeHouter } = await sb.from('taken')
-  .select('id, titel, deadline, relatie_id')
+  .select('id')
   .or(`medewerker_id.eq.${houter.id},toegewezen_aan.eq.${houter.profiel_id}`)
-console.log(`Huidige taken: ${huidigeHouter?.length || 0} (blijven staan)`)
-
-// Bouw dedup-key set
-const dupSet = new Set()
-for (const t of (huidigeHouter || [])) {
-  dupSet.add(`${(t.titel || '').toLowerCase()}|${t.relatie_id || ''}|${(t.deadline || '').slice(0, 10)}`)
-}
+console.log(`Huidige taken: ${huidigeHouter?.length || 0} → wordt verwijderd`)
 
 const houterInserts = []
-let skipped = 0
 for (const rec of houterRecords) {
   const taak = await importRecord(rec, houter, houter.profiel_id)
-  const key = `${taak.titel.toLowerCase()}|${taak.relatie_id || ''}|${(taak.deadline || '').slice(0, 10)}`
-  if (dupSet.has(key)) { skipped++; continue }
   houterInserts.push(taak)
-  dupSet.add(key)
 }
-console.log(`Te importeren: ${houterInserts.length} taken (${skipped} duplicaten geskipt)`)
+console.log(`Te importeren: ${houterInserts.length} taken`)
 
-if (!dryRun && houterInserts.length > 0) {
+if (!dryRun && huidigeHouter?.length) {
+  const ids = huidigeHouter.map(t => t.id)
+  await sb.from('taak_notities').delete().in('taak_id', ids)
+  const { error } = await sb.from('taken').delete().in('id', ids)
+  if (error) console.error('Verwijderen oude Houter-taken faalde:', error.message)
+  else console.log(`Verwijderd: ${ids.length} oude taken`)
+}
+
+if (!dryRun) {
   for (const t of houterInserts) t.taaknummer = await nextTaaknummer()
   const { error } = await sb.from('taken').insert(houterInserts)
   if (error) console.error('Insert Houter faalde:', error.message)
-  else console.log(`✓ ${houterInserts.length} nieuwe taken voor Nick Houter`)
+  else console.log(`✓ ${houterInserts.length} taken aangemaakt voor Nick Houter`)
 }
 
 if (dryRun) console.log('\n[DRY-RUN] run met "fix" om toe te passen')

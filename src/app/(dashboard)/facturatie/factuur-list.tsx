@@ -10,8 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw, Download } from 'lucide-react'
-import { syncSnelstartBetalingen } from '@/lib/actions'
+import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw, Download, Send, Loader2 } from 'lucide-react'
+import { syncSnelstartBetalingen, verstuurFactuurSnel } from '@/lib/actions'
+import Link from 'next/link'
 import { showToast } from '@/components/ui/toast'
 
 interface Factuur {
@@ -25,8 +26,12 @@ interface Factuur {
   btw_totaal: number | null
   betaald_bedrag: number
   factuur_type: string | null
-  relatie: { bedrijfsnaam: string } | null
-  order: { id: string; ordernummer: string; status: string; onderwerp: string | null } | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  relatie: { id?: string; bedrijfsnaam: string } | any | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  order: { id: string; ordernummer: string; status: string; onderwerp: string | null; totaal?: number; subtotaal?: number; offerte?: any } | any | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  offerte?: { id: string; totaal?: number; subtotaal?: number; project?: { id: string; naam: string } } | any | null
 }
 
 interface OrderFactuurInfo {
@@ -75,7 +80,12 @@ const typeIcons: Record<string, string> = {
   volledig: '●',
 }
 
-const columns: ColumnDef<Factuur, unknown>[] = [
+function buildColumns(
+  versturenLoading: string | null,
+  versturenStatus: Record<string, 'ok' | 'error'>,
+  onVerstuur: (e: React.MouseEvent, id: string) => void,
+): ColumnDef<Factuur, unknown>[] {
+  return [
   {
     accessorKey: 'factuurnummer',
     header: 'Nummer',
@@ -96,21 +106,42 @@ const columns: ColumnDef<Factuur, unknown>[] = [
     ),
   },
   { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => formatDateShort(getValue() as string) },
-  { id: 'relatie', header: 'Relatie', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
   {
-    id: 'klus',
-    header: 'Klus',
-    accessorFn: (row) => row.order?.ordernummer || '',
-    cell: ({ row }) => row.original.order ? (
-      <span className="text-sm text-gray-600">{row.original.order.ordernummer}</span>
-    ) : <span className="text-gray-300">-</span>,
+    id: 'relatie',
+    header: 'Klant',
+    accessorFn: (row) => row.relatie?.bedrijfsnaam || '-',
+    cell: ({ row }) => {
+      const r = row.original.relatie
+      return r?.id ? (
+        <Link href={`/relatiebeheer/${r.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-[#00a66e] hover:underline">
+          {r.bedrijfsnaam}
+        </Link>
+      ) : (r?.bedrijfsnaam || '-')
+    },
+  },
+  {
+    id: 'verkoopkans',
+    header: 'Verkoopkans',
+    accessorFn: (row) => row.offerte?.project?.naam || row.order?.offerte?.project?.naam || row.order?.onderwerp || '',
+    cell: ({ row }) => {
+      const project = row.original.offerte?.project || row.original.order?.offerte?.project
+      const naam = project?.naam || row.original.order?.onderwerp
+      return project?.id ? (
+        <Link href={`/projecten/${project.id}`} onClick={(e) => e.stopPropagation()} className="text-sm hover:text-[#00a66e] hover:underline">
+          {naam}
+        </Link>
+      ) : (naam ? <span className="text-sm text-gray-600">{naam}</span> : <span className="text-gray-300">-</span>)
+    },
   },
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
   {
-    id: 'bedrag_excl',
-    header: 'Bedrag excl. BTW',
-    accessorFn: (row) => row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0)),
-    cell: ({ getValue }) => formatCurrency(getValue() as number),
+    id: 'verkoopkans_totaal',
+    header: 'Totaal verkoopkans excl.',
+    accessorFn: (row) => Number(row.offerte?.subtotaal || row.order?.offerte?.subtotaal || row.order?.subtotaal || 0),
+    cell: ({ getValue }) => {
+      const v = getValue() as number
+      return v > 0 ? <span className="text-sm text-gray-700">{formatCurrency(v)}</span> : <span className="text-gray-300">-</span>
+    },
   },
   {
     id: 'openstaand',
@@ -130,7 +161,31 @@ const columns: ColumnDef<Factuur, unknown>[] = [
     header: 'Vervaldatum',
     cell: ({ getValue }) => getValue() ? formatDateShort(getValue() as string) : '-',
   },
-]
+  {
+    id: 'actie',
+    header: '',
+    cell: ({ row }) => {
+      const f = row.original
+      const kanVerstuurd = f.status === 'concept' || f.status === 'vervallen'
+      const status = versturenStatus[f.id]
+      if (!kanVerstuurd) return null
+      return (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="h-7 text-xs"
+          onClick={(e) => onVerstuur(e, f.id)}
+          disabled={versturenLoading === f.id}
+          title="Versturen via e-mail"
+        >
+          {versturenLoading === f.id ? <Loader2 className="h-3 w-3 animate-spin" /> : status === 'ok' ? '✓' : <Send className="h-3 w-3" />}
+          {versturenLoading === f.id ? '...' : status === 'ok' ? 'Verzonden' : 'Versturen'}
+        </Button>
+      )
+    },
+  },
+  ]
+}
 
 type TabType = 'alle' | 'openstaand' | 'aanbetaling' | 'restbetaling' | 'per-klus'
 
@@ -138,6 +193,30 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const router = useRouter()
   const [tab, setTab] = useState<TabType>('alle')
   const [syncing, setSyncing] = useState(false)
+  const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
+  const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
+
+  async function handleSnelVersturen(e: React.MouseEvent, factuurId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (versturenLoading) return
+    setVersturenLoading(factuurId)
+    try {
+      const res = await verstuurFactuurSnel(factuurId)
+      if ('error' in res && res.error) {
+        setVersturenStatus(prev => ({ ...prev, [factuurId]: 'error' }))
+        showToast(`Versturen mislukt: ${res.error}`, 'error')
+      } else {
+        setVersturenStatus(prev => ({ ...prev, [factuurId]: 'ok' }))
+        showToast('Factuur verzonden', 'success')
+        router.refresh()
+      }
+    } finally {
+      setVersturenLoading(null)
+    }
+  }
+
+  const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
 
   // Sorteer op factuurnummer aflopend (nieuwste eerst). Format `F-YYYY-NNNNN`
   // is zero-padded dus string-vergelijking is voldoende.
