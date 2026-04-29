@@ -44,6 +44,7 @@ export function RegionEditor({
   const [loading, setLoading] = useState(false)
   const [pageSize, setPageSize] = useState<{ w: number; h: number }>({ w: 1, h: 1 })
   const [scale, setScale] = useState(1)
+  const [zoom, setZoom] = useState(1)  // user zoom-multiplier (1 = fit-to-screen)
   const [saving, setSaving] = useState(false)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -93,7 +94,11 @@ export function RegionEditor({
       const containerHeight = (containerRef.current?.clientHeight ?? 800) - 50
       const sx = (containerWidth - 16) / baseViewport.width
       const sy = containerHeight / baseViewport.height
-      const renderScale = Math.max(0.5, Math.min(2.5, Math.min(sx, sy)))
+      // Fit-to-screen: kleinste scale zodat hele pagina past, vermenigvuldigd
+      // met user-zoom. GEEN floor zodat brede/lange pagina's volledig zichtbaar
+      // blijven (eerder was 0.5 = bottom/right werd afgeknipt).
+      const fitScale = Math.min(sx, sy)
+      const renderScale = Math.min(3, fitScale * zoom)
       const viewport = page.getViewport({ scale: renderScale })
       const canvas = canvasRef.current!
       canvas.width = viewport.width
@@ -104,7 +109,7 @@ export function RegionEditor({
       setScale(renderScale)
     })()
     return () => { cancelled = true }
-  }, [open, pdfDoc, pageNum])
+  }, [open, pdfDoc, pageNum, zoom])
 
   // Coords helper: client (px) → PDF native coords
   const clientToPdf = useCallback((clientX: number, clientY: number) => {
@@ -206,7 +211,7 @@ export function RegionEditor({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white rounded-xl shadow-2xl flex flex-col max-w-6xl w-full" style={{ height: '90vh' }}>
+      <div className="bg-white rounded-xl shadow-2xl flex flex-col w-full" style={{ height: '95vh', maxWidth: '95vw' }}>
         <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
           <div>
             <h3 className="font-semibold text-gray-900">Wis-regio's bewerken — pagina {pageNum}</h3>
@@ -214,9 +219,32 @@ export function RegionEditor({
               Sleep op leeg canvas voor nieuwe regio • Klik op regio + sleep hoek om te resizen • Hover op regio voor verwijder-knop
             </p>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
-            <X className="h-5 w-5 text-gray-500" />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 border border-gray-200 rounded-md bg-white">
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.max(0.4, z - 0.2))}
+                className="px-2 py-1 hover:bg-gray-100 text-sm font-medium text-gray-700"
+                title="Uitzoomen"
+              >−</button>
+              <span className="px-2 text-xs text-gray-600 min-w-[3rem] text-center">{Math.round(zoom * 100)}%</span>
+              <button
+                type="button"
+                onClick={() => setZoom(z => Math.min(3, z + 0.2))}
+                className="px-2 py-1 hover:bg-gray-100 text-sm font-medium text-gray-700"
+                title="Inzoomen"
+              >+</button>
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                className="px-2 py-1 hover:bg-gray-100 text-[11px] text-gray-600 border-l border-gray-200"
+                title="Reset naar fit-to-screen"
+              >Reset</button>
+            </div>
+            <button type="button" onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+              <X className="h-5 w-5 text-gray-500" />
+            </button>
+          </div>
         </div>
 
         <div ref={containerRef} className="flex-1 overflow-auto bg-gray-100 relative p-2">
