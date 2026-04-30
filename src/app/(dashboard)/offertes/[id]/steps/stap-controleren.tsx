@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, handleNumberPaste } from '@/lib/utils'
-import { Plus, X, Save, Trash2, ArrowLeft, FolderKanban, FileText, Upload, Loader2, CheckCircle } from 'lucide-react'
+import { Plus, X, Save, Trash2, ArrowLeft, FolderKanban, FileText, Upload, Loader2, CheckCircle, ChevronUp, ChevronDown } from 'lucide-react'
 import type { ParsedPdfResult, RenderedTekening } from './stap-tekeningen'
 
 interface Regel {
@@ -193,6 +193,16 @@ export function StapControleren({
 
   function removeRegel(index: number) {
     onRegelsChange(regels.filter((_, i) => i !== index))
+  }
+
+  function moveRegel(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= regels.length) return
+    const updated = [...regels]
+    const tmp = updated[index]
+    updated[index] = updated[target]
+    updated[target] = tmp
+    onRegelsChange(updated)
   }
 
   function updateRegel(index: number, field: keyof Regel, value: string | number) {
@@ -789,9 +799,29 @@ export function StapControleren({
                     </div>
                     <div className="col-span-1">
                       {!isBezorgkosten && (
-                        <button type="button" onClick={() => removeRegel(i)} className="p-1 text-gray-400 hover:text-red-500">
-                          <X className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => moveRegel(i, -1)}
+                            disabled={i === 0}
+                            title="Omhoog"
+                            className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveRegel(i, 1)}
+                            disabled={i >= regels.length - 1 || regels[i + 1]?.omschrijving?.toLowerCase() === BEZORGKOSTEN_LABEL.toLowerCase()}
+                            title="Omlaag"
+                            className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => removeRegel(i)} title="Verwijderen" className="p-1 text-gray-400 hover:text-red-500">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
