@@ -16,6 +16,7 @@ import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 interface TePlannenOrder {
   id: string
   ordernummer: string
+  relatie_id: string | null
   relatie_bedrijfsnaam: string
   relatie_contactpersoon: string | null
   relatie_email: string | null
@@ -51,10 +52,11 @@ interface DashboardData {
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
   takenPerCollega: { naam: string; profiel_id: string; aantal: number; bellen: number; uitwerken: number; perTitel: { titel: string; aantal: number }[] }[]
-  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null; bedrag: number | null; relatie_naam: string | null }[]
+  mijnTaken: { id: string; titel: string; deadline: string | null; prioriteit: string; toegewezen_naam: string | null; bedrag: number | null; relatie_id: string | null; relatie_naam: string | null }[]
   openOffertesList: {
     id: string
     offertenummer: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     project_naam: string | null
     totaal: number
@@ -69,12 +71,14 @@ interface DashboardData {
     status: string
     onderwerp: string | null
     totaal: number
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     restbetaling: { id: string; factuurnummer: string; status: string; totaal: number } | null
   }[]
   geaccepteerdeOffertes: {
     id: string
     offertenummer: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     onderwerp: string | null
     totaal: number
@@ -131,6 +135,7 @@ interface DashboardData {
   recenteOffertes: {
     id: string
     offertenummer: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     project_naam: string | null
     status: string
@@ -140,6 +145,7 @@ interface DashboardData {
   moetBesteldOrders: {
     id: string
     ordernummer: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     offerte_nummer: string | null
     onderwerp: string | null
@@ -152,6 +158,7 @@ interface DashboardData {
     status: string
     created_at: string
     bron: string
+    relatie_id: string | null
     relatie_bedrijfsnaam: string
     heeft_offerte: boolean
     aantal_emails: number
@@ -176,6 +183,16 @@ function DagenPill({ dagen, isOver }: { dagen: number; isOver: boolean }) {
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${color}`}>
       {isOver ? `${dagen}d over` : `${dagen}d`}
     </span>
+  )
+}
+
+// Klant-naam: link naar /relatiebeheer/[id] als id bekend, anders gewone tekst.
+function KlantNaam({ id, naam, className = '' }: { id: string | null | undefined; naam: string; className?: string }) {
+  if (!id) return <span className={className}>{naam}</span>
+  return (
+    <Link href={`/relatiebeheer/${id}`} className={`hover:text-[#00a66e] hover:underline ${className}`}>
+      {naam}
+    </Link>
   )
 }
 
@@ -644,7 +661,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <tbody>
                   {data.geaccepteerdeOffertes.map(o => (
                     <tr key={o.id} className="border-t border-gray-50 hover:bg-emerald-50/30 transition-colors">
-                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.offertenummer}</Link></td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
                       <td className="px-3 py-3 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
@@ -663,7 +680,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   <div key={o.id} className="px-4 py-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></p>
                         <Link href={`/offertes/${o.id}`} className="text-xs text-[#00a66e] font-medium">{o.offertenummer}</Link>
                         <span className="text-xs text-gray-400 ml-2">{formatDateShort(o.datum)}</span>
                       </div>
@@ -790,7 +807,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <tbody>
                   {data.moetBesteldOrders.map(o => (
                     <tr key={o.id} className="border-t border-gray-50 hover:bg-orange-50/20 transition-colors">
-                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.ordernummer}</Link></td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
                       <td className="px-3 py-3 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
@@ -808,7 +825,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   <div key={o.id} className="px-4 py-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></p>
                         <Link href={`/orders/${o.id}`} className="text-xs text-[#00a66e] font-medium">{o.ordernummer}</Link>
                         <span className="text-xs text-gray-400 ml-2">{formatDateShort(o.datum)}</span>
                       </div>
@@ -840,7 +857,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   {(data.openVerkoopkansen || []).map(v => (
                     <tr key={v.id} className="border-t border-gray-50 hover:bg-gray-50/50 cursor-pointer transition-colors" onClick={() => router.push(`/projecten/${v.id}`)}>
                       <td className="px-5 py-3 text-sm font-medium text-gray-900">{v.naam}</td>
-                      <td className="px-3 py-3 text-sm text-gray-500">{v.relatie_bedrijfsnaam}</td>
+                      <td className="px-3 py-3 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                        <KlantNaam id={v.relatie_id} naam={v.relatie_bedrijfsnaam} />
+                      </td>
                       <td className="px-3 py-3 text-sm text-gray-400">{formatDateShort(v.created_at)}</td>
                       <td className="px-3 py-3 text-center">
                         {v.heeft_offerte ? (
@@ -900,7 +919,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               <tbody>
                 {data.openOffertesList.map(o => (
                   <tr key={o.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                    <td className="px-5 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                    <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
                     <td className="px-3 py-3">
                       <Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.offertenummer}</Link>
                       {o.project_naam && <span className="text-[11px] text-gray-400 ml-1.5">{o.project_naam}</span>}
@@ -952,7 +971,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   const dagen = dagenVerschil(l.leverdatum)
                   return (
                     <tr key={l.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{l.relatie_bedrijfsnaam}</td>
+                      <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={l.relatie_id} naam={l.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/orders/${l.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{l.ordernummer}</Link></td>
                       <td className="px-3 py-3 text-sm text-gray-600">{formatDateShort(l.leverdatum)}</td>
                       <td className="px-3 py-3 text-center"><DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} /></td>
@@ -1029,7 +1048,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <tbody>
                   {data.tePlannenOrders.map(o => (
                     <tr key={o.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
-                      <td className="px-5 py-3 text-sm font-medium text-gray-900">{o.relatie_bedrijfsnaam}</td>
+                      <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.ordernummer}</Link></td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
                       <td className="px-5 py-3 text-right">
@@ -1046,7 +1065,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   <div key={o.id} className="px-4 py-3 space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{o.relatie_bedrijfsnaam}</p>
+                        <p className="text-sm font-medium text-gray-900 truncate"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></p>
                         <Link href={`/orders/${o.id}`} className="text-xs text-[#00a66e] font-medium">{o.ordernummer}</Link>
                       </div>
                       <p className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(o.totaal)}</p>
@@ -1093,7 +1112,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       </td>
                       <td className="px-3 py-3 text-sm font-medium text-gray-900">{t.titel}</td>
                       {toonToegewezen && <td className="px-3 py-3 text-sm text-gray-500">{t.toegewezen_naam || '-'}</td>}
-                      <td className="px-3 py-3 text-sm text-gray-500">{t.relatie_naam || '-'}</td>
+                      <td className="px-3 py-3 text-sm text-gray-500" onClick={(e) => e.stopPropagation()}>
+                        {t.relatie_naam ? <KlantNaam id={t.relatie_id} naam={t.relatie_naam} /> : '-'}
+                      </td>
                       <td className="px-3 py-3 text-sm text-right font-medium text-gray-900">{t.bedrag ? formatCurrency(t.bedrag) : '-'}</td>
                       <td className="px-3 py-3">
                         {t.deadline ? (
@@ -1125,7 +1146,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900">{t.titel}</p>
                           {toonToegewezen && t.toegewezen_naam && <p className="text-xs text-gray-400">{t.toegewezen_naam}</p>}
-                          {t.relatie_naam && <p className="text-xs text-gray-400">{t.relatie_naam}</p>}
+                          {t.relatie_naam && (
+                            <p className="text-xs text-gray-400" onClick={(e) => e.stopPropagation()}>
+                              <KlantNaam id={t.relatie_id} naam={t.relatie_naam} />
+                            </p>
+                          )}
                         </div>
                         <div className="shrink-0 text-right flex items-center gap-1">
                           <Badge status={t.prioriteit} />

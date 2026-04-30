@@ -3713,15 +3713,15 @@ export async function getDashboardData() {
   const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
     supabase.from('relaties').select('type', { count: 'exact' }).eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }).limit(200),
-    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }).limit(200),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
     supabase.from('facturen').select('id, factuurnummer, totaal, subtotaal, btw_totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, subtotaal, offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))), offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
-    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
   ])
 
   const relatiesData = relatiesRes.data || []
@@ -3880,15 +3880,19 @@ export async function getDashboardData() {
   const recenteOffertes = [...laatstePerProjectVoorLijst.values(), ...offertesZonderProjectLijst]
     .sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
     .slice(0, 15)
-    .map(o => ({
-      id: o.id,
-      offertenummer: o.offertenummer,
-      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-      project_naam: (o.project as { naam: string } | null)?.naam || null,
-      status: o.status,
-      totaal: o.totaal || 0,
-      datum: o.datum,
-    }))
+    .map(o => {
+      const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
+      return {
+        id: o.id,
+        offertenummer: o.offertenummer,
+        relatie_id: rel?.id || null,
+        relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+        project_naam: (o.project as { naam: string } | null)?.naam || null,
+        status: o.status,
+        totaal: o.totaal || 0,
+        datum: o.datum,
+      }
+    })
 
   // Organisaties
   const organisaties = {
@@ -3972,6 +3976,7 @@ export async function getDashboardData() {
       prioriteit: t.prioriteit,
       toegewezen_naam: null,
       bedrag: (t.offerte as unknown as { totaal: number } | null)?.totaal || null,
+      relatie_id: (t as { relatie_id?: string | null }).relatie_id || null,
       relatie_naam: (t.relatie as unknown as { bedrijfsnaam: string } | null)?.bedrijfsnaam || null,
     }))
 
@@ -3980,10 +3985,12 @@ export async function getDashboardData() {
   const openOffertesList = (openOffertesRes.data || []).map(o => {
     const datumDate = new Date(o.datum)
     const dagenOpen = Math.floor((vandaag.getTime() - datumDate.getTime()) / (1000 * 60 * 60 * 24))
+    const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
     return {
       id: o.id,
       offertenummer: o.offertenummer,
-      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      relatie_id: rel?.id || null,
+      relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
       project_naam: (o.project as { naam: string } | null)?.naam || null,
       totaal: o.totaal || 0,
       datum: o.datum,
@@ -3992,22 +3999,27 @@ export async function getDashboardData() {
   })
 
   // Te plannen leveringen
-  const tePlannenOrders = (tePlannenRes.data || []).map(o => ({
-    id: o.id,
-    ordernummer: o.ordernummer,
-    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-    relatie_contactpersoon: (o.relatie as { contactpersoon: string | null } | null)?.contactpersoon || null,
-    relatie_email: (o.relatie as { email: string | null } | null)?.email || null,
-    offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
-    onderwerp: o.onderwerp,
-    totaal: o.totaal || 0,
-    datum: o.datum,
-  }))
+  const tePlannenOrders = (tePlannenRes.data || []).map(o => {
+    const rel = o.relatie as { id?: string; bedrijfsnaam: string; contactpersoon: string | null; email: string | null } | null
+    return {
+      id: o.id,
+      ordernummer: o.ordernummer,
+      relatie_id: rel?.id || null,
+      relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+      relatie_contactpersoon: rel?.contactpersoon || null,
+      relatie_email: rel?.email || null,
+      offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
+      onderwerp: o.onderwerp,
+      totaal: o.totaal || 0,
+      datum: o.datum,
+    }
+  })
 
   // Geplande leveringen (orders met leverdatum, nog niet afgeleverd)
   const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => {
     const facturen = (o.facturen || []) as { id: string; factuurnummer: string; status: string; factuur_type: string; totaal: number }[]
     const restbetaling = facturen.find(f => f.factuur_type === 'restbetaling')
+    const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
     return {
       id: o.id,
       ordernummer: o.ordernummer,
@@ -4015,7 +4027,8 @@ export async function getDashboardData() {
       status: o.status,
       onderwerp: o.onderwerp,
       totaal: o.totaal || 0,
-      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
+      relatie_id: rel?.id || null,
+      relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
       restbetaling: restbetaling ? { id: restbetaling.id, factuurnummer: restbetaling.factuurnummer, status: restbetaling.status, totaal: restbetaling.totaal } : null,
     }
   })
@@ -4023,14 +4036,18 @@ export async function getDashboardData() {
   // Geaccepteerde offertes (voor factuur aanmaken) — alleen als er nog geen factuur is
   const geaccepteerdeOffertes = (geaccepteerdRes.data || [])
     .filter(o => !o.facturen || (o.facturen as { id: string }[]).length === 0)
-    .map(o => ({
-      id: o.id,
-      offertenummer: o.offertenummer,
-      relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-      onderwerp: o.onderwerp,
-      totaal: o.totaal || 0,
-      datum: o.datum,
-    }))
+    .map(o => {
+      const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
+      return {
+        id: o.id,
+        offertenummer: o.offertenummer,
+        relatie_id: rel?.id || null,
+        relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+        onderwerp: o.onderwerp,
+        totaal: o.totaal || 0,
+        datum: o.datum,
+      }
+    })
 
   // Openstaande facturen (concept, verzonden, deels_betaald, vervallen)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -4200,7 +4217,7 @@ export async function getDashboardData() {
   // Openstaande verkoopkansen
   const { data: openVerkoopkansenData } = await supabase
     .from('projecten')
-    .select('id, naam, status, created_at, bron, relatie:relaties(bedrijfsnaam), offertes:offertes(id)')
+    .select('id, naam, status, created_at, bron, relatie:relaties(id, bedrijfsnaam), offertes:offertes(id)')
     .eq('administratie_id', adminId)
     .in('status', ['actief', 'on_hold'])
     .order('created_at', { ascending: false })
@@ -4219,27 +4236,35 @@ export async function getDashboardData() {
     }
   }
 
-  const openVerkoopkansen = (openVerkoopkansenData || []).map(p => ({
-    id: p.id,
-    naam: p.naam,
-    status: p.status,
-    created_at: p.created_at,
-    bron: (p as Record<string, unknown>).bron as string || 'handmatig',
-    relatie_bedrijfsnaam: (p.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-    heeft_offerte: ((p.offertes as { id: string }[] | null) || []).length > 0,
-    aantal_emails: emailCountMap.get(p.id) || 0,
-  }))
+  const openVerkoopkansen = (openVerkoopkansenData || []).map(p => {
+    const rel = p.relatie as { id?: string; bedrijfsnaam: string } | null
+    return {
+      id: p.id,
+      naam: p.naam,
+      status: p.status,
+      created_at: p.created_at,
+      bron: (p as Record<string, unknown>).bron as string || 'handmatig',
+      relatie_id: rel?.id || null,
+      relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+      heeft_offerte: ((p.offertes as { id: string }[] | null) || []).length > 0,
+      aantal_emails: emailCountMap.get(p.id) || 0,
+    }
+  })
 
   // Moet besteld orders
-  const moetBesteldOrders = (moetBesteldRes.data || []).map(o => ({
-    id: o.id,
-    ordernummer: o.ordernummer,
-    relatie_bedrijfsnaam: (o.relatie as { bedrijfsnaam: string } | null)?.bedrijfsnaam || '-',
-    offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
-    onderwerp: o.onderwerp,
-    totaal: o.totaal || 0,
-    datum: o.datum,
-  }))
+  const moetBesteldOrders = (moetBesteldRes.data || []).map(o => {
+    const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
+    return {
+      id: o.id,
+      ordernummer: o.ordernummer,
+      relatie_id: rel?.id || null,
+      relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+      offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
+      onderwerp: o.onderwerp,
+      totaal: o.totaal || 0,
+      datum: o.datum,
+    }
+  })
 
   // Recente notities (laatste 10 over alle klanten/taken) voor dashboard
   const { data: recenteNotitiesData } = await supabaseAdmin
