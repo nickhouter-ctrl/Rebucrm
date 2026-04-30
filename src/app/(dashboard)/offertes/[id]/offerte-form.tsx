@@ -1003,7 +1003,7 @@ function EditOfferteView({
         onRegelsChange={setRegels}
         producten={producten}
         pendingPdfFile={null}
-        detectedLeverancier={detectedLeverancier}
+        detectedLeverancier={null}
         onSaved={(id) => router.push('/offertes')}
         onBack={() => router.push('/offertes')}
       />
