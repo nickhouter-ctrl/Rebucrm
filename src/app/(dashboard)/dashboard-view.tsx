@@ -324,6 +324,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const [factuurLoading, setFactuurLoading] = useState<string | null>(null)
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
+  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([10, 50, 40])
   const [besteldLoading, setBesteldLoading] = useState<string | null>(null)
   const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
   const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
@@ -411,10 +412,20 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     await deleteNotitie(id)
   }
 
-  async function handleConvertToFactuur(offerteId: string, splitType: 'volledig' | 'split', percentage = 70) {
+  async function handleConvertToFactuur(
+    offerteId: string,
+    splitType: 'volledig' | 'split' | 'split3',
+    percentage = 70,
+    termijnen?: [number, number, number],
+  ) {
     setFactuurLoading(offerteId)
-    const result = await convertToFactuur(offerteId, splitType, percentage)
-    if (result.factuurIds?.[0]) {
+    const result = await convertToFactuur(offerteId, splitType, percentage, termijnen)
+    if (result?.error) {
+      alert(result.error)
+      setFactuurLoading(null)
+      return
+    }
+    if (result?.factuurIds?.[0]) {
       router.push(`/facturatie/${result.factuurIds[0]}`)
     }
     setFactuurLoading(null)
@@ -716,8 +727,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   {data.openstaandeFacturen.map(f => {
                     const isVervallen = f.vervaldatum && new Date(f.vervaldatum) < new Date()
                     const dagen = f.vervaldatum ? Math.abs(dagenVerschil(f.vervaldatum)) : null
-                    const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : '-'
-                    const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
+                    const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'termijn' ? 'Termijn' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : '-'
+                    const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'termijn' ? 'text-purple-600 bg-purple-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
                     const kanVerstuurd = f.status === 'concept' || f.status === 'vervallen'
                     const verstuurStatus = versturenStatus[f.id]
                     return (
@@ -765,8 +776,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 {data.openstaandeFacturen.map(f => {
                   const isVervallen = f.vervaldatum && new Date(f.vervaldatum) < new Date()
                   const dagen = f.vervaldatum ? Math.abs(dagenVerschil(f.vervaldatum)) : null
-                  const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : ''
-                  const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
+                  const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'termijn' ? 'Termijn' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : ''
+                  const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'termijn' ? 'text-purple-600 bg-purple-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
                   return (
                     <Link key={f.id} href={`/facturatie/${f.id}`} className={`block px-4 py-3 ${isVervallen ? 'bg-red-50/20' : ''}`}>
                       <div className="flex items-start justify-between gap-2">
@@ -1341,7 +1352,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <p className="text-sm text-gray-500 mt-0.5">{formatCurrency(factuurDialogOfferte.totaal * 0.7)} + {formatCurrency(factuurDialogOfferte.totaal * 0.3)}</p>
               </button>
               <div className="p-4 rounded-xl border-2 border-gray-200">
-                <p className="font-medium text-gray-900 mb-3">Eigen percentage</p>
+                <p className="font-medium text-gray-900 mb-3">Eigen percentage (2 termijnen)</p>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2 flex-1">
                     <input type="number" min="1" max="99" value={customSplitPercentage} onChange={(e) => setCustomSplitPercentage(Math.min(99, Math.max(1, parseInt(e.target.value) || 50)))} className="w-20 px-3 py-2 border border-gray-200 rounded-lg text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent" />
@@ -1350,6 +1361,46 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split', customSplitPercentage)} disabled={!!factuurLoading}>OK</Button>
                 </div>
               </div>
+              {(() => {
+                const [p1, p2, p3] = split3Percentages
+                const som = p1 + p2 + p3
+                const valid = som === 100 && p1 >= 1 && p2 >= 1 && p3 >= 1
+                const totaal = factuurDialogOfferte.totaal
+                return (
+                  <div className="p-4 rounded-xl border-2 border-gray-200">
+                    <p className="font-medium text-gray-900 mb-1">3 termijnen (bijv. 10 / 50 / 40)</p>
+                    <p className="text-xs text-gray-500 mb-3">Aanbetaling, tussentermijn en restbetaling. Samen 100%.</p>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      {[0, 1, 2].map(i => (
+                        <input
+                          key={i}
+                          type="number"
+                          min="1"
+                          max="98"
+                          value={split3Percentages[i]}
+                          onChange={(e) => {
+                            const v = Math.min(98, Math.max(1, parseInt(e.target.value) || 0))
+                            setSplit3Percentages(prev => {
+                              const next = [...prev] as [number, number, number]
+                              next[i] = v
+                              return next
+                            })
+                          }}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
+                        />
+                      ))}
+                    </div>
+                    <p className={`text-xs mb-3 ${valid ? 'text-gray-500' : 'text-red-600'}`}>
+                      {valid
+                        ? `${formatCurrency(totaal * p1 / 100)} + ${formatCurrency(totaal * p2 / 100)} + ${formatCurrency(totaal * p3 / 100)}`
+                        : `Som: ${som}% — moet 100% zijn`}
+                    </p>
+                    <Button size="sm" className="w-full bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => handleConvertToFactuur(factuurDialogOfferte.id, 'split3', 0, split3Percentages)} disabled={!!factuurLoading || !valid}>
+                      Maak 3 facturen
+                    </Button>
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex justify-end mt-4"><Button variant="ghost" onClick={() => setFactuurDialogOfferte(null)}>Annuleren</Button></div>
           </div>

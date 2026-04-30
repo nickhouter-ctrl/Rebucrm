@@ -64,12 +64,14 @@ interface OrderMetStatus {
 
 const typeLabels: Record<string, string> = {
   aanbetaling: 'Aanbetaling',
+  termijn: 'Termijn',
   restbetaling: 'Restbetaling',
   volledig: 'Volledig',
 }
 
 const typeKleuren: Record<string, string> = {
   aanbetaling: 'bg-amber-100 text-amber-700',
+  termijn: 'bg-purple-100 text-purple-700',
   restbetaling: 'bg-indigo-100 text-indigo-700',
   volledig: 'bg-gray-100 text-gray-600',
 }

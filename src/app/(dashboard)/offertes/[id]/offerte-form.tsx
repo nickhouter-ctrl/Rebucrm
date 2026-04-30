@@ -563,12 +563,17 @@ function EditOfferteView({
   }
 
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
+  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([10, 50, 40])
 
-  async function handleConvertToFactuur(splitType: 'volledig' | 'split', percentage = 70) {
+  async function handleConvertToFactuur(
+    splitType: 'volledig' | 'split' | 'split3',
+    percentage = 70,
+    termijnen?: [number, number, number],
+  ) {
     setLoading(true)
-    const result = await convertToFactuur(offerte.id as string, splitType, percentage)
-    if (result.error) { setError(result.error); setLoading(false) }
-    else { setShowFactuurDialog(false); router.push(`/facturatie/${result.factuurIds![0]}`) }
+    const result = await convertToFactuur(offerte.id as string, splitType, percentage, termijnen)
+    if (result?.error) { setError(result.error); setLoading(false) }
+    else if (result?.factuurIds?.[0]) { setShowFactuurDialog(false); router.push(`/facturatie/${result.factuurIds[0]}`) }
   }
 
   // Chat
@@ -808,7 +813,7 @@ function EditOfferteView({
                 <p className="text-sm text-gray-500">Aanbetaling: {formatCurrency(((offerte.totaal as number) || 0) * 0.7)} &middot; Restbetaling: {formatCurrency(((offerte.totaal as number) || 0) * 0.3)}</p>
               </button>
               <div className="p-4 rounded-lg border-2 border-gray-200">
-                <p className="font-medium mb-3">Eigen percentage splitsen</p>
+                <p className="font-medium mb-3">Eigen percentage splitsen (2 termijnen)</p>
                 <div className="flex items-center gap-3">
                   <div className="flex items-center gap-2 flex-1">
                     <input
@@ -829,6 +834,46 @@ function EditOfferteView({
                   Aanbetaling: {formatCurrency(((offerte.totaal as number) || 0) * customSplitPercentage / 100)} &middot; Rest: {formatCurrency(((offerte.totaal as number) || 0) * (100 - customSplitPercentage) / 100)}
                 </p>
               </div>
+              {(() => {
+                const [p1, p2, p3] = split3Percentages
+                const som = p1 + p2 + p3
+                const valid = som === 100 && p1 >= 1 && p2 >= 1 && p3 >= 1
+                const tot = (offerte.totaal as number) || 0
+                return (
+                  <div className="p-4 rounded-lg border-2 border-gray-200">
+                    <p className="font-medium mb-1">3 termijnen (bijv. 10 / 50 / 40)</p>
+                    <p className="text-xs text-gray-500 mb-3">Aanbetaling, tussentermijn en restbetaling. Samen 100%.</p>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      {[0, 1, 2].map(i => (
+                        <input
+                          key={i}
+                          type="number"
+                          min="1"
+                          max="98"
+                          value={split3Percentages[i]}
+                          onChange={(e) => {
+                            const v = Math.min(98, Math.max(1, parseInt(e.target.value) || 0))
+                            setSplit3Percentages(prev => {
+                              const next = [...prev] as [number, number, number]
+                              next[i] = v
+                              return next
+                            })
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        />
+                      ))}
+                    </div>
+                    <p className={`text-xs mb-3 ${valid ? 'text-gray-400' : 'text-red-600'}`}>
+                      {valid
+                        ? `${formatCurrency(tot * p1 / 100)} + ${formatCurrency(tot * p2 / 100)} + ${formatCurrency(tot * p3 / 100)}`
+                        : `Som: ${som}% — moet 100% zijn`}
+                    </p>
+                    <Button size="sm" className="w-full" onClick={() => handleConvertToFactuur('split3', 0, split3Percentages)} disabled={loading || !valid}>
+                      Maak 3 facturen
+                    </Button>
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex justify-end mt-4"><Button variant="ghost" onClick={() => setShowFactuurDialog(false)}>Annuleren</Button></div>
           </div>

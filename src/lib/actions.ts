@@ -6437,7 +6437,12 @@ export async function factureerVerkoopkans(
   return { success: true, factuurId: factuur.id, factuurnummer: nummer }
 }
 
-export async function convertToFactuur(offerteId: string, splitType: 'volledig' | 'split' = 'volledig', aanbetalingPercentage = 70) {
+export async function convertToFactuur(
+  offerteId: string,
+  splitType: 'volledig' | 'split' | 'split3' = 'volledig',
+  aanbetalingPercentage = 70,
+  termijnenPercentages?: [number, number, number],
+) {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
@@ -6600,6 +6605,89 @@ export async function convertToFactuur(offerteId: string, splitType: 'volledig' 
 
     revalidatePath('/facturatie')
     return { success: true, factuurIds: [factuur1.id, factuur2.id] }
+  }
+
+  if (splitType === 'split3') {
+    if (!termijnenPercentages || (termijnenPercentages as number[]).length !== 3) {
+      return { error: '3 percentages vereist voor 3-deling' }
+    }
+    const pcts = termijnenPercentages as [number, number, number]
+    const pct1 = pcts[0]
+    const pct2 = pcts[1]
+    const pct3 = pcts[2]
+    if (pct1 < 1 || pct2 < 1 || pct3 < 1) {
+      return { error: 'Elke termijn moet minimaal 1% zijn' }
+    }
+    if (pct1 + pct2 + pct3 !== 100) {
+      return { error: `Percentages moeten samen 100% zijn (nu ${pct1 + pct2 + pct3}%)` }
+    }
+
+    // Bedragen per termijn — derde termijn pakt het restant zodat afrondings-
+    // verschillen niet verloren gaan en het totaal exact gelijk blijft.
+    const sub1 = Math.round(offerte.subtotaal * pct1) / 100
+    const sub2 = Math.round(offerte.subtotaal * pct2) / 100
+    const sub3 = offerte.subtotaal - sub1 - sub2
+    const btw1 = Math.round(offerte.btw_totaal * pct1) / 100
+    const btw2 = Math.round(offerte.btw_totaal * pct2) / 100
+    const btw3 = offerte.btw_totaal - btw1 - btw2
+    const tot1 = sub1 + btw1
+    const tot2 = sub2 + btw2
+    const tot3 = sub3 + btw3
+
+    const termijnen = [
+      { factuur_type: 'aanbetaling',  pct: pct1, sub: sub1, btw: btw1, tot: tot1, vervalDagen: 14, label: `Aanbetaling ${pct1}%` },
+      { factuur_type: 'termijn',      pct: pct2, sub: sub2, btw: btw2, tot: tot2, vervalDagen: 21, label: `2e termijn ${pct2}%` },
+      { factuur_type: 'restbetaling', pct: pct3, sub: sub3, btw: btw3, tot: tot3, vervalDagen: 30, label: `Restbetaling ${pct3}%` },
+    ] as const
+
+    const aangemaakt: { id: string }[] = []
+    for (const t of termijnen) {
+      const nummer = await getVolgendeNummer('factuur')
+      const { data: f, error } = await supabase
+        .from('facturen')
+        .insert({
+          administratie_id: adminId,
+          relatie_id: offerte.relatie_id,
+          offerte_id: offerteId,
+          order_id: orderId,
+          factuur_type: t.factuur_type,
+          factuurnummer: nummer,
+          datum: new Date().toISOString().split('T')[0],
+          vervaldatum: new Date(Date.now() + t.vervalDagen * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          status: 'concept',
+          onderwerp: `${t.label} - ${offerte.onderwerp || offerte.offertenummer}`,
+          subtotaal: t.sub,
+          btw_totaal: t.btw,
+          totaal: t.tot,
+        })
+        .select('id')
+        .single()
+      if (error || !f) return { error: error?.message || 'Factuur kon niet worden aangemaakt' }
+      aangemaakt.push(f as { id: string })
+
+      await supabase.from('factuur_regels').insert({
+        factuur_id: (f as { id: string }).id,
+        omschrijving: `${t.label} offerte ${offerte.offertenummer}`,
+        aantal: 1,
+        prijs: t.sub,
+        btw_percentage: 21,
+        totaal: t.sub,
+        volgorde: 0,
+      })
+    }
+
+    // Onderling linken: 1↔2 (gerelateerde_factuur_id is een single FK,
+    // dus we wijzen naar de "hoofdfactuur" — de eerste in de keten).
+    await supabase.from('facturen')
+      .update({ gerelateerde_factuur_id: aangemaakt[0].id })
+      .in('id', [aangemaakt[1].id, aangemaakt[2].id])
+
+    for (const f of aangemaakt) {
+      await zorgVoorBetaallink(f.id)
+    }
+
+    revalidatePath('/facturatie')
+    return { success: true, factuurIds: aangemaakt.map(f => f.id) }
   }
 }
 
