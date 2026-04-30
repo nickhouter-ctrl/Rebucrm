@@ -134,18 +134,38 @@ export async function GET(
           elementTekeningen.get(tekening.naam)!.push({ url: tekeningUrl, pageIndex, totalPages })
         }
 
-        // Helper: find matching parsed element by exact or normalized name
+        // Helper: find matching parsed element by exact or normalized name.
+        // BELANGRIJK: leverancier-PDF's (Aluprof, Reynaers e.a.) renderen vaak
+        // hetzelfde element twee keer (binnen-aanzicht + buiten-aanzicht), elk
+        // met dezelfde prijs. Daardoor heeft elementData soms 2 entries met
+        // dezelfde naam. Bij een match markeren we ALLE entries met die naam
+        // als used — anders pikt de fallback-loop verderop de duplicate op en
+        // verschijnt het element dubbel in het TOTAALOVERZICHT (en wordt het
+        // totaal verdubbeld).
         const usedParsedIndices = new Set<number>()
         function findParsedElement(naam: string) {
-          // Exact match first
           let idx = elementData.findIndex((e, i) => !usedParsedIndices.has(i) && e.naam === naam)
+          let matchedNormalized: string | null = null
           if (idx === -1) {
-            // Normalized match
             const normalized = normalizeName(naam)
             idx = elementData.findIndex((e, i) => !usedParsedIndices.has(i) && normalizeName(e.naam) === normalized)
+            if (idx >= 0) matchedNormalized = normalized
+          } else {
+            matchedNormalized = normalizeName(elementData[idx].naam)
           }
           if (idx >= 0) {
             usedParsedIndices.add(idx)
+            // Markeer alle duplicate-name entries (zelfde normalized name) ook
+            // als used zodat de fallback-loop ze niet opnieuw als nieuw element
+            // toevoegt.
+            if (matchedNormalized) {
+              for (let i = 0; i < elementData.length; i++) {
+                if (i === idx) continue
+                if (normalizeName(elementData[i].naam) === matchedNormalized) {
+                  usedParsedIndices.add(i)
+                }
+              }
+            }
             return elementData[idx]
           }
           return null
@@ -230,16 +250,28 @@ export async function GET(
             kozijnElementen.push(buildElement(naam, pages, parsed))
           }
 
-          // Also add any parsed elements that had no tekening match
+          // Also add any parsed elements that had no tekening match.
+          // Dedupe op normalized name zodat duplicates uit de leverancier-PDF
+          // (binnen/buiten-aanzicht met dezelfde naam) niet alsnog dubbel
+          // toegevoegd worden.
+          const reedsToegevoegd = new Set(kozijnElementen.map(k => normalizeName(k.naam)))
           for (let i = 0; i < elementData.length; i++) {
             if (!usedParsedIndices.has(i)) {
               const el = elementData[i]
+              const norm = normalizeName(el.naam)
+              if (reedsToegevoegd.has(norm)) continue
+              reedsToegevoegd.add(norm)
               kozijnElementen.push(buildElement(el.naam, undefined, el))
             }
           }
         } else if (elementData.length > 0) {
-          // FALLBACK: no tekeningen at all, use parsed elements directly
+          // FALLBACK: no tekeningen at all, use parsed elements directly.
+          // Dedupe ook hier, zelfde reden.
+          const reedsToegevoegd = new Set<string>()
           for (const el of elementData) {
+            const norm = normalizeName(el.naam)
+            if (reedsToegevoegd.has(norm)) continue
+            reedsToegevoegd.add(norm)
             kozijnElementen.push(buildElement(el.naam, undefined, el))
           }
         }

@@ -5784,26 +5784,45 @@ export async function sendOfferteEmail(offerteId: string, options: {
           const parsed = await pdfParse(pdfBuffer)
           const elementData = parseLeverancierPdfText(parsed.text).elementen
 
+          // Groepeer tekeningen per element-naam ZODAT we niet 2 elementen
+          // pushen wanneer een leverancier-PDF binnen- én buitenaanzicht
+          // los heeft opgeslagen (Aluprof, Reynaers). Anders verschijnt
+          // hetzelfde element dubbel in het TOTAALOVERZICHT en verdubbelt
+          // het totaalbedrag in de offerte-mail aan de klant.
+          const tekeningenPerNaam = new Map<string, { tekeningPath: string }[]>()
+          const naamVolgorde: string[] = []
+          for (const t of tekeningData) {
+            if (!tekeningenPerNaam.has(t.naam)) {
+              tekeningenPerNaam.set(t.naam, [])
+              naamVolgorde.push(t.naam)
+            }
+            tekeningenPerNaam.get(t.naam)!.push(t)
+          }
+
           kozijnElementen = []
-          for (const tekening of tekeningData) {
+          for (const naam of naamVolgorde) {
+            const tekeningenVoorElement = tekeningenPerNaam.get(naam)!
+            // Eerste pagina-image als hoofd-tekening (rest blijft onbenut in
+            // de email-flow; live-API gebruikt de volledige set)
+            const eerste = tekeningenVoorElement[0]
             const { data: imgFile } = await supabaseAdmin.storage
               .from('documenten')
-              .download(tekening.tekeningPath)
+              .download(eerste.tekeningPath)
 
             let tekeningUrl = ''
             if (imgFile) {
               const imgBuffer = Buffer.from(await imgFile.arrayBuffer())
-              const mime = /\.jpe?g$/i.test(tekening.tekeningPath) ? 'image/jpeg' : 'image/png'
+              const mime = /\.jpe?g$/i.test(eerste.tekeningPath) ? 'image/jpeg' : 'image/png'
               tekeningUrl = `data:${mime};base64,${imgBuffer.toString('base64')}`
             }
 
-            const matchingElement = elementData.find(e => e.naam === tekening.naam)
+            const matchingElement = elementData.find(e => e.naam === naam)
             const inkoopPrijs = matchingElement?.prijs || 0
-            const margePerc = marges[tekening.naam] ?? margePercentage
+            const margePerc = marges[naam] ?? margePercentage
             const verkoopPrijs = margePerc > 0 ? Math.round(inkoopPrijs * (1 + margePerc / 100) * 100) / 100 : inkoopPrijs
 
             kozijnElementen.push({
-              naam: matchingElement?.naam || tekening.naam,
+              naam: matchingElement?.naam || naam,
               hoeveelheid: matchingElement?.hoeveelheid || 1,
               systeem: matchingElement?.systeem || '',
               kleur: matchingElement?.kleur || '',
