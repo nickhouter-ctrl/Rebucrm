@@ -27,7 +27,7 @@ interface Taak {
   project: { naam: string } | null
   toegewezen: { naam: string } | null
   medewerker: { naam: string } | null
-  offerte: { totaal: number } | null
+  offerte: { totaal: number; subtotaal: number | null } | null
   relatie: { bedrijfsnaam: string } | null
 }
 
@@ -68,7 +68,16 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     { accessorKey: 'prioriteit', header: 'Prioriteit', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     { id: 'project', header: 'Verkoopkans', accessorFn: (row) => row.project?.naam || '-' },
-    { id: 'bedrag', header: 'Bedrag', cell: ({ row }) => row.original.offerte?.totaal ? formatCurrency(row.original.offerte.totaal) : '-' },
+    { id: 'bedrag', header: 'Bedrag excl.', cell: ({ row }) => {
+      const off = row.original.offerte
+      if (!off) return '-'
+      // Toon subtotaal (excl. BTW); val terug op totaal/1.21 voor oude rijen
+      // zonder subtotaal in de DB.
+      const excl = off.subtotaal && off.subtotaal > 0
+        ? off.subtotaal
+        : off.totaal ? off.totaal / 1.21 : 0
+      return excl > 0 ? formatCurrency(excl) : '-'
+    } },
     { accessorKey: 'deadline', header: 'Deadline', cell: ({ row }) => {
       const d = row.original.deadline
       if (!d) return '-'
