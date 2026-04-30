@@ -6697,31 +6697,51 @@ export async function saveNotitie(data: {
   const { data: { user } } = await supabase.auth.getUser()
   if (!adminId || !user) return { error: 'Niet ingelogd' }
 
+  // Profielnaam ophalen zodat client direct kan renderen zonder router.refresh().
+  const { data: profiel } = await supabase
+    .from('profielen')
+    .select('naam')
+    .eq('id', user.id)
+    .maybeSingle()
+  const gebruikersNaam: string | null = (profiel?.naam as string) || null
+
   if (data.id) {
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('notities')
       .update({
         tekst: data.tekst,
         herinnering_datum: data.herinnering_datum || null,
       })
       .eq('id', data.id)
+      .select('id, tekst, created_at, herinnering_datum')
+      .single()
     if (error) return { error: error.message }
-  } else {
-    const defaultHerinnering = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-    const { error } = await supabase
-      .from('notities')
-      .insert({
-        administratie_id: adminId,
-        relatie_id: data.relatie_id,
-        gebruiker_id: user.id,
-        tekst: data.tekst,
-        herinnering_datum: data.herinnering_datum || defaultHerinnering,
-      })
-    if (error) return { error: error.message }
+    revalidatePath(`/relatiebeheer/${data.relatie_id}`)
+    return {
+      success: true,
+      notitie: { ...updated, gebruiker: gebruikersNaam ? { naam: gebruikersNaam } : null },
+    }
   }
 
+  const defaultHerinnering = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+  const { data: inserted, error } = await supabase
+    .from('notities')
+    .insert({
+      administratie_id: adminId,
+      relatie_id: data.relatie_id,
+      gebruiker_id: user.id,
+      tekst: data.tekst,
+      herinnering_datum: data.herinnering_datum || defaultHerinnering,
+    })
+    .select('id, tekst, created_at, herinnering_datum')
+    .single()
+  if (error) return { error: error.message }
+
   revalidatePath(`/relatiebeheer/${data.relatie_id}`)
-  return { success: true }
+  return {
+    success: true,
+    notitie: { ...inserted, gebruiker: gebruikersNaam ? { naam: gebruikersNaam } : null },
+  }
 }
 
 export async function deleteNotitie(id: string) {

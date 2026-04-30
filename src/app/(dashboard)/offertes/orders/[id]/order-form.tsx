@@ -11,7 +11,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { formatCurrency, formatDateShort } from '@/lib/utils'
+import { formatCurrency, formatDateShort, handleNumberPaste } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X, UserPlus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 
@@ -166,8 +166,8 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
                     </select>
                   </div>
                   <div className="col-span-4"><input placeholder="Omschrijving" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.omschrijving} onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)} required /></div>
-                  <div className="col-span-2"><input type="number" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', parseFloat(e.target.value) || 0)} /></div>
-                  <div className="col-span-2"><input type="number" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', parseFloat(e.target.value) || 0)} /></div>
+                  <div className="col-span-2"><input type="number" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', parseFloat(e.target.value) || 0)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'aantal', parseFloat(v) || 0))} /></div>
+                  <div className="col-span-2"><input type="number" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', parseFloat(e.target.value) || 0)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'prijs', parseFloat(v) || 0))} /></div>
                   <div className="col-span-1"><select className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs" value={regel.btw_percentage} onChange={(e) => updateRegel(i, 'btw_percentage', parseInt(e.target.value))}><option value={0}>0%</option><option value={9}>9%</option><option value={21}>21%</option></select></div>
                   <div className="col-span-1 text-right text-sm font-medium">{formatCurrency(regel.aantal * regel.prijs)}</div>
                   <div className="col-span-1"><button type="button" onClick={() => removeRegel(i)} className="p-1 text-gray-400 hover:text-red-500"><X className="h-4 w-4" /></button></div>

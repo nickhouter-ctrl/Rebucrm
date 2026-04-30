@@ -47,37 +47,48 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
     if (!detail) return
     setBijlageLoading(b.filename)
     setError('')
+
+    // Safari blokkeert window.open() ná een await (popup blocker). Daarom
+    // openen we het tabblad direct synchroon op de click; daarna zetten we
+    // pas de URL als die bekend is.
+    const popup = typeof window !== 'undefined' ? window.open('', '_blank') : null
+
+    const navigate = (url: string) => {
+      if (popup && !popup.closed) {
+        popup.location.href = url
+      } else {
+        // Popup geblokkeerd: val terug op zelfde tab i.p.v. niets doen.
+        window.location.href = url
+      }
+    }
+
     try {
-      // Auto-gegenereerde PDFs: direct via /api/pdf/...
+      let url: string | null = null
       if (b.kind === 'offerte_pdf' && detail.offerte_id) {
-        window.open(`/api/pdf/offerte/${detail.offerte_id}`, '_blank')
-        return
-      }
-      if (b.kind === 'tekeningen_pdf' && detail.offerte_id) {
-        window.open(`/api/pdf/offerte/${detail.offerte_id}/tekeningen`, '_blank')
-        return
-      }
-      if (b.kind === 'factuur_pdf' && detail.factuur_id) {
-        window.open(`/api/pdf/factuur/${detail.factuur_id}`, '_blank')
-        return
-      }
-      // Fallback-detectie op filename (oude rijen zonder `kind`)
-      if (b.filename.startsWith('Offerte-') && detail.offerte_id && !b.storage_path) {
-        window.open(`/api/pdf/offerte/${detail.offerte_id}`, '_blank')
-        return
-      }
-      if (b.filename.startsWith('Tekeningen-') && detail.offerte_id && !b.storage_path) {
-        window.open(`/api/pdf/offerte/${detail.offerte_id}/tekeningen`, '_blank')
-        return
-      }
-      // User-uploaded: signed URL ophalen
-      if (b.storage_path) {
+        url = `/api/pdf/offerte/${detail.offerte_id}`
+      } else if (b.kind === 'tekeningen_pdf' && detail.offerte_id) {
+        url = `/api/pdf/offerte/${detail.offerte_id}/tekeningen`
+      } else if (b.kind === 'factuur_pdf' && detail.factuur_id) {
+        url = `/api/pdf/factuur/${detail.factuur_id}`
+      } else if (b.filename.startsWith('Offerte-') && detail.offerte_id && !b.storage_path) {
+        url = `/api/pdf/offerte/${detail.offerte_id}`
+      } else if (b.filename.startsWith('Tekeningen-') && detail.offerte_id && !b.storage_path) {
+        url = `/api/pdf/offerte/${detail.offerte_id}/tekeningen`
+      } else if (b.storage_path) {
         const res = await getEmailBijlageUrl(detail.id, b.filename)
-        if (res.error) { setError(res.error); return }
-        window.open(res.url, '_blank')
+        if (res.error) {
+          popup?.close()
+          setError(res.error)
+          return
+        }
+        url = res.url || null
+      } else {
+        popup?.close()
+        setError('Deze bijlage is niet meer beschikbaar (oude mail, niet gearchiveerd).')
         return
       }
-      setError('Deze bijlage is niet meer beschikbaar (oude mail, niet gearchiveerd).')
+
+      if (url) navigate(url)
     } finally {
       setBijlageLoading(null)
     }

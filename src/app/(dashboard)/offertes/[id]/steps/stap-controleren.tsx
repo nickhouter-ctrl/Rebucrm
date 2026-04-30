@@ -6,7 +6,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, handleNumberPaste } from '@/lib/utils'
 import { Plus, X, Save, Trash2, ArrowLeft, FolderKanban, FileText, Upload, Loader2, CheckCircle } from 'lucide-react'
 import type { ParsedPdfResult, RenderedTekening } from './stap-tekeningen'
 
@@ -772,10 +772,10 @@ export function StapControleren({
                       <input placeholder="Omschrijving" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.omschrijving} onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)} required readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', e.target.value)} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'aantal', v))} readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', e.target.value)} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'prijs', v))} readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-1">
                       <select className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs" value={regel.btw_percentage} onChange={(e) => updateRegel(i, 'btw_percentage', parseInt(e.target.value))} disabled={isBezorgkosten}>

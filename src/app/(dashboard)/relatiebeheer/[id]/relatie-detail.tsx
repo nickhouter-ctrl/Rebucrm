@@ -301,7 +301,20 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       setNotitieText('')
       setNotitieHerinnering(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
       setShowNotitieForm(false)
-      router.refresh()
+      // Optimistisch toevoegen aan lokale lijst zodat de notitie meteen
+      // zichtbaar is — geen router.refresh() (die is traag op deze pagina).
+      if (result.notitie) {
+        const nieuw: Notitie = {
+          id: result.notitie.id as string,
+          tekst: result.notitie.tekst as string,
+          herinnering_datum: (result.notitie.herinnering_datum as string) || null,
+          herinnering_verstuurd: false,
+          created_at: result.notitie.created_at as string,
+          gebruiker: result.notitie.gebruiker as { naam: string } | null,
+          taak: null,
+        }
+        setNotities(prev => [nieuw, ...prev])
+      }
     }
     setLoading(false)
   }
