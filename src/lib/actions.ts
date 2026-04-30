@@ -318,10 +318,22 @@ export async function saveRelatie(formData: FormData) {
   if (!adminId) return { error: 'Niet ingelogd' }
 
   const id = formData.get('id') as string
+  const type = formData.get('type') as string
+  const bedrijfsnaamRaw = ((formData.get('bedrijfsnaam') as string) || '').trim()
+  const contactpersoonRaw = ((formData.get('contactpersoon') as string) || '').trim()
+  // Voor particulieren is bedrijfsnaam optioneel — val terug op
+  // contactpersoon, of als allerlaatste redmiddel op 'Particulier'.
+  // bedrijfsnaam is in de DB NOT NULL en wordt overal als display-naam
+  // gebruikt, dus moet altijd iets bevatten.
+  const bedrijfsnaam = bedrijfsnaamRaw
+    || (type === 'particulier' ? (contactpersoonRaw || 'Particulier') : '')
+  if (!bedrijfsnaam) {
+    return { error: 'Vul een bedrijfsnaam in' }
+  }
   const record = {
     administratie_id: adminId,
-    bedrijfsnaam: formData.get('bedrijfsnaam') as string,
-    type: formData.get('type') as string,
+    bedrijfsnaam,
+    type,
     contactpersoon: formData.get('contactpersoon') as string || null,
     email: formData.get('email') as string || null,
     factuur_email: formData.get('factuur_email') as string || null,

@@ -41,6 +41,8 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !relatie
+  // Type bijhouden zodat we bedrijfsnaam alleen verplicht maken voor zakelijk
+  const [type, setType] = useState<string>(relatie?.type || 'particulier')
 
   // KVK search state
   const [kvkQuery, setKvkQuery] = useState('')
@@ -321,13 +323,21 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input ref={bedrijfsnaamRef} id="bedrijfsnaam" name="bedrijfsnaam" label="Bedrijfsnaam *" defaultValue={relatie?.bedrijfsnaam || ''} required />
+              <Input
+                ref={bedrijfsnaamRef}
+                id="bedrijfsnaam"
+                name="bedrijfsnaam"
+                label={type === 'particulier' ? 'Bedrijfsnaam (optioneel)' : 'Bedrijfsnaam *'}
+                defaultValue={relatie?.bedrijfsnaam || ''}
+                required={type !== 'particulier'}
+              />
               <Select
                 ref={typeRef}
                 id="type"
                 name="type"
                 label="Type *"
                 defaultValue={relatie?.type || 'particulier'}
+                onChange={(e) => setType(e.target.value)}
                 options={[
                   { value: 'particulier', label: 'Particulier' },
                   { value: 'zakelijk', label: 'Zakelijk' },
