@@ -74,20 +74,25 @@ export async function POST(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cachedRegions = (template as any)?.remove_regions_pct as { x: number; y: number; w: number; h: number }[] | null
 
-  // Cache pas vertrouwen als template expliciet gevalideerd is. Usage_count
-  // alleen is niet genoeg — een fout gecachte regio blijft anders hangen.
-  if (cachedRegions && Array.isArray(cachedRegions) && cachedRegions.length > 0 && template?.validated) {
-    const regions = cachedRegions.map(r => ({
-      x: Math.round(r.x * imageWidth),
-      y: Math.round(r.y * imageHeight),
-      w: Math.round(r.w * imageWidth),
-      h: Math.round(r.h * imageHeight),
-    }))
+  // BELANGRIJK: cache wordt NIET meer als hard antwoord teruggestuurd.
+  // Reden: offertes verschillen in lengte/aantal elementen, dus prijzen en
+  // voettekst staan op andere posities per pagina. Statische percentages
+  // matchen daardoor de nieuwe pagina niet meer.
+  // In plaats daarvan: door gebruiker gevalideerde regio's worden als HINT
+  // (kalibratie-richtlijn) aan Claude Vision meegegeven, zodat hij elke
+  // pagina opnieuw bekijkt met "deze gebruiker vond eerder voor leverancier
+  // X dat we daar moesten wissen — pas dezelfde aanpak toe op deze pagina".
+  let userHint = ''
+  if (cachedRegions && cachedRegions.length > 0 && template?.validated) {
+    const samples = cachedRegions
+      .slice(0, 6)
+      .map(r => `  • x≈${Math.round(r.x * 100)}%, y≈${Math.round(r.y * 100)}%, b≈${Math.round(r.w * 100)}%, h≈${Math.round(r.h * 100)}%`)
+      .join('\n')
+    userHint = `\n\nKALIBRATIE — eerder door gebruiker gevalideerd voor "${supplierKey}" (${template.usage_count ?? 1}× bevestigd, percentages t.o.v. paginabreedte/-hoogte):\n${samples}\n\nGebruik dit als richting (welk SOORT regio's: prijs-kolommen, voettekst, paginanummers, totalen-balk), maar bepaal de exacte coordinaten zelf op basis van wat je in de huidige pagina ziet — pagina-layout verschilt per offerte.`
     await sb.from('ai_tekening_template').update({
       usage_count: (template?.usage_count ?? 0) + 1,
       last_used: new Date().toISOString(),
     }).eq('id', template.id)
-    return NextResponse.json({ regions, fromCache: true })
   }
 
   const system = `Je bent expert in kozijn-leverancier tekeningen (Aluplast, Gealan, Schüco, Reynaers, Cortizo, Aliplast, Aluprof, Eko-Okna, Kochs).
@@ -134,7 +139,7 @@ Geef MEERDERE boxes als prijzen verspreid staan. Bv. Aluplast heeft vaak links e
             { type: 'image', image: `data:image/jpeg;base64,${imageBase64}` },
             {
               type: 'text',
-              text: `Leverancier: ${supplier || 'onbekend'}\nAfbeelding: ${imageWidth}×${imageHeight} pixels\n\nGeef alle bounding boxes (x,y,w,h in pixels) van wat wit moet worden: prijzen, prijs-tabellen en "Geen garantie" teksten. NIET de tekening of specs.`,
+              text: `Leverancier: ${supplier || 'onbekend'}\nAfbeelding: ${imageWidth}×${imageHeight} pixels\n\nGeef alle bounding boxes (x,y,w,h in pixels) van wat wit moet worden: prijzen, prijs-tabellen en "Geen garantie" teksten. NIET de tekening of specs.${userHint}`,
             },
           ],
         },
