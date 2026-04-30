@@ -17,6 +17,7 @@ import { nl } from 'date-fns/locale'
 import { RecentTracker } from '@/components/layout/recent-tracker'
 import { EmailLogDialog } from '@/components/email-log-dialog'
 import { formatCurrency } from '@/lib/utils'
+import { CopyablePhone } from '@/components/ui/copyable-phone'
 
 type Notitie = {
   id: string
@@ -207,10 +208,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
             </span>
           )}
           {trackerRelatie.telefoon && (
-            <a href={`tel:${trackerRelatie.telefoon}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
-              <Phone className="h-3.5 w-3.5 text-gray-400" />
-              {trackerRelatie.telefoon}
-            </a>
+            <CopyablePhone nummer={trackerRelatie.telefoon} />
           )}
           {trackerRelatie.email && (
             <a href={`mailto:${trackerRelatie.email}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">

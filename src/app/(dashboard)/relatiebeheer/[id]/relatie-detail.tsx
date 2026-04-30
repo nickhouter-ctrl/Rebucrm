@@ -16,6 +16,7 @@ import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil, Paperclip } from 'lucide-react'
+import { CopyablePhone } from '@/components/ui/copyable-phone'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
 import { createKlantToegang, deleteKlantToegang } from '@/lib/actions'
@@ -455,10 +456,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </span>
           )}
           {relatie.telefoon && (
-            <a href={`tel:${relatie.telefoon}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
-              <Phone className="h-3.5 w-3.5 text-gray-400" />
-              {relatie.telefoon}
-            </a>
+            <CopyablePhone nummer={relatie.telefoon} />
           )}
           {relatie.email && (
             <a href={`mailto:${relatie.email}`} className="inline-flex items-center gap-1.5 hover:text-[#00a66e]">
@@ -526,7 +524,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                   {relatie.telefoon && (
                     <div className="flex items-center gap-2 text-gray-700">
                       <span className="text-gray-400 w-4 flex justify-center"><Phone className="h-3.5 w-3.5" /></span>
-                      <a href={`tel:${relatie.telefoon}`} className="hover:text-primary">{relatie.telefoon}</a>
+                      <CopyablePhone nummer={relatie.telefoon} showIcon={false} />
                     </div>
                   )}
                   {relatie.email && (
@@ -575,8 +573,8 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                           </div>
                           <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-0.5">
                             {c.email && <a href={`mailto:${c.email}`} className="hover:text-primary inline-flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</a>}
-                            {c.telefoon && <a href={`tel:${c.telefoon}`} className="hover:text-primary inline-flex items-center gap-1"><Phone className="h-3 w-3" />{c.telefoon}</a>}
-                            {c.mobiel && <a href={`tel:${c.mobiel}`} className="hover:text-primary inline-flex items-center gap-1"><Phone className="h-3 w-3" />{c.mobiel}</a>}
+                            {c.telefoon && <CopyablePhone nummer={c.telefoon} />}
+                            {c.mobiel && <CopyablePhone nummer={c.mobiel} />}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

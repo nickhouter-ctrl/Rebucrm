@@ -17,6 +17,7 @@ import {
   convertLeadToRelatie, createLeadTaak, deleteTaak,
 } from '@/lib/actions'
 import { formatDateShort } from '@/lib/utils'
+import { CopyablePhone } from '@/components/ui/copyable-phone'
 import { leadStatussen } from '@/lib/constants'
 
 interface Lead {
@@ -316,7 +317,7 @@ export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: T
                 {lead.telefoon && (
                   <div className="flex items-center gap-2 text-sm">
                     <Phone className="h-4 w-4 text-gray-400" />
-                    <a href={`tel:${lead.telefoon}`} className="text-blue-600 hover:underline">{lead.telefoon}</a>
+                    <CopyablePhone nummer={lead.telefoon} showIcon={false} />
                   </div>
                 )}
                 {lead.email && (
