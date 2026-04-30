@@ -14,6 +14,7 @@ import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2, History } from 'lucide-react'
 import { VersieDiffDialog } from '@/components/offerte/versie-diff-dialog'
 import { RecentTracker } from '@/components/layout/recent-tracker'
+import { EmailLogDialog } from '@/components/email-log-dialog'
 
 import { WizardStepper } from './wizard-stepper'
 import { StapKlant } from './steps/stap-klant'
@@ -449,6 +450,7 @@ function EditOfferteView({
   const [sending, setSending] = useState(false)
   const [showFactuurDialog, setShowFactuurDialog] = useState(false)
   const [showVersieDiff, setShowVersieDiff] = useState(false)
+  const [openEmailLogId, setOpenEmailLogId] = useState<string | null>(null)
 
   // Chat state
   const [showChat, setShowChat] = useState(false)
@@ -743,7 +745,12 @@ function EditOfferteView({
           </h3>
           <div className="space-y-2">
             {emailLog.map(m => (
-              <div key={m.id} className="border border-gray-100 rounded-md p-3 text-sm">
+              <button
+                type="button"
+                key={m.id}
+                onClick={() => setOpenEmailLogId(m.id)}
+                className="w-full text-left border border-gray-100 rounded-md p-3 text-sm hover:bg-gray-50 hover:border-gray-200 transition-colors cursor-pointer"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-gray-900 truncate">{m.onderwerp || '(geen onderwerp)'}</div>
@@ -763,7 +770,7 @@ function EditOfferteView({
                     ))}
                   </div>
                 )}
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -1064,6 +1071,8 @@ function EditOfferteView({
         open={showVersieDiff}
         onClose={() => setShowVersieDiff(false)}
       />
+
+      <EmailLogDialog emailLogId={openEmailLogId} onClose={() => setOpenEmailLogId(null)} />
     </div>
   )
 }
