@@ -30,19 +30,10 @@ async function fetchAllRows<T>(queryFn: (from: number, to: number) => PromiseLik
 }
 
 export async function getAdministratieId(): Promise<string | null> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-
-  // Use admin client to bypass RLS (server actions may have stale JWT for RLS)
-  const supabaseAdmin = createAdminClient()
-  const { data: profiel } = await supabaseAdmin
-    .from('profielen')
-    .select('administratie_id')
-    .eq('id', user.id)
-    .single()
-
-  return profiel?.administratie_id || null
+  // Delegeer naar React-cache zodat herhaalde aanroepen binnen één request
+  // niet steeds opnieuw auth.getUser() + profielen-query doen.
+  const { getAdministratieIdCached } = await import('@/lib/admin-context')
+  return getAdministratieIdCached()
 }
 
 export async function getVolgendeNummer(type: string): Promise<string> {
