@@ -324,7 +324,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   const [factuurLoading, setFactuurLoading] = useState<string | null>(null)
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
-  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([10, 50, 40])
+  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([50, 40, 10])
   const [besteldLoading, setBesteldLoading] = useState<string | null>(null)
   const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
   const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
@@ -1368,7 +1368,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 const totaal = factuurDialogOfferte.totaal
                 return (
                   <div className="p-4 rounded-xl border-2 border-gray-200">
-                    <p className="font-medium text-gray-900 mb-1">3 termijnen (bijv. 10 / 50 / 40)</p>
+                    <p className="font-medium text-gray-900 mb-1">3 termijnen (bijv. 50 / 40 / 10)</p>
                     <p className="text-xs text-gray-500 mb-3">Aanbetaling, tussentermijn en restbetaling. Samen 100%.</p>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {[0, 1, 2].map(i => (

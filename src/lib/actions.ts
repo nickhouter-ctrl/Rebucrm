@@ -6551,7 +6551,7 @@ export async function convertToFactuur(
     await zorgVoorBetaallink(factuur.id)
     revalidatePath('/facturatie')
     return { success: true, factuurIds: [factuur.id] }
-  } else {
+  } else if (splitType === 'split') {
     const nummer1 = await getVolgendeNummer('factuur')
     const nummer2 = await getVolgendeNummer('factuur')
 

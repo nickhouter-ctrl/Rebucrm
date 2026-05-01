@@ -563,7 +563,7 @@ function EditOfferteView({
   }
 
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
-  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([10, 50, 40])
+  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([50, 40, 10])
 
   async function handleConvertToFactuur(
     splitType: 'volledig' | 'split' | 'split3',
@@ -841,7 +841,7 @@ function EditOfferteView({
                 const tot = (offerte.totaal as number) || 0
                 return (
                   <div className="p-4 rounded-lg border-2 border-gray-200">
-                    <p className="font-medium mb-1">3 termijnen (bijv. 10 / 50 / 40)</p>
+                    <p className="font-medium mb-1">3 termijnen (bijv. 50 / 40 / 10)</p>
                     <p className="text-xs text-gray-500 mb-3">Aanbetaling, tussentermijn en restbetaling. Samen 100%.</p>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {[0, 1, 2].map(i => (
