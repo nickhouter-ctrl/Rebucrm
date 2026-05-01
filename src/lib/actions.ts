@@ -5052,7 +5052,7 @@ export async function reclassifyExistingEmails() {
   if (!emails || emails.length === 0) return { updated: 0 }
 
   let updated = 0
-  let takenAangemaakt = 0
+  const takenAangemaakt = 0
   for (const email of emails) {
     const hasOfferteMatch = !!(email.onderwerp && /OFF-\d+/i.test(email.onderwerp))
     const classificatie = classifyEmail(
@@ -5073,92 +5073,9 @@ export async function reclassifyExistingEmails() {
       .eq('id', email.id)
     updated++
 
-    // Create task for offerte_aanvraag emails (skip if task already exists)
-    if (classificatie === 'offerte_aanvraag') {
-      const omschrijvingMatch = `"${(email.onderwerp || '(geen onderwerp)').replace(/[%_]/g, '')}"`
-      const { count: existingTasks } = await supabaseAdmin
-        .from('taken')
-        .select('id', { count: 'exact', head: true })
-        .eq('administratie_id', adminId)
-        .ilike('omschrijving', `%${omschrijvingMatch}%`)
-
-      if ((existingTasks || 0) === 0) {
-        // Create relatie if unknown sender
-        let relatieId = email.relatie_id
-        if (!relatieId) {
-          const { data: newRelatie } = await supabaseAdmin
-            .from('relaties')
-            .insert({
-              administratie_id: adminId,
-              bedrijfsnaam: email.van_naam || email.van_email,
-              email: email.van_email,
-              type: 'particulier',
-            })
-            .select('id')
-            .single()
-          if (newRelatie) {
-            relatieId = newRelatie.id
-            await supabaseAdmin
-              .from('emails')
-              .update({ relatie_id: newRelatie.id })
-              .eq('id', email.id)
-          }
-        }
-
-        // Create project + concept offerte
-        let conceptOfferteId: string | null = null
-        if (relatieId) {
-          const projectNaam = email.onderwerp || '(geen onderwerp)'
-          const { data: newProject } = await supabaseAdmin
-            .from('projecten')
-            .insert({
-              administratie_id: adminId,
-              relatie_id: relatieId,
-              naam: projectNaam,
-              status: 'actief',
-            })
-            .select('id')
-            .single()
-
-          const { data: offertenummer } = await supabaseAdmin.rpc('volgende_nummer', {
-            p_administratie_id: adminId,
-            p_type: 'offerte',
-          })
-          const vandaag = new Date().toISOString().split('T')[0]
-          const { data: newOfferte } = await supabaseAdmin
-            .from('offertes')
-            .insert({
-              administratie_id: adminId,
-              relatie_id: relatieId,
-              project_id: newProject?.id || null,
-              offertenummer: offertenummer || '',
-              datum: vandaag,
-              status: 'concept',
-              onderwerp: projectNaam,
-              subtotaal: 0,
-              btw_totaal: 0,
-              totaal: 0,
-            })
-            .select('id')
-            .single()
-          conceptOfferteId = newOfferte?.id || null
-        }
-
-        const bulkToegewezenMedewerker = await matchMedewerkerByEmailAddress(email.aan_email, adminId, supabaseAdmin)
-        await supabaseAdmin.from('taken').insert({
-          administratie_id: adminId,
-          taaknummer: await getVolgendTaaknummer(supabaseAdmin),
-          titel: 'Nieuwe aanvraag - offerte nog te maken',
-          omschrijving: `E-mail van ${email.van_naam || email.van_email}: "${email.onderwerp || '(geen onderwerp)'}"${conceptOfferteId ? ` [offerte:${conceptOfferteId}]` : ''}`,
-          prioriteit: 'hoog',
-          status: 'open',
-          relatie_id: relatieId,
-          medewerker_id: bulkToegewezenMedewerker?.id || null,
-          toegewezen_aan: bulkToegewezenMedewerker?.profiel_id || null,
-        })
-        takenAangemaakt++
-      }
-    }
+    // Geen auto-creatie van aanvraag-taken meer — die werd te vaak voor de
+    // verkeerde mails aangemaakt. De gebruiker voegt aanvragen nu zelf toe
+    // vanaf de e-mail-pagina via 'Voeg toe aan aanvragen'.
   }
 
   revalidatePath('/')

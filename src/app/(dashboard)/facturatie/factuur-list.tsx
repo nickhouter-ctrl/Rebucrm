@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { type ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@/components/ui/data-table'
 import { PageHeader } from '@/components/ui/page-header'
@@ -193,7 +193,18 @@ type TabType = 'alle' | 'openstaand' | 'aanbetaling' | 'restbetaling' | 'per-klu
 
 export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]; ordersMetStatus: OrderMetStatus[] }) {
   const router = useRouter()
-  const [tab, setTab] = useState<TabType>('alle')
+  const searchParams = useSearchParams()
+  // Tab uit URL lezen zodat dashboard-KPI's direct naar 'Openstaand' (etc)
+  // kunnen springen via /facturatie?tab=openstaand[&vervallen=1].
+  const initialTab = (searchParams.get('tab') as TabType) || 'alle'
+  const [tab, setTab] = useState<TabType>(['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'per-klus'].includes(initialTab) ? initialTab : 'alle')
+  const [vervallenOnly, setVervallenOnly] = useState<boolean>(searchParams.get('vervallen') === '1')
+
+  useEffect(() => {
+    const t = searchParams.get('tab') as TabType | null
+    if (t && ['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'per-klus'].includes(t)) setTab(t)
+    setVervallenOnly(searchParams.get('vervallen') === '1')
+  }, [searchParams])
   const [syncing, setSyncing] = useState(false)
   const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
   const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
@@ -223,7 +234,13 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   // Sorteer op factuurnummer aflopend (nieuwste eerst). Format `F-YYYY-NNNNN`
   // is zero-padded dus string-vergelijking is voldoende.
   const sorted = [...facturen].sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
-  const openstaandFacturen = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
+  const vandaagStr = new Date().toISOString().slice(0, 10)
+  const openstaandFacturenAll = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
+  // Bij ?vervallen=1 (vanuit dashboard 'Achterstallig'-KPI) tonen we alleen
+  // facturen waarvan de vervaldatum is gepasseerd.
+  const openstaandFacturen = vervallenOnly
+    ? openstaandFacturenAll.filter(f => f.vervaldatum && f.vervaldatum < vandaagStr)
+    : openstaandFacturenAll
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
   const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
@@ -249,7 +266,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 
   const tabs: { key: TabType; label: string; count?: number }[] = [
     { key: 'alle', label: 'Alle facturen' },
-    { key: 'openstaand', label: 'Openstaand', count: openstaandFacturen.length },
+    { key: 'openstaand', label: vervallenOnly ? 'Openstaand · alleen vervallen' : 'Openstaand', count: openstaandFacturen.length },
     { key: 'aanbetaling', label: 'Aanbetalingen', count: aanbetalingFacturen.length },
     { key: 'restbetaling', label: 'Restbetalingen', count: restbetalingFacturen.length },
     { key: 'per-klus', label: 'Per klus', count: ordersMetActie.length > 0 ? ordersMetActie.length : undefined },
@@ -341,7 +358,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         {tabs.map(t => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); if (t.key !== 'openstaand') setVervallenOnly(false) }}
             className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}

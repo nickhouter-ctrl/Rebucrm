@@ -6,10 +6,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ToastContainer, showToast } from '@/components/ui/toast'
-import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check, Sparkles, FileText } from 'lucide-react'
+import { Mail, MailOpen, ArrowDownLeft, ArrowUpRight, Search, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Clock, EyeOff, Eye, UserPlus, FolderKanban, Megaphone, Send, X, Loader2, Check, Sparkles, FileText, Plus } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties, maakOfferteVanuitEmail } from '@/lib/actions'
+import { getEmails, markEmailGelezen, getEmailBody, reclassifyExistingEmails, assignEmailToMedewerker, linkEmailToProject, getActiveProjectsForEmail, getBroadcastRelatieCount, sendBroadcastEmail, getBroadcastRelaties, maakOfferteVanuitEmail, approveTriageEmail } from '@/lib/actions'
 import { useRouter } from 'next/navigation'
 
 interface Email {
@@ -99,6 +99,21 @@ export function EmailView({
       }
     } finally {
       setOfferteMaken(null)
+    }
+  }
+
+  const [aanvraagToevoegen, setAanvraagToevoegen] = useState<string | null>(null)
+  async function handleVoegToeAlsAanvraag(e: React.MouseEvent, emailId: string) {
+    e.stopPropagation()
+    if (aanvraagToevoegen) return
+    setAanvraagToevoegen(emailId)
+    try {
+      const res = await approveTriageEmail(emailId)
+      if (res?.error) { showToast(res.error, 'error'); return }
+      showToast('Toegevoegd aan aanvragen', 'success')
+      router.refresh()
+    } finally {
+      setAanvraagToevoegen(null)
     }
   }
 
@@ -703,6 +718,18 @@ export function EmailView({
                                 </div>
                               )}
                             </div>
+
+                            {/* Voeg toe als aanvraag (manuele toevoeging — geen auto meer) */}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => handleVoegToeAlsAanvraag(e, email.id)}
+                              disabled={aanvraagToevoegen === email.id}
+                              title="Voeg deze e-mail toe aan de aanvragen-pagina"
+                            >
+                              {aanvraagToevoegen === email.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                              Voeg toe aan aanvragen
+                            </Button>
 
                             {/* Maak concept-offerte vanuit deze e-mail */}
                             <Button
