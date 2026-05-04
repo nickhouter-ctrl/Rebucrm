@@ -33,6 +33,25 @@ interface Taak {
 
 type TabType = 'alle' | 'opvolgen' | 'offerte' | 'afgerond'
 
+function getDeadlineKleur(deadline: string | null, deadline_tijd: string | null, status: string): string {
+  if (!deadline || status === 'afgerond') return 'text-gray-500'
+  const now = new Date()
+  const today = new Date(now)
+  today.setHours(0, 0, 0, 0)
+  const deadlineDate = new Date(deadline)
+  deadlineDate.setHours(0, 0, 0, 0)
+  if (deadlineDate < today) return 'text-red-600 font-medium'
+  if (deadlineDate > today) return 'text-gray-500'
+  // Deadline is vandaag — check tijd
+  if (deadline_tijd) {
+    const [h, m] = deadline_tijd.split(':').map(Number)
+    const deadlineDt = new Date(now)
+    deadlineDt.setHours(h, m, 0, 0)
+    if (deadlineDt < now) return 'text-red-600 font-medium'
+  }
+  return 'text-amber-600 font-medium'
+}
+
 function categorieTaak(taak: { titel: string; status: string; categorie?: string | null }): TabType {
   if (taak.status === 'afgerond') return 'afgerond'
   if (taak.categorie === 'Bellen') return 'opvolgen'
@@ -82,7 +101,8 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
       const d = row.original.deadline
       if (!d) return '-'
       const tijd = row.original.deadline_tijd ? ` ${String(row.original.deadline_tijd).slice(0, 5)}` : ''
-      return `${formatDateShort(d)}${tijd}`
+      const kleur = getDeadlineKleur(d, row.original.deadline_tijd, row.original.status)
+      return <span className={kleur}>{formatDateShort(d)}{tijd}</span>
     } },
   ]
   if (isAdmin) {
@@ -308,7 +328,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
               : 'bg-gray-100 text-gray-600'
             }`}>{t.status === 'afgerond' ? 'afgerond' : t.prioriteit}</span>,
             rightBottom: t.deadline
-              ? <span className="text-xs text-gray-500">deadline {t.deadline}{t.deadline_tijd ? ` ${t.deadline_tijd}` : ''}</span>
+              ? <span className={`text-xs ${getDeadlineKleur(t.deadline, t.deadline_tijd, t.status)}`}>deadline {formatDateShort(t.deadline)}{t.deadline_tijd ? ` ${String(t.deadline_tijd).slice(0, 5)}` : ''}</span>
               : null,
           })}
         />
