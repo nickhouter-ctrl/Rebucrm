@@ -2,6 +2,7 @@
   "git": {
     "deploymentEnabled": false
   },
+  "regions": ["dub1"],
   "crons": [
     {
       "path": "/api/email/sync",
