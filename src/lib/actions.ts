@@ -348,9 +348,61 @@ export async function saveRelatie(formData: FormData) {
   } else {
     const { data, error } = await supabase.from('relaties').insert(record).select('id').single()
     if (error) return { error: error.message }
+    // Best-effort: nieuwe relatie ook in SnelStart aanmaken zodat hij direct
+    // beschikbaar is voor verkoopboekingen en niet pas bij eerste factuur-push.
+    // Falen blokkeert de save niet — de bestaande lazy-aanmaak in
+    // pushFactuurToSnelStart vangt later alsnog op.
+    pushRelatieNaarSnelStart(data.id, record).catch(err => {
+      console.warn('SnelStart-relatie aanmaken vanuit saveRelatie mislukt:', err)
+    })
     revalidatePath('/relatiebeheer')
     return { success: true, id: data.id }
   }
+}
+
+async function pushRelatieNaarSnelStart(relatieId: string, record: {
+  bedrijfsnaam: string
+  contactpersoon: string | null
+  email: string | null
+  adres: string | null
+  postcode: string | null
+  plaats: string | null
+  btw_nummer: string | null
+  kvk_nummer: string | null
+  iban: string | null
+}) {
+  const { isSnelStartEnabled, findRelatieByEmail, findRelatieByNaam, createRelatie } = await import('@/lib/snelstart')
+  if (!isSnelStartEnabled()) return
+  const sb = createAdminClient()
+
+  // Bestaande SnelStart-relatie zoeken (kvk_nummer of email-match) zodat we
+  // geen dubbele debiteur aanmaken voor klanten die al in SnelStart staan.
+  let existing = null
+  if (record.email) existing = await findRelatieByEmail(record.email)
+  if (!existing) existing = await findRelatieByNaam(record.bedrijfsnaam)
+
+  let snelstartId: string
+  if (existing) {
+    snelstartId = existing.id
+  } else {
+    const created = await createRelatie({
+      naam: record.bedrijfsnaam,
+      email: record.email,
+      contactpersoon: record.contactpersoon,
+      adres: record.adres,
+      postcode: record.postcode,
+      plaats: record.plaats,
+      btw_nummer: record.btw_nummer,
+      kvk_nummer: record.kvk_nummer,
+      iban: record.iban,
+    })
+    snelstartId = created.id
+  }
+
+  await sb
+    .from('relaties')
+    .update({ snelstart_relatie_id: snelstartId, snelstart_synced_at: new Date().toISOString() })
+    .eq('id', relatieId)
 }
 
 export async function importRelaties(rows: {
