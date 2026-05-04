@@ -12,7 +12,7 @@ export async function GET(
 
   const { data: factuur, error } = await supabase
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
     .eq('id', id)
     .single()
 

@@ -31,6 +31,7 @@ interface FactuurData {
   opmerkingen?: string | null
   relatie?: Relatie | null
   regels?: Regel[]
+  offerte?: { offertenummer: string | null } | null
 }
 
 const logoPath = path.join(process.cwd(), 'public', 'images', 'logo-rebu.png')
@@ -115,6 +116,11 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
             {factuur.vervaldatum && (
               <Text style={s.metaLine}>
                 <Text style={s.metaLabel}>Vervaldatum: </Text>{formatDatePdf(factuur.vervaldatum)}
+              </Text>
+            )}
+            {factuur.offerte?.offertenummer && (
+              <Text style={s.metaLine}>
+                <Text style={s.metaLabel}>Offertenummer: </Text>{factuur.offerte.offertenummer}
               </Text>
             )}
           </View>

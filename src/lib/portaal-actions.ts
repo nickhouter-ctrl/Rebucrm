@@ -652,7 +652,7 @@ async function autoFacturerenNaAcceptatie(
   // === Haal volledige factuur op voor PDF + email ===
   const { data: factuurVolledig } = await supabaseAdmin
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
     .eq('id', factuurIdToSend)
     .single()
 
