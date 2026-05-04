@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getMolliePaymentStatus } from '@/lib/mollie'
-import { sendBetalingsbevestiging } from '@/lib/betaling-bevestiging'
+import { syncFactuurFromMollie } from '@/lib/mollie-sync'
 
 // Safety-net: webhook van Mollie kan missen (Mollie endpoint down, Vercel cold
-// start error, network issue). Deze cron haalt elk uur de status op van alle
-// openstaande facturen met een mollie_payment_id en synchroniseert betaald_bedrag
-// + status. Idempotent — als de webhook al gelopen is verandert er niks.
+// start error, network issue). Mollie retryt zelf tot 3 dagen, dus echt missen
+// is zeldzaam. Deze cron draait elke 2 uur en synchroniseert openstaande
+// facturen — idempotent. Als de webhook al gelopen is verandert er niks.
 //
-// Vercel cron schedule: '0 * * * *' (elk heel uur).
+// Vercel cron schedule: '0 */2 * * *' (elke 2 uur).
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -22,7 +21,7 @@ export async function GET(req: NextRequest) {
   const sb = createAdminClient()
   const { data: facturen } = await sb
     .from('facturen')
-    .select('id, factuurnummer, totaal, betaald_bedrag, mollie_payment_id, status, administratie_id')
+    .select('id, factuurnummer, mollie_payment_id')
     .not('mollie_payment_id', 'is', null)
     .in('status', ['verzonden', 'deels_betaald', 'vervallen', 'concept'])
 
@@ -35,31 +34,8 @@ export async function GET(req: NextRequest) {
 
   for (const f of facturen) {
     try {
-      const payment = await getMolliePaymentStatus(f.mollie_payment_id as string)
-      if (payment.status !== 'paid') continue
-
-      const huidigBetaald = Number(f.betaald_bedrag || 0)
-      const mollieBetaald = Number(payment.amount || 0)
-      const nieuwBetaaldBedrag = Math.max(huidigBetaald, mollieBetaald)
-      const totaal = Number(f.totaal || 0)
-      const nieuweStatus = nieuwBetaaldBedrag >= totaal - 0.01 ? 'betaald' : 'deels_betaald'
-
-      // Niets te doen als al synchroon
-      if (Math.abs(nieuwBetaaldBedrag - huidigBetaald) < 0.01 && nieuweStatus === f.status) continue
-
-      const werdBetaald = f.status !== 'betaald' && nieuweStatus === 'betaald'
-      await sb.from('facturen')
-        .update({ betaald_bedrag: nieuwBetaaldBedrag, status: nieuweStatus })
-        .eq('id', f.id)
-      updated++
-
-      if (werdBetaald) {
-        try { await sendBetalingsbevestiging(f.id) } catch (e) { console.warn('Bevestigingsmail mislukt:', e) }
-        try {
-          const { autoArchiveerAfgerondeVerkoopkansen } = await import('@/lib/actions')
-          await autoArchiveerAfgerondeVerkoopkansen(f.administratie_id)
-        } catch { /* ignore */ }
-      }
+      const result = await syncFactuurFromMollie(f.mollie_payment_id as string)
+      if (result.updated) updated++
     } catch (e) {
       errors.push(`${f.factuurnummer}: ${e instanceof Error ? e.message : 'fout'}`)
     }

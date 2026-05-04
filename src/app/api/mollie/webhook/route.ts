@@ -1,76 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { getMolliePaymentStatus } from '@/lib/mollie'
-import { sendBetalingsbevestiging } from '@/lib/betaling-bevestiging'
+import { syncFactuurFromMollie } from '@/lib/mollie-sync'
 
+export const dynamic = 'force-dynamic'
+export const maxDuration = 30
+
+/**
+ * Mollie webhook ontvanger. Mollie POST een form-encoded body met `id=<paymentId>`
+ * (zowel tr_… Payments als pl_… Payment Links). Het ID wordt direct teruggevraagd
+ * bij Mollie's API — onbekende IDs leveren een 200 OK met reden op zonder iets
+ * te muteren. Mollie verwacht binnen ~15 sec een 2xx response.
+ */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.formData()
-    const paymentId = body.get('id') as string
-
+    const paymentId = body.get('id') as string | null
     if (!paymentId) {
-      return NextResponse.json({ error: 'Invalid webhook payload' }, { status: 400 })
+      return NextResponse.json({ error: 'geen payment-id' }, { status: 400 })
     }
-
-    const payment = await getMolliePaymentStatus(paymentId)
-    const supabase = createAdminClient()
-
-    const { data: factuur } = await supabase
-      .from('facturen')
-      .select('id, totaal, betaald_bedrag, status, administratie_id')
-      .eq('mollie_payment_id', paymentId)
-      .single()
-
-    if (!factuur) {
-      console.error(`Factuur niet gevonden voor payment ${paymentId}`)
-      return NextResponse.json({ error: 'Factuur not found' }, { status: 404 })
-    }
-
-    if (payment.status === 'paid') {
-      // payment.amount = totaal betaald via deze Mollie payment-link (som van
-      // alle 'paid' sub-payments). Bij webhook-retries krijgen we dezelfde
-      // waarde — dus IDEMPOTENT zetten i.p.v. optellen, anders telt dubbel.
-      // Math.max beschermt tegen handmatige correcties die de DB-waarde hoger
-      // zetten dan Mollie kan zien (bv. handmatig overgemaakt + Mollie betaald).
-      const huidigBetaald = Number(factuur.betaald_bedrag || 0)
-      const mollieBetaald = Number(payment.amount || 0)
-      const nieuwBetaaldBedrag = Math.max(huidigBetaald, mollieBetaald)
-      const totaal = Number(factuur.totaal || 0)
-      // 1ct marge tegen afrondingsverschillen in Mollie-bedragen
-      const nieuweStatus = nieuwBetaaldBedrag >= totaal - 0.01 ? 'betaald' : 'deels_betaald'
-      const werdBetaald = factuur.status !== 'betaald' && nieuweStatus === 'betaald'
-
-      await supabase
-        .from('facturen')
-        .update({
-          betaald_bedrag: nieuwBetaaldBedrag,
-          status: nieuweStatus,
-        })
-        .eq('id', factuur.id)
-
-      // Verstuur bevestigingsmail als factuur nu op 'betaald' staat (idempotent
-      // via betalingsbevestiging_verzonden_op flag).
-      if (werdBetaald) {
-        try {
-          await sendBetalingsbevestiging(factuur.id)
-        } catch (err) {
-          console.error('Betalingsbevestiging mail vanuit Mollie webhook mislukt:', err)
-        }
-        try {
-          const { autoArchiveerAfgerondeVerkoopkansen } = await import('@/lib/actions')
-          await autoArchiveerAfgerondeVerkoopkansen(factuur.administratie_id)
-        } catch (err) {
-          console.warn('Auto-archivering na Mollie betaling mislukt:', err)
-        }
-      }
-    }
-
-    return NextResponse.json({ success: true })
+    const result = await syncFactuurFromMollie(paymentId)
+    return NextResponse.json({ success: true, ...result })
   } catch (err) {
     console.error('Mollie webhook error:', err)
+    // 200 retourneren zodat Mollie niet eindeloos retryt op een transient bug.
+    // De safety-net cron pakt het later alsnog op.
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Webhook processing failed' },
-      { status: 500 }
+      { error: err instanceof Error ? err.message : 'webhook processing failed' },
+      { status: 200 }
     )
   }
 }
