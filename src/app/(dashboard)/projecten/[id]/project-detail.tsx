@@ -395,8 +395,9 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                   setLoading(true)
                   const result = await factureerVerkoopkans(project.id as string, { bedrag })
                   setLoading(false)
-                  if (result.error) { setError(result.error) }
-                  else if (result.factuurId) router.push(`/facturatie/${result.factuurId}`)
+                  if (result?.error) { setError(result.error) }
+                  else if (result?.factuurId) router.push(`/facturatie/${result.factuurId}`)
+                  else router.push('/facturatie')
                 }}
               >
                 <Receipt className="h-4 w-4" />

@@ -167,7 +167,7 @@ interface Props {
 export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [], verstuurdeEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
-  type TabKey = 'overzicht' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
+  type TabKey = 'overzicht' | 'tijdlijn' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
   // Initiele tab uit URL ?tab=... zodat back-navigatie de juiste tab laat zien
   const initialTab = (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') as TabKey) || 'overzicht'
   const [tab, setTabState] = useState<TabKey>(initialTab)

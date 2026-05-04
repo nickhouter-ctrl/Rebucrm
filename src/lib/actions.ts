@@ -2088,7 +2088,7 @@ export async function sendFactuurEmail(factuurId: string, options: {
   // gebeurt verderop nog gewoon via de user-scope waar mogelijk.
   const { data: factuur } = await supabaseAdmin2
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*)')
+    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
     .eq('id', factuurId)
     .single()
 
@@ -4818,7 +4818,7 @@ export async function approveTriageEmail(emailId: string) {
   // Get email details
   const { data: email } = await supabaseAdmin
     .from('emails')
-    .select('id, van_email, van_naam, onderwerp, relatie_id')
+    .select('id, van_email, van_naam, aan_email, onderwerp, relatie_id')
     .eq('id', emailId)
     .eq('administratie_id', adminId)
     .single()
@@ -6458,7 +6458,7 @@ export async function convertToFactuur(
 
     await zorgVoorBetaallink(factuur.id)
     revalidatePath('/facturatie')
-    return { success: true, factuurIds: [factuur.id] }
+    return { success: true, factuurId: factuur.id, factuurIds: [factuur.id] }
   } else if (splitType === 'split') {
     const nummer1 = await getVolgendeNummer('factuur')
     const nummer2 = await getVolgendeNummer('factuur')
@@ -6543,7 +6543,7 @@ export async function convertToFactuur(
     await zorgVoorBetaallink(factuur2.id)
 
     revalidatePath('/facturatie')
-    return { success: true, factuurIds: [factuur1.id, factuur2.id] }
+    return { success: true, factuurId: factuur1.id, factuurIds: [factuur1.id, factuur2.id] }
   }
 
   if (splitType === 'split3') {
@@ -6626,7 +6626,8 @@ export async function convertToFactuur(
     }
 
     revalidatePath('/facturatie')
-    return { success: true, factuurIds: aangemaakt.map(f => f.id) }
+    const ids = aangemaakt.map(f => f.id)
+    return { success: true, factuurId: ids[0], factuurIds: ids }
   }
 }
 
