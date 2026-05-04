@@ -62,6 +62,27 @@ export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: T
   const [success, setSuccess] = useState('')
   const [taken, setTaken] = useState(initialTaken)
 
+  async function pdokAutoFill() {
+    const postcode = (document.getElementById('lead_postcode') as HTMLInputElement | null)?.value.trim() || ''
+    const huisnummer = (document.getElementById('lead_huisnr') as HTMLInputElement | null)?.value.trim() || ''
+    if (!postcode || !huisnummer) return
+    if (!/^[1-9][0-9]{3}\s?[A-Za-z]{2}$/.test(postcode)) return
+    try {
+      const res = await fetch(`/api/pdok/lookup?postcode=${encodeURIComponent(postcode)}&huisnummer=${encodeURIComponent(huisnummer)}`)
+      if (!res.ok) return
+      const adres = await res.json() as { straat: string; huisnummer: string; toevoeging: string | null; postcode: string; plaats: string }
+      const huisnrFull = adres.toevoeging ? `${adres.huisnummer}${adres.toevoeging}` : adres.huisnummer
+      const adresEl = document.getElementById('lead_adres') as HTMLInputElement | null
+      const postcodeEl = document.getElementById('lead_postcode') as HTMLInputElement | null
+      const plaatsEl = document.getElementById('lead_plaats') as HTMLInputElement | null
+      if (adresEl && !adresEl.value.trim()) adresEl.value = `${adres.straat} ${huisnrFull}`
+      if (postcodeEl) postcodeEl.value = adres.postcode
+      if (plaatsEl && !plaatsEl.value.trim()) plaatsEl.value = adres.plaats
+    } catch {
+      // stille fail
+    }
+  }
+
   // Terugbel state
   const [terugbelDatum, setTerugbelDatum] = useState(
     lead.terugbel_datum ? new Date(lead.terugbel_datum).toISOString().slice(0, 16) : ''
@@ -217,17 +238,21 @@ export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: T
                     <Input name="telefoon" defaultValue={lead.telefoon || ''} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Adres</label>
-                    <Input name="adres" defaultValue={lead.adres || ''} />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Adres (straat + huisnummer)</label>
+                    <Input id="lead_adres" name="adres" defaultValue={lead.adres || ''} />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-[1fr_120px_1fr] gap-2">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
-                      <Input name="postcode" defaultValue={lead.postcode || ''} />
+                      <Input id="lead_postcode" name="postcode" defaultValue={lead.postcode || ''} placeholder="1234 AB" onBlur={pdokAutoFill} />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Huisnr.</label>
+                      <Input id="lead_huisnr" placeholder="12 of 12A" onBlur={pdokAutoFill} />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Plaats</label>
-                      <Input name="plaats" defaultValue={lead.plaats || ''} />
+                      <Input id="lead_plaats" name="plaats" defaultValue={lead.plaats || ''} />
                     </div>
                   </div>
                 </div>

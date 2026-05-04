@@ -67,6 +67,29 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const [verrijken, setVerrijken] = useState(false)
   const [verrijkResultaat, setVerrijkResultaat] = useState<string | null>(null)
 
+  async function pdokAutoFill() {
+    const postcode = (postcodeRef.current?.value || '').trim()
+    const huisnrInput = document.getElementById('pdok_huisnr') as HTMLInputElement | null
+    const huisnummer = (huisnrInput?.value || '').trim()
+    if (!postcode || !huisnummer) return
+    if (!/^[1-9][0-9]{3}\s?[A-Za-z]{2}$/.test(postcode)) return
+    try {
+      const res = await fetch(`/api/pdok/lookup?postcode=${encodeURIComponent(postcode)}&huisnummer=${encodeURIComponent(huisnummer)}`)
+      if (!res.ok) return
+      const adres = await res.json() as { straat: string; huisnummer: string; toevoeging: string | null; postcode: string; plaats: string }
+      const huisnrFull = adres.toevoeging ? `${adres.huisnummer}${adres.toevoeging}` : adres.huisnummer
+      if (adresRef.current && !adresRef.current.value.trim()) {
+        adresRef.current.value = `${adres.straat} ${huisnrFull}`
+      }
+      if (postcodeRef.current) postcodeRef.current.value = adres.postcode
+      if (plaatsRef.current && !plaatsRef.current.value.trim()) {
+        plaatsRef.current.value = adres.plaats
+      }
+    } catch {
+      // Stille fail — gebruiker kan handmatig blijven invullen
+    }
+  }
+
   async function aiVerrijk() {
     const url = (websiteRef.current?.value || '').trim()
     if (!url) { setError('Vul eerst een website-URL in'); return }
@@ -347,8 +370,11 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
               <Input ref={emailRef} id="email" name="email" label="E-mail" type="email" defaultValue={relatie?.email || ''} />
               <Input id="factuur_email" name="factuur_email" label="Factuur-e-mail (optioneel)" type="email" defaultValue={(relatie as Record<string, unknown> | undefined)?.factuur_email as string || ''} placeholder="Leeg = algemene e-mail gebruiken" />
               <Input ref={telefoonRef} id="telefoon" name="telefoon" label="Telefoon" defaultValue={relatie?.telefoon || ''} />
-              <Input ref={adresRef} id="adres" name="adres" label="Adres" defaultValue={relatie?.adres || ''} />
-              <Input ref={postcodeRef} id="postcode" name="postcode" label="Postcode" defaultValue={relatie?.postcode || ''} />
+              <Input ref={adresRef} id="adres" name="adres" label="Adres (straat + huisnummer)" defaultValue={relatie?.adres || ''} />
+              <div className="grid grid-cols-[1fr_120px] gap-2">
+                <Input ref={postcodeRef} id="postcode" name="postcode" label="Postcode" defaultValue={relatie?.postcode || ''} onBlur={pdokAutoFill} placeholder="1234 AB" />
+                <Input id="pdok_huisnr" label="Huisnr." placeholder="12 of 12A" onBlur={pdokAutoFill} />
+              </div>
               <Input ref={plaatsRef} id="plaats" name="plaats" label="Plaats" defaultValue={relatie?.plaats || ''} />
               <Input ref={kvkNummerRef} id="kvk_nummer" name="kvk_nummer" label="KVK-nummer" defaultValue={relatie?.kvk_nummer || ''} />
               <Input id="btw_nummer" name="btw_nummer" label="BTW-nummer" defaultValue={relatie?.btw_nummer || ''} />
