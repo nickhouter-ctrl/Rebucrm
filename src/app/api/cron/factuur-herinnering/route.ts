@@ -20,9 +20,9 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 const FASES = [
-  { dagen: 7, prefix: 'Herinnering 1', toon: 'vriendelijk' },
-  { dagen: 14, prefix: 'Herinnering 2', toon: 'dringend' },
-  { dagen: 30, prefix: 'Herinnering 3', toon: 'laatste' },
+  { stap: 1, dagen: 7, prefix: 'Herinnering 1', toon: 'vriendelijk' },
+  { stap: 2, dagen: 14, prefix: 'Herinnering 2', toon: 'dringend' },
+  { stap: 3, dagen: 30, prefix: 'Herinnering 3', toon: 'laatste' },
 ] as const
 
 type Fase = typeof FASES[number]
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
 
   const { data: facturen } = await sb
     .from('facturen')
-    .select('id, factuurnummer, vervaldatum, totaal, betaald_bedrag, status, onderwerp, administratie_id, betaal_link, publiek_token, relatie:relaties(id, contactpersoon, bedrijfsnaam, email, factuur_email)')
+    .select('id, factuurnummer, vervaldatum, totaal, betaald_bedrag, status, onderwerp, administratie_id, betaal_link, publiek_token, aanmaning_stap, relatie:relaties(id, contactpersoon, bedrijfsnaam, email, factuur_email)')
     .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
     .not('vervaldatum', 'is', null)
 
@@ -104,14 +104,20 @@ export async function GET(req: NextRequest) {
     const email = (relatie?.factuur_email || '').trim() || (relatie?.email || '').trim()
     if (!email) continue
 
-    // Idempotency: heeft deze factuur al een herinnering van dit niveau gehad?
-    const { data: bestaande } = await sb
-      .from('email_log')
-      .select('id')
-      .eq('aan', email)
-      .ilike('onderwerp', `${fase.prefix} — ${f.factuurnummer}%`)
-      .limit(1)
-    if (bestaande && bestaande.length > 0) continue
+    // Idempotency: kolom aanmaning_stap is leidend, val terug op email_log
+    // voor facturen waar dat veld nog niet gevuld is (legacy).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const huidigeStap = Number((f as any).aanmaning_stap || 0)
+    if (huidigeStap >= fase.stap) continue
+    if (huidigeStap === 0) {
+      const { data: bestaande } = await sb
+        .from('email_log')
+        .select('id')
+        .eq('aan', email)
+        .ilike('onderwerp', `${fase.prefix} — ${f.factuurnummer}%`)
+        .limit(1)
+      if (bestaande && bestaande.length > 0) continue
+    }
 
     // Zorg voor een Mollie betaal-link
     let link = (f.betaal_link as string | null) || null
@@ -139,8 +145,34 @@ export async function GET(req: NextRequest) {
         aan: email,
         onderwerp: subject,
         body_html: html,
-        relatie_id: relatie?.contactpersoon ? null : null, // relatie kolom optioneel
+        relatie_id: relatie?.id || null,
+        factuur_id: f.id,
       })
+      await sb.from('facturen')
+        .update({ aanmaning_stap: fase.stap, aanmaning_verstuurd_op: new Date().toISOString() })
+        .eq('id', f.id)
+
+      // Bij laatste aanmaning ook interne taak aanmaken voor opvolging incasso
+      if (fase.stap === 3) {
+        try {
+          const { data: nummer } = await sb.rpc('volgende_nummer', {
+            p_administratie_id: f.administratie_id,
+            p_type: 'taak',
+          })
+          await sb.from('taken').insert({
+            administratie_id: f.administratie_id,
+            taaknummer: nummer || '',
+            titel: `Incasso overwegen — ${f.factuurnummer}`,
+            omschrijving: `Factuur ${f.factuurnummer} (${new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(openstaand)}) staat 30+ dagen open. Klant heeft 3 herinneringen ontvangen.`,
+            prioriteit: 'hoog',
+            status: 'open',
+            relatie_id: relatie?.id || null,
+          })
+        } catch (e) {
+          console.warn('Incasso-taak aanmaken mislukt:', e)
+        }
+      }
+
       sent++
     } catch (e) {
       errors.push(`${f.factuurnummer}: ${e instanceof Error ? e.message : 'fout'}`)
