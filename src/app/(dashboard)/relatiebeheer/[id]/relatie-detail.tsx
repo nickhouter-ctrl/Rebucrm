@@ -210,6 +210,9 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const [contactEdit, setContactEdit] = useState<Contactpersoon | null>(null)
   const [contactForm, setContactForm] = useState({ naam: '', functie: '', email: '', telefoon: '', mobiel: '', is_primair: false, opmerkingen: '' })
 
+  const [afgerondeTakenOpen, setAfgerondeTakenOpen] = useState(false)
+  const [afgerondeOffertesOpen, setAfgerondeOffertesOpen] = useState(false)
+
   function openNieuwContact() {
     setContactEdit(null)
     setContactForm({ naam: '', functie: '', email: '', telefoon: '', mobiel: '', is_primair: false, opmerkingen: '' })
@@ -1188,60 +1191,99 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         )
       })()}
 
-      {tab === 'offertes' && (
-        <Card>
-          <CardContent className="p-0">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Nummer</th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Versie</th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Datum</th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
-                  <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
-                  <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
-                  <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {offertes.length === 0 ? (
-                  <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500 text-sm">Geen offertes</td></tr>
-                ) : (
-                  offertes.map(o => (
-                    <tr key={o.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/offertes/${o.id}`)}>
-                      <td className="px-6 py-3 text-sm font-medium text-primary">{o.offertenummer}</td>
-                      <td className="px-6 py-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
-                          v{o.versie_nummer || 1}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{formatDateShort(o.datum)}</td>
-                      <td className="px-6 py-3 text-sm text-gray-600">{o.onderwerp || '-'}</td>
-                      <td className="px-6 py-3"><Badge status={o.status} /></td>
-                      <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(o.subtotaal)}</td>
-                      <td className="px-6 py-3 text-right" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
-                          <a href={`/api/pdf/offerte/${o.id}`} target="_blank" rel="noopener noreferrer" title="PDF met prijzen">
-                            <Button variant="ghost" className="h-7 px-2 text-xs">
-                              <Download className="h-3.5 w-3.5" />
-                            </Button>
-                          </a>
-                          <a href={`/api/pdf/offerte/${o.id}?hidePrices=1`} target="_blank" rel="noopener noreferrer" title="PDF zonder prijzen">
-                            <Button variant="ghost" className="h-7 px-2 text-xs text-gray-400">
-                              <Download className="h-3.5 w-3.5" />
-                              <span className="ml-0.5">ZP</span>
-                            </Button>
-                          </a>
-                        </div>
-                      </td>
+      {tab === 'offertes' && (() => {
+        const offerteAfgerond = (s: string) => s === 'geaccepteerd' || s === 'afgewezen' || s === 'verlopen'
+        const actieveOffertes = offertes.filter(o => !offerteAfgerond(o.status))
+        const afgerondeOffertes = offertes.filter(o => offerteAfgerond(o.status))
+        const renderOfferteRij = (o: typeof offertes[number]) => (
+          <tr key={o.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/offertes/${o.id}`)}>
+            <td className="px-6 py-3 text-sm font-medium text-primary">{o.offertenummer}</td>
+            <td className="px-6 py-3">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                v{o.versie_nummer || 1}
+              </span>
+            </td>
+            <td className="px-6 py-3 text-sm text-gray-600">{formatDateShort(o.datum)}</td>
+            <td className="px-6 py-3 text-sm text-gray-600">{o.onderwerp || '-'}</td>
+            <td className="px-6 py-3"><Badge status={o.status} /></td>
+            <td className="px-6 py-3 text-sm text-right font-medium">{formatCurrency(o.subtotaal)}</td>
+            <td className="px-6 py-3 text-right" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-end gap-1">
+                <a href={`/api/pdf/offerte/${o.id}`} target="_blank" rel="noopener noreferrer" title="PDF met prijzen">
+                  <Button variant="ghost" className="h-7 px-2 text-xs">
+                    <Download className="h-3.5 w-3.5" />
+                  </Button>
+                </a>
+                <a href={`/api/pdf/offerte/${o.id}?hidePrices=1`} target="_blank" rel="noopener noreferrer" title="PDF zonder prijzen">
+                  <Button variant="ghost" className="h-7 px-2 text-xs text-gray-400">
+                    <Download className="h-3.5 w-3.5" />
+                    <span className="ml-0.5">ZP</span>
+                  </Button>
+                </a>
+              </div>
+            </td>
+          </tr>
+        )
+        return (
+          <div className="space-y-4">
+            <Card>
+              <CardContent className="p-0">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Nummer</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Versie</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Datum</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
+                      <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
+                      <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
+                      <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
                     </tr>
-                  ))
+                  </thead>
+                  <tbody>
+                    {actieveOffertes.length === 0 ? (
+                      <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-500 text-sm">Geen actieve offertes</td></tr>
+                    ) : (
+                      actieveOffertes.map(renderOfferteRij)
+                    )}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+
+            {afgerondeOffertes.length > 0 && (
+              <Card>
+                <button
+                  type="button"
+                  onClick={() => setAfgerondeOffertesOpen(v => !v)}
+                  className="w-full flex items-center justify-between px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <span>Afgeronde offertes ({afgerondeOffertes.length})</span>
+                  {afgerondeOffertesOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </button>
+                {afgerondeOffertesOpen && (
+                  <CardContent className="p-0 border-t border-gray-100">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-gray-200 bg-gray-50">
+                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Nummer</th>
+                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Versie</th>
+                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Datum</th>
+                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
+                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
+                          <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
+                          <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
+                        </tr>
+                      </thead>
+                      <tbody>{afgerondeOffertes.map(renderOfferteRij)}</tbody>
+                    </table>
+                  </CardContent>
                 )}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
+              </Card>
+            )}
+          </div>
+        )
+      })()}
 
       {tab === 'facturen' && (
         <Card>
@@ -1362,53 +1404,80 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         </div>
       )}
 
-      {tab === 'taken' && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => router.push(`/taken/nieuw?relatie_id=${relatie.id}`)}>
-              <Plus className="h-4 w-4" />
-              Taak aanmaken
-            </Button>
-          </div>
-        <Card>
-          <CardContent className="p-0">
-            {relatieTaken.length === 0 ? (
-              <div className="py-8 text-center text-gray-500 text-sm">Geen taken gekoppeld aan deze relatie</div>
-            ) : (
-              <table className="w-full">
-                <thead><tr className="border-b border-gray-200 text-left text-xs font-medium text-gray-500 uppercase">
-                  <th className="px-4 py-3">Titel</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Prioriteit</th>
-                  <th className="px-4 py-3">Deadline</th>
-                  <th className="px-4 py-3 w-20"></th>
-                </tr></thead>
-                <tbody className="divide-y divide-gray-100">
-                  {relatieTaken.map(t => (
-                    <tr key={t.id} className="hover:bg-gray-50 group">
-                      <td className="px-4 py-3"><Link href={`/taken/${t.id}`} className="text-sm font-medium text-gray-900 hover:text-primary">{t.titel}</Link></td>
-                      <td className="px-4 py-3"><Badge status={t.status}>{t.status}</Badge></td>
-                      <td className="px-4 py-3"><Badge status={t.prioriteit}>{t.prioriteit}</Badge></td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{t.deadline ? new Date(t.deadline).toLocaleDateString('nl-NL') : '-'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => router.push(`/taken/${t.id}`)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button onClick={() => handleDeleteTaak(t.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {tab === 'taken' && (() => {
+        const actieveTaken = relatieTaken.filter(t => t.status !== 'afgerond')
+        const afgerondeTaken = relatieTaken.filter(t => t.status === 'afgerond')
+        const renderTaakRij = (t: typeof relatieTaken[number]) => (
+          <tr key={t.id} className="hover:bg-gray-50 group">
+            <td className="px-4 py-3"><Link href={`/taken/${t.id}`} className="text-sm font-medium text-gray-900 hover:text-primary">{t.titel}</Link></td>
+            <td className="px-4 py-3"><Badge status={t.status}>{t.status}</Badge></td>
+            <td className="px-4 py-3"><Badge status={t.prioriteit}>{t.prioriteit}</Badge></td>
+            <td className="px-4 py-3 text-sm text-gray-600">{t.deadline ? new Date(t.deadline).toLocaleDateString('nl-NL') : '-'}</td>
+            <td className="px-4 py-3">
+              <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => router.push(`/taken/${t.id}`)} className="p-1 text-gray-400 hover:text-[#00a66e]" title="Bewerken">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button onClick={() => handleDeleteTaak(t.id)} className="p-1 text-gray-400 hover:text-red-500" title="Verwijderen">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        )
+        const takenHeader = (
+          <thead><tr className="border-b border-gray-200 text-left text-xs font-medium text-gray-500 uppercase">
+            <th className="px-4 py-3">Titel</th>
+            <th className="px-4 py-3">Status</th>
+            <th className="px-4 py-3">Prioriteit</th>
+            <th className="px-4 py-3">Deadline</th>
+            <th className="px-4 py-3 w-20"></th>
+          </tr></thead>
+        )
+        return (
+          <div className="space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => router.push(`/taken/nieuw?relatie_id=${relatie.id}`)}>
+                <Plus className="h-4 w-4" />
+                Taak aanmaken
+              </Button>
+            </div>
+            <Card>
+              <CardContent className="p-0">
+                {actieveTaken.length === 0 ? (
+                  <div className="py-8 text-center text-gray-500 text-sm">Geen openstaande taken</div>
+                ) : (
+                  <table className="w-full">
+                    {takenHeader}
+                    <tbody className="divide-y divide-gray-100">{actieveTaken.map(renderTaakRij)}</tbody>
+                  </table>
+                )}
+              </CardContent>
+            </Card>
+
+            {afgerondeTaken.length > 0 && (
+              <Card>
+                <button
+                  type="button"
+                  onClick={() => setAfgerondeTakenOpen(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  <span>Afgeronde taken ({afgerondeTaken.length})</span>
+                  {afgerondeTakenOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </button>
+                {afgerondeTakenOpen && (
+                  <CardContent className="p-0 border-t border-gray-100">
+                    <table className="w-full">
+                      {takenHeader}
+                      <tbody className="divide-y divide-gray-100">{afgerondeTaken.map(renderTaakRij)}</tbody>
+                    </table>
+                  </CardContent>
+                )}
+              </Card>
             )}
-          </CardContent>
-        </Card>
-        </div>
-      )}
+          </div>
+        )
+      })()}
 
       {tab === 'notities' && (
         <div className="space-y-4">
