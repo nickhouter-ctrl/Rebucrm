@@ -1164,6 +1164,9 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                   const laatsteOfferte = sortedOffertes[0]
                   const geoffreerd = laatsteOfferte?.subtotaal || 0
                   const statusLabel = p.status.charAt(0).toUpperCase() + p.status.slice(1)
+                  const offerteLabel = laatsteOfferte?.offertenummer
+                    ? `${laatsteOfferte.offertenummer}${sortedOffertes.length > 1 ? ` (+${sortedOffertes.length - 1})` : ''}`
+                    : `${sortedOffertes.length} offerte${sortedOffertes.length !== 1 ? 's' : ''}`
                   return (
                     <Card key={p.id}
                       className="cursor-pointer hover:border-gray-300 transition-colors opacity-70 hover:opacity-100"
@@ -1174,7 +1177,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                           <FolderKanban className="h-4 w-4 text-gray-400 shrink-0" />
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-700 truncate">{p.naam}</p>
-                            <p className="text-xs text-gray-500">{sortedOffertes.length} offerte{sortedOffertes.length !== 1 ? 's' : ''} · {statusLabel}</p>
+                            <p className="text-xs text-gray-500">{offerteLabel} · {statusLabel}</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
