@@ -1252,34 +1252,37 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </Card>
 
             {afgerondeOffertes.length > 0 && (
-              <Card>
+              <div>
                 <button
                   type="button"
                   onClick={() => setAfgerondeOffertesOpen(v => !v)}
-                  className="w-full flex items-center justify-between px-6 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="w-full flex items-center gap-2 text-sm font-semibold text-gray-900 mb-2 hover:text-[#00a66e] transition-colors"
                 >
-                  <span>Afgeronde offertes ({afgerondeOffertes.length})</span>
-                  {afgerondeOffertesOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                  {afgerondeOffertesOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronUp className="h-4 w-4 text-gray-400 rotate-180" />}
+                  Afgerond
+                  <span className="text-xs font-normal text-gray-400">({afgerondeOffertes.length})</span>
                 </button>
                 {afgerondeOffertesOpen && (
-                  <CardContent className="p-0 border-t border-gray-100">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-gray-200 bg-gray-50">
-                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Nummer</th>
-                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Versie</th>
-                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Datum</th>
-                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
-                          <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
-                          <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
-                          <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
-                        </tr>
-                      </thead>
-                      <tbody>{afgerondeOffertes.map(renderOfferteRij)}</tbody>
-                    </table>
-                  </CardContent>
+                  <Card>
+                    <CardContent className="p-0">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-200 bg-gray-50">
+                            <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Nummer</th>
+                            <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Versie</th>
+                            <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Datum</th>
+                            <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Onderwerp</th>
+                            <th className="text-left text-xs font-medium text-gray-500 uppercase px-6 py-3">Status</th>
+                            <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">Totaal</th>
+                            <th className="text-right text-xs font-medium text-gray-500 uppercase px-6 py-3">PDF</th>
+                          </tr>
+                        </thead>
+                        <tbody>{afgerondeOffertes.map(renderOfferteRij)}</tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
                 )}
-              </Card>
+              </div>
             )}
           </div>
         )
@@ -1456,24 +1459,27 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </Card>
 
             {afgerondeTaken.length > 0 && (
-              <Card>
+              <div>
                 <button
                   type="button"
                   onClick={() => setAfgerondeTakenOpen(v => !v)}
-                  className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  className="w-full flex items-center gap-2 text-sm font-semibold text-gray-900 mb-2 hover:text-[#00a66e] transition-colors"
                 >
-                  <span>Afgeronde taken ({afgerondeTaken.length})</span>
-                  {afgerondeTakenOpen ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                  {afgerondeTakenOpen ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronUp className="h-4 w-4 text-gray-400 rotate-180" />}
+                  Afgerond
+                  <span className="text-xs font-normal text-gray-400">({afgerondeTaken.length})</span>
                 </button>
                 {afgerondeTakenOpen && (
-                  <CardContent className="p-0 border-t border-gray-100">
-                    <table className="w-full">
-                      {takenHeader}
-                      <tbody className="divide-y divide-gray-100">{afgerondeTaken.map(renderTaakRij)}</tbody>
-                    </table>
-                  </CardContent>
+                  <Card>
+                    <CardContent className="p-0">
+                      <table className="w-full">
+                        {takenHeader}
+                        <tbody className="divide-y divide-gray-100">{afgerondeTaken.map(renderTaakRij)}</tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
                 )}
-              </Card>
+              </div>
             )}
           </div>
         )
