@@ -50,6 +50,7 @@ interface Offerte {
   onderwerp: string | null
   versie_nummer: number | null
   groep_id: string | null
+  gearchiveerd?: boolean | null
 }
 
 interface Factuur {
@@ -890,8 +891,9 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
 
       {tab === 'projecten' && (() => {
         const NIET_DOORGEGAAN = ['verloren', 'vervallen', 'geannuleerd']
-        const activeProjecten = projecten.filter(p => p.status !== 'afgerond' && !NIET_DOORGEGAAN.includes(p.status))
-        const afgerondeProjecten = projecten.filter(p => p.status === 'afgerond')
+        const AFGEROND = ['afgerond', 'gewonnen']
+        const activeProjecten = projecten.filter(p => !AFGEROND.includes(p.status) && !NIET_DOORGEGAAN.includes(p.status))
+        const afgerondeProjecten = projecten.filter(p => AFGEROND.includes(p.status))
         const nietDoorgegaanProjecten = projecten.filter(p => NIET_DOORGEGAAN.includes(p.status))
         return (
         <div className="space-y-4">
@@ -1198,9 +1200,10 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       })()}
 
       {tab === 'offertes' && (() => {
-        const offerteAfgerond = (s: string) => s === 'geaccepteerd' || s === 'afgewezen' || s === 'verlopen'
-        const actieveOffertes = offertes.filter(o => !offerteAfgerond(o.status))
-        const afgerondeOffertes = offertes.filter(o => offerteAfgerond(o.status))
+        const offerteAfgerond = (o: Offerte) =>
+          o.gearchiveerd === true || o.status === 'geaccepteerd' || o.status === 'afgewezen' || o.status === 'verlopen'
+        const actieveOffertes = offertes.filter(o => !offerteAfgerond(o))
+        const afgerondeOffertes = offertes.filter(o => offerteAfgerond(o))
         const renderOfferteRij = (o: typeof offertes[number]) => (
           <tr key={o.id} className="border-b border-gray-100 hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/offertes/${o.id}`)}>
             <td className="px-6 py-3 text-sm font-medium text-primary">{o.offertenummer}</td>
