@@ -1814,6 +1814,8 @@ export async function saveFactuur(formData: FormData) {
   await zorgVoorBetaallink(factuurId)
 
   revalidatePath('/facturatie')
+  revalidatePath('/')
+  revalidatePath('/rapportages')
   return { success: true }
 }
 
@@ -2329,6 +2331,8 @@ export async function sendFactuurEmail(factuurId: string, options: {
   }
 
   revalidatePath('/facturatie')
+  revalidatePath('/')
+  revalidatePath('/rapportages')
   return { success: true }
 }
 
