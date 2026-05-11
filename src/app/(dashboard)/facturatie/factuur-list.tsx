@@ -42,7 +42,11 @@ interface OrderFactuurInfo {
   totaal: number
   betaald_bedrag: number
   order_id: string
+  vervaldatum?: string | null
+  datum?: string | null
 }
+
+type KlusCategorie = 'nog_te_versturen' | 'eindafrekening_nodig' | 'wacht_op_betaling' | 'volledig' | 'geen_facturen'
 
 interface OrderMetStatus {
   id: string
@@ -50,9 +54,19 @@ interface OrderMetStatus {
   status: string
   onderwerp: string | null
   datum: string
+  leverdatum?: string | null
   totaal: number
-  relatie: Record<string, unknown> | Record<string, unknown>[] | null
+  subtotaal?: number | null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  relatie: { id?: string; bedrijfsnaam: string } | any | null
   facturen: OrderFactuurInfo[]
+  gefactureerdBedrag: number
+  betaaldBedrag: number
+  openstaandBedrag: number
+  conceptBedrag: number
+  nogTeFactureren: number
+  categorie: KlusCategorie
+  // backwards-compat
   heeftAanbetaling: boolean
   heeftRestbetaling: boolean
   aanbetalingBetaald: boolean | undefined
@@ -74,12 +88,6 @@ const typeKleuren: Record<string, string> = {
   termijn: 'bg-purple-100 text-purple-700',
   restbetaling: 'bg-indigo-100 text-indigo-700',
   volledig: 'bg-gray-100 text-gray-600',
-}
-
-const typeIcons: Record<string, string> = {
-  aanbetaling: '1',
-  restbetaling: '2',
-  volledig: '●',
 }
 
 function buildColumns(
@@ -605,49 +613,144 @@ function RestbetalingView({
   )
 }
 
-function PerKlusView({ ordersMetStatus, router }: { ordersMetStatus: OrderMetStatus[]; router: ReturnType<typeof useRouter> }) {
-  const [filter, setFilter] = useState<'alle' | 'actie'>('actie')
+const CATEGORIE_META: Record<KlusCategorie, { label: string; kleur: string; volgorde: number }> = {
+  nog_te_versturen:     { label: 'Nog te versturen',     kleur: 'amber',  volgorde: 1 },
+  eindafrekening_nodig: { label: 'Eindafrekening nodig', kleur: 'red',    volgorde: 2 },
+  wacht_op_betaling:    { label: 'Wacht op betaling',    kleur: 'blue',   volgorde: 3 },
+  geen_facturen:        { label: 'Nog niet gefactureerd', kleur: 'gray',  volgorde: 4 },
+  volledig:             { label: 'Volledig afgehandeld', kleur: 'emerald',volgorde: 5 },
+}
 
-  const sortedOrders = [...ordersMetStatus].sort((a, b) => {
-    const da = a.datum || ''
-    const db = b.datum || ''
-    if (da !== db) return db.localeCompare(da)
-    return (b.ordernummer || '').localeCompare(a.ordernummer || '')
+function PerKlusView({ ordersMetStatus, router }: { ordersMetStatus: OrderMetStatus[]; router: ReturnType<typeof useRouter> }) {
+  const [toonAfgehandeld, setToonAfgehandeld] = useState(false)
+  const [zoek, setZoek] = useState('')
+
+  const gefilterd = ordersMetStatus.filter(o => {
+    if (!zoek) return true
+    const q = zoek.toLowerCase()
+    const rel = Array.isArray(o.relatie) ? o.relatie[0] : o.relatie
+    const relatieNaam = (rel as { bedrijfsnaam?: string })?.bedrijfsnaam || ''
+    return (
+      o.ordernummer.toLowerCase().includes(q) ||
+      relatieNaam.toLowerCase().includes(q) ||
+      (o.onderwerp || '').toLowerCase().includes(q)
+    )
   })
-  const filtered = filter === 'actie'
-    ? sortedOrders.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd || o.facturen.some(f => f.status !== 'betaald' && f.status !== 'geannuleerd'))
-    : sortedOrders.filter(o => o.facturen.length > 0)
+
+  // Groeperen per categorie
+  const groepen: Record<KlusCategorie, OrderMetStatus[]> = {
+    nog_te_versturen: [],
+    eindafrekening_nodig: [],
+    wacht_op_betaling: [],
+    geen_facturen: [],
+    volledig: [],
+  }
+  for (const o of gefilterd) groepen[o.categorie].push(o)
+
+  // Totalen voor de stats-bar
+  const totaalNogTeVersturen = groepen.nog_te_versturen.reduce((s, o) => s + o.conceptBedrag, 0)
+  const totaalEindafrekening = groepen.eindafrekening_nodig.reduce((s, o) => s + o.nogTeFactureren, 0)
+  const totaalOpenstaand = ordersMetStatus.reduce((s, o) => s + o.openstaandBedrag, 0)
+
+  const actieGroepen: KlusCategorie[] = ['nog_te_versturen', 'eindafrekening_nodig', 'wacht_op_betaling', 'geen_facturen']
+  const afgehandeldeGroepen: KlusCategorie[] = ['volledig']
+
+  return (
+    <div className="space-y-6">
+      {/* Stats overzicht */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Klussen totaal</p>
+          <p className="text-xl font-semibold text-gray-900 mt-0.5">{ordersMetStatus.length}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Nog te versturen</p>
+          <p className={`text-xl font-semibold mt-0.5 ${totaalNogTeVersturen > 0 ? 'text-amber-600' : 'text-gray-900'}`}>{formatCurrency(totaalNogTeVersturen)}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{groepen.nog_te_versturen.length} klus(sen)</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Eindafrekening nodig</p>
+          <p className={`text-xl font-semibold mt-0.5 ${totaalEindafrekening > 0 ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(totaalEindafrekening)}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">{groepen.eindafrekening_nodig.length} klus(sen)</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+          <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Totaal openstaand</p>
+          <p className={`text-xl font-semibold mt-0.5 ${totaalOpenstaand > 0 ? 'text-blue-600' : 'text-gray-900'}`}>{formatCurrency(totaalOpenstaand)}</p>
+        </div>
+      </div>
+
+      {/* Zoekbalk */}
+      <div className="flex items-center justify-between gap-3">
+        <input
+          type="search"
+          placeholder="Zoek klant, klus of ordernummer..."
+          value={zoek}
+          onChange={(e) => setZoek(e.target.value)}
+          className="w-full max-w-sm px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent"
+        />
+        <label className="flex items-center gap-2 text-xs text-gray-600 whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={toonAfgehandeld}
+            onChange={(e) => setToonAfgehandeld(e.target.checked)}
+            className="rounded border-gray-300"
+          />
+          Afgehandelde klussen tonen
+        </label>
+      </div>
+
+      {/* Per categorie secties */}
+      {actieGroepen.map(cat => {
+        const orders = groepen[cat]
+        if (orders.length === 0) return null
+        return <KlusGroep key={cat} categorie={cat} orders={orders} router={router} />
+      })}
+
+      {toonAfgehandeld && afgehandeldeGroepen.map(cat => {
+        const orders = groepen[cat]
+        if (orders.length === 0) return null
+        return <KlusGroep key={cat} categorie={cat} orders={orders} router={router} />
+      })}
+
+      {gefilterd.length === 0 && (
+        <EmptyState
+          icon={zoek ? Receipt : CheckCircle}
+          title={zoek ? 'Geen resultaten' : 'Geen klussen gevonden'}
+          description={zoek ? 'Probeer een andere zoekterm.' : 'Alle klussen zijn afgehandeld of geannuleerd.'}
+        />
+      )}
+    </div>
+  )
+}
+
+function KlusGroep({ categorie, orders, router }: { categorie: KlusCategorie; orders: OrderMetStatus[]; router: ReturnType<typeof useRouter> }) {
+  const meta = CATEGORIE_META[categorie]
+  const Icon = categorie === 'nog_te_versturen' ? AlertTriangle
+    : categorie === 'eindafrekening_nodig' ? AlertTriangle
+    : categorie === 'wacht_op_betaling' ? Clock
+    : categorie === 'volledig' ? CheckCircle
+    : Receipt
+
+  const kleurKlassen = {
+    amber: 'text-amber-500',
+    red: 'text-red-500',
+    blue: 'text-blue-500',
+    emerald: 'text-emerald-500',
+    gray: 'text-gray-400',
+  }[meta.kleur] || 'text-gray-500'
 
   return (
     <div>
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setFilter('actie')}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filter === 'actie' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          Actie nodig
-        </button>
-        <button
-          onClick={() => setFilter('alle')}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${filter === 'alle' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-        >
-          Alle klussen met facturen
-        </button>
+      <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+        <Icon className={`h-4 w-4 ${kleurKlassen}`} />
+        {meta.label}
+        <span className="text-xs font-normal text-gray-400">({orders.length})</span>
+      </h3>
+      <div className="space-y-2">
+        {orders.map(order => (
+          <KlusFactuurCard key={order.id} order={order} router={router} />
+        ))}
       </div>
-
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon={CheckCircle}
-          title={filter === 'actie' ? 'Geen acties nodig' : 'Geen klussen met facturen'}
-          description={filter === 'actie' ? 'Alle klussen zijn volledig gefactureerd.' : ''}
-        />
-      ) : (
-        <div className="space-y-3">
-          {filtered.map(order => (
-            <KlusFactuurCard key={order.id} order={order} router={router} />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -655,19 +758,27 @@ function PerKlusView({ ordersMetStatus, router }: { ordersMetStatus: OrderMetSta
 function KlusFactuurCard({ order, router }: { order: OrderMetStatus; router: ReturnType<typeof useRouter> }) {
   const rel = Array.isArray(order.relatie) ? order.relatie[0] : order.relatie
   const relatieName = (rel as { bedrijfsnaam?: string })?.bedrijfsnaam || '-'
+  const relatieId = (rel as { id?: string })?.id
 
   return (
     <Card>
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FolderKanban className="h-4 w-4 text-gray-400" />
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm">{order.ordernummer}</span>
+      <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <FolderKanban className="h-4 w-4 text-gray-400 flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              {relatieId ? (
+                <Link href={`/relatiebeheer/${relatieId}`} onClick={(e) => e.stopPropagation()} className="font-semibold text-sm text-gray-900 hover:text-[#00a66e] hover:underline truncate">
+                  {relatieName}
+                </Link>
+              ) : (
+                <span className="font-semibold text-sm text-gray-900 truncate">{relatieName}</span>
+              )}
+              <span className="text-xs text-gray-400">·</span>
+              <span className="text-xs font-medium text-gray-600">{order.ordernummer}</span>
               <Badge status={order.status} />
-              {order.onderwerp && <span className="text-xs text-gray-500">{order.onderwerp}</span>}
             </div>
-            <p className="text-xs text-gray-400">{relatieName} · {formatCurrency(order.totaal || 0)}</p>
+            {order.onderwerp && <p className="text-xs text-gray-500 truncate">{order.onderwerp}</p>}
           </div>
         </div>
         <Button variant="ghost" size="sm" onClick={() => router.push(`/offertes/orders/${order.id}`)}>
@@ -676,63 +787,77 @@ function KlusFactuurCard({ order, router }: { order: OrderMetStatus; router: Ret
         </Button>
       </div>
 
-      <CardContent className="py-3">
+      <CardContent className="py-3 space-y-3">
+        {/* Bedragen-strip */}
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-4 flex-wrap">
+            <span className="text-gray-500">Klus: <strong className="text-gray-900">{formatCurrency(order.totaal || 0)}</strong></span>
+            <span className="text-gray-500">Gefactureerd: <strong className="text-gray-900">{formatCurrency(order.gefactureerdBedrag)}</strong></span>
+            <span className="text-gray-500">Betaald: <strong className="text-emerald-600">{formatCurrency(order.betaaldBedrag)}</strong></span>
+            {order.openstaandBedrag > 0 && (
+              <span className="text-gray-500">Openstaand: <strong className="text-blue-600">{formatCurrency(order.openstaandBedrag)}</strong></span>
+            )}
+            {order.nogTeFactureren > 1 && (
+              <span className="text-gray-500">Nog te factureren: <strong className="text-red-600">{formatCurrency(order.nogTeFactureren)}</strong></span>
+            )}
+          </div>
+        </div>
+
+        {/* Facturen */}
         {order.facturen.length === 0 ? (
           <p className="text-sm text-gray-400 text-center py-2">Nog geen facturen</p>
         ) : (
-          <div className="space-y-2">
-            {order.facturen.map(factuur => (
-              <button
-                key={factuur.id}
-                onClick={() => router.push(`/facturatie/${factuur.id}`)}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left"
-              >
-                <div className="flex items-center gap-3">
-                  {factuur.factuur_type && factuur.factuur_type !== 'volledig' ? (
-                    <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${typeKleuren[factuur.factuur_type] || ''}`}>
-                      {typeIcons[factuur.factuur_type] || ''}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs">●</span>
-                  )}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{factuur.factuurnummer}</span>
-                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[factuur.factuur_type || 'volledig'] || 'bg-gray-100 text-gray-600'}`}>
-                        {typeLabels[factuur.factuur_type || 'volledig'] || 'Volledig'}
+          <div className="space-y-1">
+            {order.facturen.map(factuur => {
+              const open = Math.max(0, factuur.totaal - (factuur.betaald_bedrag || 0))
+              const vervallen = factuur.vervaldatum && factuur.vervaldatum < new Date().toISOString().slice(0, 10) && open > 0 && factuur.status !== 'betaald'
+              return (
+                <button
+                  key={factuur.id}
+                  onClick={() => router.push(`/facturatie/${factuur.id}`)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-sm font-medium text-gray-900">{factuur.factuurnummer}</span>
+                    {factuur.factuur_type && factuur.factuur_type !== 'volledig' && (
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[factuur.factuur_type] || ''}`}>
+                        {typeLabels[factuur.factuur_type] || factuur.factuur_type}
                       </span>
-                      <Badge status={factuur.status} />
-                    </div>
+                    )}
+                    <Badge status={factuur.status} />
+                    {vervallen && (
+                      <span className="text-[10px] text-red-600 font-medium">VERVALLEN</span>
+                    )}
                   </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-sm font-medium">{formatCurrency(factuur.totaal)}</span>
-                  {factuur.totaal - factuur.betaald_bedrag > 0 && (
-                    <p className="text-[10px] text-red-500">Open: {formatCurrency(factuur.totaal - factuur.betaald_bedrag)}</p>
-                  )}
-                </div>
-              </button>
-            ))}
+                  <div className="text-right">
+                    <span className="text-sm font-medium">{formatCurrency(factuur.totaal)}</span>
+                    {open > 0 && factuur.status !== 'concept' && (
+                      <p className="text-[10px] text-red-500">Open: {formatCurrency(open)}</p>
+                    )}
+                  </div>
+                </button>
+              )
+            })}
           </div>
         )}
 
-        {/* Actie-indicatoren */}
-        {order.eindafrekeningNodig && (
-          <div className="mt-2 px-3 py-2 bg-amber-50 rounded-lg flex items-center gap-2">
+        {/* Actie-hint per categorie */}
+        {order.categorie === 'nog_te_versturen' && (
+          <div className="px-3 py-2 bg-amber-50 rounded-lg flex items-center gap-2">
             <AlertTriangle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
-            <p className="text-xs text-amber-700 font-medium">Eindafrekening nog niet aangemaakt</p>
+            <p className="text-xs text-amber-700 font-medium">
+              {order.facturen.filter(f => f.status === 'concept').length === 1
+                ? 'Er staat 1 concept-factuur klaar om verstuurd te worden'
+                : `Er staan ${order.facturen.filter(f => f.status === 'concept').length} concept-facturen klaar om verstuurd te worden`}
+            </p>
           </div>
         )}
-        {order.restKanVerstuurd && (
-          <div className="mt-2 px-3 py-2 bg-green-50 rounded-lg flex items-center gap-2">
-            <CheckCircle className="h-3.5 w-3.5 text-green-600 flex-shrink-0" />
-            <p className="text-xs text-green-700 font-medium">Order geleverd — restbetaling kan verstuurd worden</p>
-          </div>
-        )}
-        {!order.eindafrekeningNodig && !order.restKanVerstuurd && order.facturen.every(f => f.status === 'betaald') && order.facturen.length > 0 && (
-          <div className="mt-2 px-3 py-2 bg-gray-50 rounded-lg flex items-center gap-2">
-            <CheckCircle className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-            <p className="text-xs text-gray-500">Volledig betaald</p>
+        {order.categorie === 'eindafrekening_nodig' && (
+          <div className="px-3 py-2 bg-red-50 rounded-lg flex items-center gap-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-red-600 flex-shrink-0" />
+            <p className="text-xs text-red-700 font-medium">
+              Klus is {order.status} maar {formatCurrency(order.nogTeFactureren)} is nog niet gefactureerd
+            </p>
           </div>
         )}
       </CardContent>

@@ -1712,10 +1712,11 @@ export async function getFacturen() {
 
 export async function getOrdersMetFactuurStatus() {
   const supabase = await createClient()
+  // Alle orders behalve geannuleerd — die hebben geen factuur-actie nodig.
   const { data: orders } = await supabase
     .from('orders')
-    .select('id, ordernummer, status, onderwerp, datum, totaal, relatie:relaties(bedrijfsnaam)')
-    .in('status', ['nieuw', 'in_behandeling', 'geleverd', 'gefactureerd'])
+    .select('id, ordernummer, status, onderwerp, datum, leverdatum, totaal, subtotaal, relatie:relaties(id, bedrijfsnaam)')
+    .neq('status', 'geannuleerd')
     .order('datum', { ascending: false })
 
   if (!orders || orders.length === 0) return []
@@ -1723,26 +1724,79 @@ export async function getOrdersMetFactuurStatus() {
   const orderIds = orders.map(o => o.id)
   const { data: facturen } = await supabase
     .from('facturen')
-    .select('id, factuurnummer, factuur_type, status, totaal, betaald_bedrag, order_id')
+    .select('id, factuurnummer, factuur_type, status, totaal, betaald_bedrag, vervaldatum, datum, order_id, gerelateerde_factuur_id')
     .in('order_id', orderIds)
 
   return orders.map(order => {
-    const orderFacturen = (facturen || []).filter(f => f.order_id === order.id)
-    const heeftAanbetaling = orderFacturen.some(f => f.factuur_type === 'aanbetaling')
-    const heeftRestbetaling = orderFacturen.some(f => f.factuur_type === 'restbetaling')
-    const aanbetalingBetaald = orderFacturen.find(f => f.factuur_type === 'aanbetaling')?.status === 'betaald'
-    const restbetalingVerstuurd = orderFacturen.find(f => f.factuur_type === 'restbetaling')?.status !== 'concept'
-    const volledigFactuur = orderFacturen.find(f => f.factuur_type === 'volledig')
+    // Sorteer facturen op datum/nummer voor stabiele weergave
+    const orderFacturen = (facturen || [])
+      .filter(f => f.order_id === order.id)
+      .sort((a, b) => (a.datum || '').localeCompare(b.datum || '') || (a.factuurnummer || '').localeCompare(b.factuurnummer || ''))
+
+    // Bedragen berekenen — credit-nota's en gecrediteerde facturen tellen niet
+    // mee voor 'gefactureerd', betaald is netto inclusief eventuele credits.
+    let gefactureerdBedrag = 0
+    let betaaldBedrag = 0
+    let conceptBedrag = 0
+    let openstaandBedrag = 0
+    for (const f of orderFacturen) {
+      const t = Number(f.totaal || 0)
+      const b = Number(f.betaald_bedrag || 0)
+      if (f.factuur_type === 'credit') {
+        gefactureerdBedrag -= t // credit verlaagt gefactureerd
+        continue
+      }
+      if (f.status === 'geannuleerd') continue
+      if (f.status === 'concept') {
+        conceptBedrag += t
+        continue
+      }
+      // verzonden / deels_betaald / vervallen / betaald / gecrediteerd
+      gefactureerdBedrag += t
+      betaaldBedrag += b
+      if (f.status !== 'betaald' && f.status !== 'gecrediteerd') {
+        openstaandBedrag += Math.max(0, t - b)
+      }
+    }
+
+    const orderTotaal = Number(order.totaal || 0)
+    // Wat is er nog uberhaupt te factureren (los van concepten die wel klaar staan)
+    const nogTeFactureren = Math.max(0, orderTotaal - gefactureerdBedrag - conceptBedrag)
+
+    const conceptFacturen = orderFacturen.filter(f => f.status === 'concept' && f.factuur_type !== 'credit')
+    const verstuurdNietBetaald = orderFacturen.filter(f =>
+      f.status !== 'concept' && f.status !== 'betaald' && f.status !== 'geannuleerd' && f.status !== 'gecrediteerd' && f.factuur_type !== 'credit'
+    )
+    const heeftFacturen = orderFacturen.length > 0
+    const allesBetaald = heeftFacturen && verstuurdNietBetaald.length === 0 && conceptFacturen.length === 0 && Math.abs(orderTotaal - betaaldBedrag) < 1
+    const klusKlaar = order.status === 'geleverd' || order.status === 'gefactureerd'
+
+    // Categorie bepalen — exclusief, in volgorde van prioriteit
+    let categorie: 'nog_te_versturen' | 'eindafrekening_nodig' | 'wacht_op_betaling' | 'volledig' | 'geen_facturen'
+    if (conceptFacturen.length > 0) categorie = 'nog_te_versturen'
+    else if (nogTeFactureren > 1 && klusKlaar) categorie = 'eindafrekening_nodig'
+    else if (verstuurdNietBetaald.length > 0) categorie = 'wacht_op_betaling'
+    else if (allesBetaald) categorie = 'volledig'
+    else if (!heeftFacturen) categorie = 'geen_facturen'
+    else categorie = 'wacht_op_betaling'
+
     return {
       ...order,
       facturen: orderFacturen,
-      heeftAanbetaling,
-      heeftRestbetaling,
-      aanbetalingBetaald,
-      restbetalingVerstuurd,
-      volledigFactuur: volledigFactuur || null,
-      eindafrekeningNodig: heeftAanbetaling && !heeftRestbetaling,
-      restKanVerstuurd: heeftRestbetaling && !restbetalingVerstuurd && (order.status === 'geleverd' || order.status === 'gefactureerd'),
+      gefactureerdBedrag,
+      betaaldBedrag,
+      openstaandBedrag,
+      conceptBedrag,
+      nogTeFactureren,
+      categorie,
+      // backwards-compat fields voor oudere callers
+      heeftAanbetaling: orderFacturen.some(f => f.factuur_type === 'aanbetaling'),
+      heeftRestbetaling: orderFacturen.some(f => f.factuur_type === 'restbetaling'),
+      aanbetalingBetaald: orderFacturen.find(f => f.factuur_type === 'aanbetaling')?.status === 'betaald',
+      restbetalingVerstuurd: orderFacturen.find(f => f.factuur_type === 'restbetaling')?.status !== 'concept',
+      volledigFactuur: orderFacturen.find(f => f.factuur_type === 'volledig') || null,
+      eindafrekeningNodig: categorie === 'eindafrekening_nodig',
+      restKanVerstuurd: categorie === 'nog_te_versturen' && klusKlaar,
     }
   })
 }
