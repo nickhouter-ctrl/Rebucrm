@@ -8696,12 +8696,18 @@ export async function saveTaakNotitie(data: { id?: string; taak_id: string; teks
   if (!adminId || !user) return { error: 'Niet ingelogd' }
 
   if (data.id) {
-    // Update bestaande notitie
-    const { error } = await supabase
+    // Update bestaande notitie. Met .select() controleren we dat de update
+    // ook daadwerkelijk een rij heeft gemuteerd — anders blokkeert RLS
+    // stilzwijgend en zou de UI ten onrechte 'gelukt' melden.
+    const { data: bijgewerkt, error } = await supabase
       .from('taak_notities')
       .update({ tekst: data.tekst })
       .eq('id', data.id)
+      .select('id')
     if (error) return { error: error.message }
+    if (!bijgewerkt || bijgewerkt.length === 0) {
+      return { error: 'Geen toegang om deze notitie aan te passen' }
+    }
     revalidatePath(`/taken/${data.taak_id}`)
     return { success: true, id: data.id }
   }
