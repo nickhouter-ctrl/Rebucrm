@@ -93,11 +93,6 @@ function buildColumns(
     header: 'Nummer',
     cell: ({ row }) => (
       <div className="flex items-center gap-2">
-        {row.original.factuur_type && row.original.factuur_type !== 'volledig' && (
-          <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${typeKleuren[row.original.factuur_type] || ''}`}>
-            {typeIcons[row.original.factuur_type] || ''}
-          </span>
-        )}
         <span className="font-medium">{row.original.factuurnummer}</span>
         {row.original.factuur_type && row.original.factuur_type !== 'volledig' && (
           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[row.original.factuur_type] || ''}`}>
@@ -115,10 +110,10 @@ function buildColumns(
     cell: ({ row }) => {
       const r = row.original.relatie
       return r?.id ? (
-        <Link href={`/relatiebeheer/${r.id}`} onClick={(e) => e.stopPropagation()} className="hover:text-[#00a66e] hover:underline">
+        <Link href={`/relatiebeheer/${r.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-[#00a66e] hover:underline">
           {r.bedrijfsnaam}
         </Link>
-      ) : (r?.bedrijfsnaam || '-')
+      ) : (<span className="font-medium text-gray-900">{r?.bedrijfsnaam || '-'}</span>)
     },
   },
   {
@@ -231,9 +226,9 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 
   const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
 
-  // Sorteer op factuurnummer aflopend (nieuwste eerst). Format `F-YYYY-NNNNN`
+  // Sorteer oplopend op factuurnummer (oudste eerst). Format `F-YYYY-NNNNN`
   // is zero-padded dus string-vergelijking is voldoende.
-  const sorted = [...facturen].sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
+  const sorted = [...facturen].sort((a, b) => (a.factuurnummer || '').localeCompare(b.factuurnummer || ''))
   const vandaagStr = new Date().toISOString().slice(0, 10)
   const openstaandFacturenAll = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
   // Bij ?vervallen=1 (vanuit dashboard 'Achterstallig'-KPI) tonen we alleen
@@ -243,7 +238,27 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     : openstaandFacturenAll
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
   const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
+  // Restbetaling-segmentatie voor overzichtelijke weergave
+  const restConcept = restbetalingFacturen.filter(f => f.status === 'concept')
+  const restOpenstaand = restbetalingFacturen.filter(f => f.status !== 'concept' && f.status !== 'betaald' && f.status !== 'geannuleerd' && f.status !== 'gecrediteerd')
+  const restBetaald = restbetalingFacturen.filter(f => f.status === 'betaald' || f.status === 'gecrediteerd')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
+
+  function berekenStats(list: Factuur[]) {
+    const aantal = list.length
+    let totaal = 0
+    let open = 0
+    let vervallen = 0
+    for (const f of list) {
+      totaal += f.totaal || 0
+      const restOpen = (f.totaal || 0) - (f.betaald_bedrag || 0)
+      if (restOpen > 0.01 && f.status !== 'betaald' && f.status !== 'geannuleerd') {
+        open += restOpen
+        if (f.vervaldatum && f.vervaldatum < vandaagStr) vervallen += restOpen
+      }
+    }
+    return { aantal, totaal, open, vervallen }
+  }
 
   async function handleSyncSnelstart() {
     if (syncing) return
@@ -390,24 +405,27 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             }
           />
         ) : (
-          <DataTable
-            columns={columns}
-            data={sorted}
-            searchPlaceholder="Zoek factuur..."
-            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
-            mobileCard={(f) => ({
-              title: f.factuurnummer,
-              subtitle: f.relatie?.bedrijfsnaam || '—',
-              rightTop: <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                f.status === 'betaald' ? 'bg-green-100 text-green-700'
-                : f.status === 'verzonden' ? 'bg-blue-100 text-blue-700'
-                : f.status === 'vervallen' ? 'bg-red-100 text-red-700'
-                : f.status === 'gecrediteerd' ? 'bg-gray-200 text-gray-600'
-                : 'bg-gray-100 text-gray-600'
-              }`}>{f.status}</span>,
-              rightBottom: <span className="font-medium text-gray-900">{formatCurrency(f.totaal)}</span>,
-            })}
-          />
+          <>
+            <StatsBar stats={berekenStats(sorted)} />
+            <DataTable
+              columns={columns}
+              data={sorted}
+              searchPlaceholder="Zoek factuur..."
+              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+              mobileCard={(f) => ({
+                title: f.factuurnummer,
+                subtitle: f.relatie?.bedrijfsnaam || '—',
+                rightTop: <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  f.status === 'betaald' ? 'bg-green-100 text-green-700'
+                  : f.status === 'verzonden' ? 'bg-blue-100 text-blue-700'
+                  : f.status === 'vervallen' ? 'bg-red-100 text-red-700'
+                  : f.status === 'gecrediteerd' ? 'bg-gray-200 text-gray-600'
+                  : 'bg-gray-100 text-gray-600'
+                }`}>{f.status}</span>,
+                rightBottom: <span className="font-medium text-gray-900">{formatCurrency(f.totaal)}</span>,
+              })}
+            />
+          </>
         )
       )}
 
@@ -419,12 +437,15 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             description="Er zijn geen openstaande facturen."
           />
         ) : (
-          <DataTable
-            columns={columns}
-            data={openstaandFacturen}
-            searchPlaceholder="Zoek factuur..."
-            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
-          />
+          <>
+            <StatsBar stats={berekenStats(openstaandFacturen)} />
+            <DataTable
+              columns={columns}
+              data={openstaandFacturen}
+              searchPlaceholder="Zoek factuur..."
+              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+            />
+          </>
         )
       )}
 
@@ -436,12 +457,15 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             description="Er zijn nog geen aanbetalingsfacturen aangemaakt."
           />
         ) : (
-          <DataTable
-            columns={columns}
-            data={aanbetalingFacturen}
-            searchPlaceholder="Zoek aanbetaling..."
-            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
-          />
+          <>
+            <StatsBar stats={berekenStats(aanbetalingFacturen)} />
+            <DataTable
+              columns={columns}
+              data={aanbetalingFacturen}
+              searchPlaceholder="Zoek aanbetaling..."
+              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+            />
+          </>
         )
       )}
 
@@ -453,11 +477,13 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             description="Er zijn nog geen restbetalingsfacturen aangemaakt."
           />
         ) : (
-          <DataTable
+          <RestbetalingView
+            concept={restConcept}
+            openstaand={restOpenstaand}
+            betaald={restBetaald}
             columns={columns}
-            data={restbetalingFacturen}
-            searchPlaceholder="Zoek restbetaling..."
-            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+            berekenStats={berekenStats}
+            router={router}
           />
         )
       )}
@@ -469,12 +495,118 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   )
 }
 
+function StatsBar({ stats }: { stats: { aantal: number; totaal: number; open: number; vervallen: number } }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Aantal</p>
+        <p className="text-xl font-semibold text-gray-900 mt-0.5">{stats.aantal}</p>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Totaal</p>
+        <p className="text-xl font-semibold text-gray-900 mt-0.5">{formatCurrency(stats.totaal)}</p>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Openstaand</p>
+        <p className={`text-xl font-semibold mt-0.5 ${stats.open > 0 ? 'text-amber-600' : 'text-gray-900'}`}>{formatCurrency(stats.open)}</p>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Vervallen</p>
+        <p className={`text-xl font-semibold mt-0.5 ${stats.vervallen > 0 ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(stats.vervallen)}</p>
+      </div>
+    </div>
+  )
+}
+
+function RestbetalingView({
+  concept,
+  openstaand,
+  betaald,
+  columns,
+  berekenStats,
+  router,
+}: {
+  concept: Factuur[]
+  openstaand: Factuur[]
+  betaald: Factuur[]
+  columns: ColumnDef<Factuur, unknown>[]
+  berekenStats: (list: Factuur[]) => { aantal: number; totaal: number; open: number; vervallen: number }
+  router: ReturnType<typeof useRouter>
+}) {
+  const [betaaldOpen, setBetaaldOpen] = useState(false)
+  return (
+    <div className="space-y-6">
+      <StatsBar stats={berekenStats([...concept, ...openstaand, ...betaald])} />
+
+      {concept.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Nog te versturen
+            <span className="text-xs font-normal text-gray-400">({concept.length})</span>
+          </h3>
+          <DataTable
+            columns={columns}
+            data={concept}
+            searchPlaceholder="Zoek..."
+            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+          />
+        </div>
+      )}
+
+      {openstaand.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+            <Clock className="h-4 w-4 text-blue-500" />
+            Verstuurd · wacht op betaling
+            <span className="text-xs font-normal text-gray-400">({openstaand.length})</span>
+          </h3>
+          <DataTable
+            columns={columns}
+            data={openstaand}
+            searchPlaceholder="Zoek..."
+            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+          />
+        </div>
+      )}
+
+      {betaald.length > 0 && (
+        <div>
+          <button
+            type="button"
+            onClick={() => setBetaaldOpen(v => !v)}
+            className="w-full flex items-center gap-2 text-sm font-semibold text-gray-900 mb-2 hover:text-[#00a66e] transition-colors"
+          >
+            <CheckCircle className="h-4 w-4 text-emerald-500" />
+            Betaald / afgehandeld
+            <span className="text-xs font-normal text-gray-400">({betaald.length})</span>
+            <span className="ml-auto text-xs text-gray-400">{betaaldOpen ? 'verbergen' : 'tonen'}</span>
+          </button>
+          {betaaldOpen && (
+            <DataTable
+              columns={columns}
+              data={betaald}
+              searchPlaceholder="Zoek..."
+              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
+            />
+          )}
+        </div>
+      )}
+
+      {concept.length === 0 && openstaand.length === 0 && betaald.length === 0 && (
+        <EmptyState icon={Receipt} title="Geen restbetalingen" description="" />
+      )}
+    </div>
+  )
+}
+
 function PerKlusView({ ordersMetStatus, router }: { ordersMetStatus: OrderMetStatus[]; router: ReturnType<typeof useRouter> }) {
   const [filter, setFilter] = useState<'alle' | 'actie'>('actie')
 
+  const sortedOrders = [...ordersMetStatus].sort((a, b) => (a.ordernummer || '').localeCompare(b.ordernummer || ''))
   const filtered = filter === 'actie'
-    ? ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd || o.facturen.some(f => f.status !== 'betaald' && f.status !== 'geannuleerd'))
-    : ordersMetStatus.filter(o => o.facturen.length > 0)
+    ? sortedOrders.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd || o.facturen.some(f => f.status !== 'betaald' && f.status !== 'geannuleerd'))
+    : sortedOrders.filter(o => o.facturen.length > 0)
 
   return (
     <div>
