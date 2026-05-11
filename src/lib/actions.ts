@@ -2244,8 +2244,25 @@ export async function sendFactuurEmail(factuurId: string, options: {
     return { error: 'E-mail verzenden mislukt' }
   }
 
-  // Update status naar verzonden
-  await supabase.from('facturen').update({ status: 'verzonden' }).eq('id', factuurId)
+  // Update status naar verzonden. Als de factuur in 'concept' stond, dan
+  // is de oorspronkelijke datum gezet bij het aanmaken (bv. bij offerte-
+  // acceptatie weken geleden). Voor de boekhouding wil je de factuurdatum
+  // op het moment van verzending — dus we updaten datum + vervaldatum
+  // (met behoud van het oorspronkelijke verschil tussen beide).
+  const factuurUpdate: Record<string, unknown> = { status: 'verzonden' }
+  if (factuur.status === 'concept') {
+    const vandaag = new Date().toISOString().slice(0, 10)
+    factuurUpdate.datum = vandaag
+    const oudeDatum = factuur.datum ? new Date(factuur.datum) : null
+    const oudeVervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum) : null
+    let dagenTermijn = 14
+    if (oudeDatum && oudeVervaldatum) {
+      const diff = Math.round((oudeVervaldatum.getTime() - oudeDatum.getTime()) / (1000 * 60 * 60 * 24))
+      if (diff > 0 && diff <= 90) dagenTermijn = diff
+    }
+    factuurUpdate.vervaldatum = new Date(Date.now() + dagenTermijn * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  }
+  await supabase.from('facturen').update(factuurUpdate).eq('id', factuurId)
 
   try {
     const { logAudit } = await import('@/lib/audit')
