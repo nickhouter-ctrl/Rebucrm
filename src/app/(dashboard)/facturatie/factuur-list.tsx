@@ -226,9 +226,14 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 
   const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
 
-  // Sorteer oplopend op factuurnummer (oudste eerst). Format `F-YYYY-NNNNN`
-  // is zero-padded dus string-vergelijking is voldoende.
-  const sorted = [...facturen].sort((a, b) => (a.factuurnummer || '').localeCompare(b.factuurnummer || ''))
+  // Sorteer op datum aflopend (nieuwste/laatst verstuurde eerst). Bij gelijke
+  // datum valt factuurnummer terug — zo houden we deterministische ordering.
+  const sorted = [...facturen].sort((a, b) => {
+    const da = (a.datum || '')
+    const db = (b.datum || '')
+    if (da !== db) return db.localeCompare(da)
+    return (b.factuurnummer || '').localeCompare(a.factuurnummer || '')
+  })
   const vandaagStr = new Date().toISOString().slice(0, 10)
   const openstaandFacturenAll = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
   // Bij ?vervallen=1 (vanuit dashboard 'Achterstallig'-KPI) tonen we alleen
@@ -603,7 +608,12 @@ function RestbetalingView({
 function PerKlusView({ ordersMetStatus, router }: { ordersMetStatus: OrderMetStatus[]; router: ReturnType<typeof useRouter> }) {
   const [filter, setFilter] = useState<'alle' | 'actie'>('actie')
 
-  const sortedOrders = [...ordersMetStatus].sort((a, b) => (a.ordernummer || '').localeCompare(b.ordernummer || ''))
+  const sortedOrders = [...ordersMetStatus].sort((a, b) => {
+    const da = a.datum || ''
+    const db = b.datum || ''
+    if (da !== db) return db.localeCompare(da)
+    return (b.ordernummer || '').localeCompare(a.ordernummer || '')
+  })
   const filtered = filter === 'actie'
     ? sortedOrders.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd || o.facturen.some(f => f.status !== 'betaald' && f.status !== 'geannuleerd'))
     : sortedOrders.filter(o => o.facturen.length > 0)
