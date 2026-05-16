@@ -26,6 +26,7 @@ interface Project {
   laatste_offerte_nummer: string | null
   laatste_offerte_status: string | null
   laatste_offerte_bedrag: number | null
+  betaal_status: 'betaald' | 'deels_betaald' | 'openstaand' | null
 }
 
 const statusFilters = [
@@ -83,6 +84,17 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
             )}
           </div>
         )
+      },
+    },
+    {
+      id: 'betaling',
+      header: 'Betaling',
+      accessorFn: (row) => row.betaal_status,
+      cell: ({ row }) => {
+        const status = row.original.betaal_status
+        if (!status) return <span className="text-gray-400">-</span>
+        const label = status === 'deels_betaald' ? 'Deels betaald' : status === 'openstaand' ? 'Openstaand' : 'Betaald'
+        return <Badge status={status}>{label}</Badge>
       },
     },
     {

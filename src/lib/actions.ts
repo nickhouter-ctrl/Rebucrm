@@ -1141,6 +1141,7 @@ export async function deleteOfferte(id: string) {
   if (error) return { error: error.message }
   await logAudit({ actie: 'offerte.delete', entiteitType: 'offerte', entiteitId: id, details: orig || undefined })
   revalidatePath('/offertes')
+  revalidatePath('/offertes/concepten')
   revalidatePath('/')
   return { success: true }
 }
@@ -2656,8 +2657,8 @@ export async function crediteerFactuur(factuurId: string, reden?: string) {
 // in CRM. Facturen die in SnelStart op 0 openstaan worden hier als 'betaald' gemarkeerd,
 // gedeeltelijk betaalde facturen als 'deels_betaald', overige behouden status tenzij
 // vervaldatum verstreken is (dan 'vervallen').
-export async function syncSnelstartBetalingen() {
-  const adminId = await getAdministratieId()
+export async function syncSnelstartBetalingen(administratieIdOverride?: string) {
+  const adminId = administratieIdOverride || await getAdministratieId()
   if (!adminId) return { error: 'Niet ingelogd' }
 
   const { isSnelStartEnabled, listAllVerkoopfacturen } = await import('@/lib/snelstart')
@@ -3071,15 +3072,34 @@ export async function getProjecten() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal)')
+      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, datum, versie_nummer, subtotaal, totaal, facturen:facturen(id, status, totaal, betaald_bedrag, factuur_type))')
       .order('created_at', { ascending: false })
       .range(from, to)
   )
-  // Per project alleen de laatste offerte tonen (hoogste versie_nummer).
+  // Per project de meest recente offerte tonen (offerte-datum desc, versie_nummer als tiebreaker).
   // Bedrag is excl BTW (subtotaal) — niet het totaal incl BTW.
   return (data || []).map(p => {
-    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number }[]
-    const laatsteOfferte = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; datum: string | null; versie_nummer: number; subtotaal: number; totaal: number; facturen?: { id: string; status: string; totaal: number; betaald_bedrag: number | null; factuur_type: string | null }[] }[]
+    const laatsteOfferte = [...offertes].sort((a, b) => {
+      const da = a.datum ? new Date(a.datum).getTime() : 0
+      const db = b.datum ? new Date(b.datum).getTime() : 0
+      if (db !== da) return db - da
+      return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+    })[0]
+    // Betaal-status afleiden uit alle facturen onder dit project.
+    // Concept-facturen en credit-facturen tellen niet mee.
+    const facturen = offertes.flatMap(o => o.facturen || [])
+    const relevant = facturen.filter(f => f.status !== 'concept' && f.factuur_type !== 'credit')
+    let betaal_status: 'betaald' | 'deels_betaald' | 'openstaand' | null = null
+    if (relevant.length > 0) {
+      const alleBetaald = relevant.every(f => f.status === 'betaald' || f.status === 'gecrediteerd')
+      if (alleBetaald) {
+        betaal_status = 'betaald'
+      } else {
+        const totaalBetaald = relevant.reduce((s, f) => s + (f.betaald_bedrag || 0), 0)
+        betaal_status = totaalBetaald > 0 ? 'deels_betaald' : 'openstaand'
+      }
+    }
     return {
       ...p,
       aantal_offertes: offertes.length,
@@ -3087,6 +3107,7 @@ export async function getProjecten() {
       laatste_offerte_nummer: laatsteOfferte?.offertenummer || null,
       laatste_offerte_status: laatsteOfferte?.status || null,
       laatste_offerte_bedrag: laatsteOfferte?.subtotaal || null,
+      betaal_status,
     }
   })
 }
@@ -3213,6 +3234,101 @@ export async function getNotificaties() {
 
 // Conversie-funnel statistieken: van aanvraag → offerte → akkoord → gefactureerd → betaald.
 // Per stap aantal + bedrag + conversie-% van vorige stap.
+// Dashboard-stijl funnel met klikbare lijsten — voor zowel dashboard als rapportages.
+// Voert eigen, minimale queries uit (geen volledige getDashboardData).
+export async function getConversieFunnelDashboard() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  const grens = new Date()
+  grens.setMonth(grens.getMonth() - 13)
+  const grensStr = grens.toISOString().slice(0, 10)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offertesRaw = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('id, offertenummer, totaal, status, datum, relatie_id, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)')
+      .eq('administratie_id', adminId)
+      .gte('datum', grensStr)
+      .range(from, to)
+  )
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const facturenRaw = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('facturen')
+      .select('status, offerte_id, factuur_type')
+      .eq('administratie_id', adminId)
+      .gte('datum', grensStr)
+      .not('offerte_id', 'is', null)
+      .range(from, to)
+  )
+
+  // Per project alleen de laatste offerte (op datum) — losse offertes zonder project blijven los staan.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const laatstePerProject = new Map<string, any>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offertesZonderProject: any[] = []
+  for (const o of offertesRaw) {
+    if (o.project_id) {
+      const bestaande = laatstePerProject.get(o.project_id)
+      if (!bestaande || new Date(o.datum) > new Date(bestaande.datum)) {
+        laatstePerProject.set(o.project_id, o)
+      }
+    } else {
+      offertesZonderProject.push(o)
+    }
+  }
+  const uniekOffertes = [...laatstePerProject.values(), ...offertesZonderProject]
+  const uniekeOfferteIds = new Set(uniekOffertes.map(o => o.id as string))
+
+  const UITGESLOTEN = ['concept', 'gecrediteerd']
+  const facturenMetOfferte = facturenRaw.filter(f => f.offerte_id && !UITGESLOTEN.includes(f.status) && f.factuur_type !== 'credit')
+  const offerteFactuurStatus = new Map<string, { facturen: { status: string }[] }>()
+  for (const f of facturenMetOfferte) {
+    const entry = offerteFactuurStatus.get(f.offerte_id) || { facturen: [] }
+    entry.facturen.push({ status: f.status })
+    offerteFactuurStatus.set(f.offerte_id, entry)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapOfferte = (o: any) => ({
+    id: o.id as string,
+    offertenummer: (o.offertenummer as string) || '',
+    relatie_naam: (o.relatie as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || '-',
+    project_naam: (o.project as { naam?: string } | null)?.naam || null,
+    status: o.status as string,
+    totaal: Number(o.totaal || 0),
+    datum: o.datum as string,
+  })
+
+  const offertesGeaccepteerd = uniekOffertes.filter(o => o.status === 'geaccepteerd').map(mapOfferte)
+  const gefactureerdeIds = new Set<string>()
+  const betaaldeIds = new Set<string>()
+  for (const [offId, info] of offerteFactuurStatus) {
+    if (!uniekeOfferteIds.has(offId)) continue
+    gefactureerdeIds.add(offId)
+    if (info.facturen.every(f => f.status === 'betaald')) betaaldeIds.add(offId)
+  }
+  const offertesGefactureerd = uniekOffertes.filter(o => gefactureerdeIds.has(o.id)).map(mapOfferte)
+  const offertesBetaald = uniekOffertes.filter(o => betaaldeIds.has(o.id)).map(mapOfferte)
+
+  return {
+    offertes: uniekOffertes.length,
+    geaccepteerd: offertesGeaccepteerd.length,
+    gefactureerd: offertesGefactureerd.length,
+    betaald: offertesBetaald.length,
+    lijsten: {
+      offertes: uniekOffertes.map(mapOfferte),
+      geaccepteerd: offertesGeaccepteerd,
+      gefactureerd: offertesGefactureerd,
+      betaald: offertesBetaald,
+    },
+  }
+}
+
 export async function getConversieFunnel() {
   const sb = createAdminClient()
   const adminId = await getAdministratieId()
@@ -3835,8 +3951,8 @@ export async function getDashboardData() {
   grens.setMonth(grens.getMonth() - 13)
   const grensStr = grens.toISOString().slice(0, 10)
   const [facturenData, offertesData, takenData] = await Promise.all([
-    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type').eq('administratie_id', adminId).or(`datum.gte.${grensStr},status.in.(concept,verzonden,deels_betaald,vervallen)`).range(from, to)),
-    fetchAllRows((from, to) => supabase.from('offertes').select('totaal, status, datum, relatie_id, project_id').eq('administratie_id', adminId).gte('datum', grensStr).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('facturen').select('subtotaal, totaal, betaald_bedrag, status, datum, vervaldatum, relatie_id, snelstart_openstaand, factuur_type, offerte_id, order_id').eq('administratie_id', adminId).or(`datum.gte.${grensStr},status.in.(concept,verzonden,deels_betaald,vervallen)`).range(from, to)),
+    fetchAllRows((from, to) => supabase.from('offertes').select('id, offertenummer, totaal, status, datum, relatie_id, project_id, relatie:relaties(bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).gte('datum', grensStr).range(from, to)),
     fetchAllRows((from, to) => supabase.from('taken').select('id, titel, status, prioriteit, deadline, categorie, toegewezen_aan, medewerker_id, offerte_id, relatie_id, offerte:offertes(totaal), relatie:relaties(bedrijfsnaam)').eq('administratie_id', adminId).or(`status.neq.afgerond,deadline.gte.${grensStr}`).range(from, to)),
   ])
 
@@ -3863,13 +3979,25 @@ export async function getDashboardData() {
   const UITGESLOTEN_STATUSSEN = ['concept', 'gecrediteerd']
   const huidigeMaand = new Date().getMonth() + 1
   const huidigJaar = new Date().getFullYear()
+  // Omzet = som van subtotaal van alle facturen behalve concept/gecrediteerd.
+  // Credit-nota's tellen WEL mee: hun subtotaal staat negatief in de DB, dus
+  // optellen geeft automatisch netto-omzet (gefactureerd minus credit).
   const omzet = facturenData
     .filter(f => {
       if (!f.datum || UITGESLOTEN_STATUSSEN.includes(f.status)) return false
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((f as any).factuur_type === 'credit') return false
       const fd = new Date(f.datum)
       return fd.getFullYear() === huidigJaar && fd.getMonth() + 1 === huidigeMaand
+    })
+    .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+  // Omzet vorige maand voor +/- delta op KPI-tegel
+  const vorigeMaandDate = new Date(huidigJaar, huidigeMaand - 2, 1)
+  const vorigeMaand = vorigeMaandDate.getMonth() + 1
+  const vorigeMaandJaar = vorigeMaandDate.getFullYear()
+  const omzetVorigeMaand = facturenData
+    .filter(f => {
+      if (!f.datum || UITGESLOTEN_STATUSSEN.includes(f.status)) return false
+      const fd = new Date(f.datum)
+      return fd.getFullYear() === vorigeMaandJaar && fd.getMonth() + 1 === vorigeMaand
     })
     .reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   // Openstaand + vervallen uit SnelStart openstaandSaldo (via sync gevuld).
@@ -3928,8 +4056,6 @@ export async function getDashboardData() {
     const bedrag = facturenData
       .filter(f => {
         if (UITGESLOTEN_STATUSSEN.includes(f.status) || !f.datum) return false
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((f as any).factuur_type === 'credit') return false
         const fd = new Date(f.datum)
         return fd.getFullYear() === jaar && fd.getMonth() + 1 === maand
       })
@@ -4414,11 +4540,98 @@ export async function getDashboardData() {
     gebruikerNaam: ((n.gebruiker as any)?.naam) || null,
   }))
 
+  // === Deze week-statistieken (maandag t/m vandaag) — voor activity-strook ===
+  const dezeWeekStart = new Date(startVanWeek)
+  const offertesDezeWeekData = uniekOffertes.filter(o => o.datum && new Date(o.datum) >= dezeWeekStart)
+  const offertesVerstuurdDezeWeek = offertesDezeWeekData.filter(o => o.status !== 'concept').length
+  const offertesGeaccepteerdDezeWeek = offertesDezeWeekData.filter(o => o.status === 'geaccepteerd').length
+  const facturenDezeWeekData = facturenData.filter(f => f.datum && new Date(f.datum) >= dezeWeekStart)
+  const facturenVerstuurdDezeWeek = facturenDezeWeekData.filter(f => f.status !== 'concept').length
+  // Betalingen ontvangen: facturen met betaald_bedrag > 0 en status betaald/deels_betaald
+  // (we hebben geen aparte betaling-events, dus we benaderen op basis van facturen die deze week voor het eerst betaald zijn).
+  // Pragmatische benadering: facturen waarvan datum binnen deze week valt EN er enig betaald-bedrag is. Niet perfect maar bruikbaar.
+  const betalingenOntvangenDezeWeek = facturenDezeWeekData.filter(f => (f.betaald_bedrag || 0) > 0).length
+  // Nieuwe aanvragen: projecten (verkoopkansen) aangemaakt deze week
+  const nieuweAanvragenDezeWeek = (openVerkoopkansenData || []).filter(p => p.created_at && new Date(p.created_at) >= dezeWeekStart).length
+
+  const dezeWeek = {
+    nieuweAanvragen: nieuweAanvragenDezeWeek,
+    offertesVerstuurd: offertesVerstuurdDezeWeek,
+    offertesGeaccepteerd: offertesGeaccepteerdDezeWeek,
+    facturenVerstuurd: facturenVerstuurdDezeWeek,
+    betalingenOntvangen: betalingenOntvangenDezeWeek,
+  }
+
+  // === Conversie-funnel (laatste 12 maanden) ===
+  // Telling op niveau van VERKOOPKANS (offerte/project), niet per factuur.
+  // Een geaccepteerde offerte met aanbet + termijn + restbet = 3 facturen
+  // maar 1 verkoopkans in de funnel.
+  //
+  // - Offertes        : unieke verkoopkansen waarvoor we een offerte hebben gemaakt
+  // - Geaccepteerd    : daarvan de subset met status 'geaccepteerd'
+  // - Gefactureerd    : unieke offerte_id's met tenminste 1 niet-concept/gecrediteerd factuur
+  // - Betaald         : unieke offerte_id's waarbij alle relevante facturen betaald zijn
+  //                     (of de hoofdfactuur betaald is bij volledige)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const facturenMetOfferte = (facturenData as any[]).filter(f => f.offerte_id && !UITGESLOTEN_STATUSSEN.includes(f.status) && f.factuur_type !== 'credit')
+  const offerteIdsMetFactuur = new Set<string>()
+  // Map: offerte_id → { totaal, alleBetaald }
+  const offerteFactuurStatus = new Map<string, { facturen: { status: string }[] }>()
+  for (const f of facturenMetOfferte) {
+    offerteIdsMetFactuur.add(f.offerte_id as string)
+    const entry = offerteFactuurStatus.get(f.offerte_id) || { facturen: [] }
+    entry.facturen.push({ status: f.status })
+    offerteFactuurStatus.set(f.offerte_id, entry)
+  }
+  // Offerte_ids van uniekOffertes (1 per project) gebruiken als filter zodat we
+  // niet historische orphan-facturen tellen.
+  const uniekeOfferteIds = new Set(uniekOffertes.map(o => o.id))
+  const funnelGefactureerd = [...offerteIdsMetFactuur].filter(id => uniekeOfferteIds.has(id)).length
+  let funnelBetaald = 0
+  for (const [offId, info] of offerteFactuurStatus) {
+    if (!uniekeOfferteIds.has(offId)) continue
+    if (info.facturen.every(f => f.status === 'betaald')) funnelBetaald++
+  }
+  // Detail-lijsten per funnel-stap zodat de UI klikbaar kan zijn.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapOfferte = (o: any) => ({
+    id: o.id as string,
+    offertenummer: (o.offertenummer as string) || '',
+    relatie_naam: (o.relatie as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || '-',
+    project_naam: (o.project as { naam?: string } | null)?.naam || null,
+    status: o.status as string,
+    totaal: Number(o.totaal || 0),
+    datum: o.datum as string,
+  })
+  const offertesGeaccepteerdLijst = uniekOffertes.filter(o => o.status === 'geaccepteerd').map(mapOfferte)
+  const gefactureerdeOfferteIds = new Set<string>()
+  const betaaldeOfferteIds = new Set<string>()
+  for (const [offId, info] of offerteFactuurStatus) {
+    if (!uniekeOfferteIds.has(offId)) continue
+    gefactureerdeOfferteIds.add(offId)
+    if (info.facturen.every(f => f.status === 'betaald')) betaaldeOfferteIds.add(offId)
+  }
+  const offertesGefactureerdLijst = uniekOffertes.filter(o => gefactureerdeOfferteIds.has(o.id)).map(mapOfferte)
+  const offertesBetaaldLijst = uniekOffertes.filter(o => betaaldeOfferteIds.has(o.id)).map(mapOfferte)
+  const funnel = {
+    offertes: uniekOffertes.length,
+    geaccepteerd: uniekOffertes.filter(o => o.status === 'geaccepteerd').length,
+    gefactureerd: funnelGefactureerd,
+    betaald: funnelBetaald,
+    lijsten: {
+      offertes: uniekOffertes.map(mapOfferte),
+      geaccepteerd: offertesGeaccepteerdLijst,
+      gefactureerd: offertesGefactureerdLijst,
+      betaald: offertesBetaaldLijst,
+    },
+  }
+
   return {
-    omzet, openstaand, achterstallig, openOffertes, openTaken,
+    omzet, omzetVorigeMaand, openstaand, achterstallig, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
     offertesPerMaand, totaalOffertes,
+    dezeWeek, funnel,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
     recenteNotities,

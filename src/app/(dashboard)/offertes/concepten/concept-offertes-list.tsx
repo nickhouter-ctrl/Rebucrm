@@ -152,10 +152,10 @@ export function ConceptOffertesList({ offertes: raw }: { offertes: ConceptOffert
         <Card>
           <div className="divide-y divide-gray-100">
             {offertes.map(offerte => (
-              <Link
+              <div
                 key={offerte.id}
-                href={`/offertes/${offerte.id}?wizard=concept`}
-                className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors"
+                onClick={() => router.push(`/offertes/${offerte.id}?wizard=concept`)}
+                className="flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors cursor-pointer"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
@@ -189,7 +189,7 @@ export function ConceptOffertesList({ offertes: raw }: { offertes: ConceptOffert
                   </span>
                   <div className="relative" ref={menuOpen === offerte.id ? menuRef : undefined}>
                     <button
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(menuOpen === offerte.id ? null : offerte.id) }}
+                      onClick={(e) => { e.stopPropagation(); setMenuOpen(menuOpen === offerte.id ? null : offerte.id) }}
                       className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
                     >
                       {deleting === offerte.id ? (
@@ -201,14 +201,14 @@ export function ConceptOffertesList({ offertes: raw }: { offertes: ConceptOffert
                     {menuOpen === offerte.id && (
                       <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-10 w-44">
                         <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleOpenEmail(offerte.id) }}
+                          onClick={(e) => { e.stopPropagation(); handleOpenEmail(offerte.id) }}
                           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                         >
                           <Mail className="h-3.5 w-3.5" />
                           Email bekijken
                         </button>
                         <button
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDelete(offerte.id) }}
+                          onClick={(e) => { e.stopPropagation(); handleDelete(offerte.id) }}
                           className="flex items-center gap-2 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -218,7 +218,7 @@ export function ConceptOffertesList({ offertes: raw }: { offertes: ConceptOffert
                     )}
                   </div>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         </Card>

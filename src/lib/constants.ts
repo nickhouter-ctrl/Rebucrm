@@ -83,6 +83,7 @@ export const statusKleuren: Record<string, string> = {
   besteld: 'bg-cyan-100 text-cyan-700',
   betaald: 'bg-green-100 text-green-700',
   deels_betaald: 'bg-yellow-100 text-yellow-700',
+  openstaand: 'bg-amber-100 text-amber-700',
   vervallen: 'bg-red-100 text-red-700',
   gecrediteerd: 'bg-gray-100 text-gray-700',
   open: 'bg-blue-100 text-blue-700',

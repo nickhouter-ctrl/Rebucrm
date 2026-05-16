@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
 import { OmzetChart } from '@/components/dashboard/omzet-chart'
-import { ConversieFunnel } from '@/components/dashboard/conversie-funnel'
+import { ConversieFunnelDashboard, type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
 
 interface Factuur {
   id: string
@@ -14,6 +14,8 @@ interface Factuur {
   subtotaal: number
   totaal: number
   btw_totaal: number
+  betaald_bedrag: number | null
+  snelstart_openstaand: number | null
   status: string
   datum: string
   factuur_type: string | null
@@ -41,10 +43,11 @@ interface Uur {
 const MAAND_NAMEN = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec']
 const KWARTAAL_NAMEN = ['Q1', 'Q2', 'Q3', 'Q4']
 
-export function RapportagesView({ facturen, inkoopfacturen, uren }: {
+export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
   facturen: Factuur[]
   inkoopfacturen: InkoopFactuur[]
   uren: Uur[]
+  funnel: FunnelData | null
 }) {
   const [tab, setTab] = useState<'omzet' | 'klanten' | 'btw' | 'uren'>('omzet')
 
@@ -59,11 +62,17 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
 
   const [jaar, setJaar] = useState<number>(new Date().getFullYear())
 
-  // Filter facturen op geselecteerd jaar (excl. concept + gecrediteerd)
+  // Filter facturen op geselecteerd jaar — sluit concept én status 'gecrediteerd' uit.
+  // Credit-nota's (factuur_type='credit') tellen WEL mee: hun subtotaal/totaal
+  // staan negatief in de DB, dus optellen geeft automatisch netto-omzet
+  // (gefactureerd minus credit). Status 'gecrediteerd' is een originele factuur
+  // die volledig is teruggedraaid — die zou de credit-nota dubbel laten meetellen.
   const UITGESLOTEN = ['concept', 'gecrediteerd']
+  const isOmzetFactuur = (f: Factuur) => !UITGESLOTEN.includes(f.status)
+
   const jaarFacturen = useMemo(() => {
     return facturen.filter(f => {
-      if (!f.datum || UITGESLOTEN.includes(f.status)) return false
+      if (!f.datum || !isOmzetFactuur(f)) return false
       return new Date(f.datum).getFullYear() === jaar
     })
   }, [facturen, jaar])
@@ -72,25 +81,53 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
     return facturen.filter(f => f.datum && new Date(f.datum).getFullYear() === jaar)
   }, [facturen, jaar])
 
+  // Werkelijk openstaand bedrag per factuur (excl. BTW). Voorkeur:
+  // snelstart_openstaand (incl BTW, via sync gevuld) → terug naar excl via ratio.
+  // Anders: (totaal - betaald_bedrag) * (subtotaal/totaal).
+  const openstaandPerFactuur = (f: Factuur): number => {
+    const totaalIncl = Number(f.totaal || 0)
+    const subtotaalExcl = Number(f.subtotaal || 0)
+    if (totaalIncl <= 0) return 0
+    const ratio = subtotaalExcl / totaalIncl
+    if (f.snelstart_openstaand != null) {
+      return Math.max(0, Number(f.snelstart_openstaand) * ratio)
+    }
+    const betaaldIncl = Number(f.betaald_bedrag || 0)
+    return Math.max(0, (totaalIncl - betaaldIncl) * ratio)
+  }
+  const betaaldPerFactuur = (f: Factuur): number => {
+    const totaalIncl = Number(f.totaal || 0)
+    const subtotaalExcl = Number(f.subtotaal || 0)
+    if (totaalIncl <= 0) return 0
+    const ratio = subtotaalExcl / totaalIncl
+    const betaaldIncl = Number(f.betaald_bedrag || 0)
+    return betaaldIncl * ratio
+  }
+
   // KPI's
   const totaalOmzet = jaarFacturen.reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   const totaalInclBtw = jaarFacturen.reduce((sum, f) => sum + (f.totaal || 0), 0)
   const totaalBtw = jaarFacturen.reduce((sum, f) => sum + (f.btw_totaal || 0), 0)
-  const betaaldOmzet = jaarFacturen.filter(f => f.status === 'betaald').reduce((sum, f) => sum + (f.subtotaal || 0), 0)
-  const openstaandOmzet = jaarFacturen.filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status)).reduce((sum, f) => sum + (f.subtotaal || 0), 0)
-  const vervallenOmzet = jaarFacturen.filter(f => f.status === 'vervallen').reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+  // Betaald = som van werkelijk betaalde bedragen (proportioneel excl BTW).
+  // Telt ook deels_betaalde facturen mee voor het deel dat al binnen is.
+  const betaaldOmzet = jaarFacturen.reduce((sum, f) => sum + betaaldPerFactuur(f), 0)
+  // Openstaand = werkelijk openstaand bedrag (excl BTW) op facturen die nog niet
+  // volledig binnen zijn. Voorkomt opgeblazen 'openstaand' bij deels_betaalde facturen.
+  const openstaandOmzet = jaarFacturen
+    .filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status))
+    .reduce((sum, f) => sum + openstaandPerFactuur(f), 0)
 
-  // Vergelijking vorig jaar
+  // Vergelijking vorig jaar — zelfde filter als huidig jaar voor zuivere delta.
   const vorigJaarFacturen = useMemo(() => {
     return facturen.filter(f => {
-      if (!f.datum || f.status === 'concept') return false
+      if (!f.datum || !isOmzetFactuur(f)) return false
       return new Date(f.datum).getFullYear() === jaar - 1
     })
   }, [facturen, jaar])
   const vorigJaarOmzet = vorigJaarFacturen.reduce((sum, f) => sum + (f.subtotaal || 0), 0)
   const omzetVerschil = vorigJaarOmzet > 0 ? ((totaalOmzet - vorigJaarOmzet) / vorigJaarOmzet * 100) : 0
 
-  // Maandoverzicht
+  // Maandoverzicht — zelfde definitie van betaald/openstaand als KPI's hierboven.
   const maandData = useMemo(() => {
     return MAAND_NAMEN.map((naam, i) => {
       const maandFacturen = jaarFacturen.filter(f => new Date(f.datum).getMonth() === i)
@@ -98,8 +135,10 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
       const inclBtw = maandFacturen.reduce((sum, f) => sum + (f.totaal || 0), 0)
       const btw = maandFacturen.reduce((sum, f) => sum + (f.btw_totaal || 0), 0)
       const aantal = maandFacturen.length
-      const betaald = maandFacturen.filter(f => f.status === 'betaald').reduce((sum, f) => sum + (f.subtotaal || 0), 0)
-      const openstaand = maandFacturen.filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status)).reduce((sum, f) => sum + (f.subtotaal || 0), 0)
+      const betaald = maandFacturen.reduce((sum, f) => sum + betaaldPerFactuur(f), 0)
+      const openstaand = maandFacturen
+        .filter(f => ['verzonden', 'deels_betaald', 'vervallen'].includes(f.status))
+        .reduce((sum, f) => sum + openstaandPerFactuur(f), 0)
       return { naam, maand: i, omzet, inclBtw, btw, aantal, betaald, openstaand }
     })
   }, [jaarFacturen])
@@ -197,10 +236,12 @@ export function RapportagesView({ facturen, inkoopfacturen, uren }: {
         <OmzetChart />
       </div>
 
-      {/* Conversie-funnel van aanvraag tot betaald */}
-      <div className="mb-4">
-        <ConversieFunnel />
-      </div>
+      {/* Conversie-funnel — zelfde als dashboard, klikbaar voor detail-lijst */}
+      {funnel && (
+        <div className="mb-4">
+          <ConversieFunnelDashboard data={funnel} />
+        </div>
+      )}
 
       {/* Jaar selector + tabs */}
       <div className="flex flex-wrap items-center gap-3 mb-6">

@@ -6,12 +6,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle } from 'lucide-react'
+import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
+import { ConversieFunnelDashboard, type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
 
 interface TePlannenOrder {
   id: string
@@ -36,10 +37,19 @@ interface RecenteNotitie {
 
 interface DashboardData {
   omzet: number
+  omzetVorigeMaand: number
   openstaand: number
   achterstallig: number
   openOffertes: number
   openTaken: number
+  dezeWeek: {
+    nieuweAanvragen: number
+    offertesVerstuurd: number
+    offertesGeaccepteerd: number
+    facturenVerstuurd: number
+    betalingenOntvangen: number
+  }
+  funnel: FunnelData
   recenteNotities?: RecenteNotitie[]
   ongelezenBerichten: number
   maandOmzet: { maand: string; bedrag: number }[]
@@ -598,7 +608,20 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Deze maand</span>
             </div>
             <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(data.omzet)}</p>
-            <p className="text-xs text-gray-400 mt-1">Omzet (excl. BTW)</p>
+            <div className="flex items-center gap-2 mt-1">
+              <p className="text-xs text-gray-400">Omzet (excl. BTW)</p>
+              {data.omzetVorigeMaand > 0 && (() => {
+                const delta = data.omzet - data.omzetVorigeMaand
+                const pct = Math.round((delta / data.omzetVorigeMaand) * 100)
+                const up = delta >= 0
+                return (
+                  <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold rounded px-1.5 py-0.5 ${up ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                    {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                    {Math.abs(pct)}%
+                  </span>
+                )
+              })()}
+            </div>
           </div>
         </Link>
         <Link href="/facturatie?tab=openstaand" className="block group">
@@ -645,6 +668,42 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
         </Link>
       </div>
 
+      {/* Deze week-strook (B) */}
+      {(() => {
+        const w = data.dezeWeek
+        const items = [
+          { label: 'Nieuwe aanvragen', value: w.nieuweAanvragen, icon: Mail, color: 'text-blue-600 bg-blue-50' },
+          { label: 'Offertes verstuurd', value: w.offertesVerstuurd, icon: FileText, color: 'text-violet-600 bg-violet-50' },
+          { label: 'Geaccepteerd', value: w.offertesGeaccepteerd, icon: CheckSquare, color: 'text-emerald-600 bg-emerald-50' },
+          { label: 'Facturen verstuurd', value: w.facturenVerstuurd, icon: Receipt, color: 'text-orange-600 bg-orange-50' },
+          { label: 'Betalingen', value: w.betalingenOntvangen, icon: DollarSign, color: 'text-[#00a66e] bg-emerald-50' },
+        ]
+        return (
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 sm:px-5 py-3 sm:py-3.5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Deze week</span>
+              <span className="text-[10px] text-gray-400">vanaf maandag</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+              {items.map((it) => (
+                <div key={it.label} className="flex items-center gap-2.5">
+                  <div className={`h-7 w-7 rounded-md flex items-center justify-center ${it.color}`}>
+                    <it.icon className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-base sm:text-lg font-bold text-gray-900 leading-none">{it.value}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5 truncate">{it.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Conversie-funnel (C) — klikbaar */}
+      <ConversieFunnelDashboard data={data.funnel} />
+
       {/* Omzetdoelen - mobiel (boven secties) */}
       <div className="lg:hidden">
         {omzetdoelenWidget}
@@ -665,7 +724,6 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Klant</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Offerte</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Bedrag</th>
-                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Datum</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2"></th>
                   </tr>
                 </thead>
@@ -673,9 +731,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   {data.geaccepteerdeOffertes.map(o => (
                     <tr key={o.id} className="border-t border-gray-50 hover:bg-emerald-50/30 transition-colors">
                       <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
-                      <td className="px-3 py-3"><Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.offertenummer}</Link></td>
+                      <td className="px-3 py-3">
+                        <Link href={`/offertes/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.offertenummer}</Link>
+                        <div className="text-[10px] text-gray-400 mt-0.5">{formatDateShort(o.datum)}</div>
+                      </td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
-                      <td className="px-3 py-3 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
                       <td className="px-5 py-3 text-right">
                         <Button size="sm" className="h-7 text-xs bg-[#00a66e] hover:bg-[#008f5f] shadow-sm" onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })} disabled={factuurLoading === o.id}>
                           {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
@@ -713,12 +773,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <thead>
                   <tr className="bg-gray-50/70">
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Klant</th>
-                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verkoopkans</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Factuur</th>
-                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Type</th>
-                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Totaal verkoopkans <span className="text-gray-300 normal-case">excl.</span></th>
-                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand <span className="text-gray-300 normal-case">excl.</span></th>
-                    <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Verloop</th>
+                    <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Openstaand</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Status</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2"></th>
                   </tr>
@@ -727,32 +783,45 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   {data.openstaandeFacturen.map(f => {
                     const isVervallen = f.vervaldatum && new Date(f.vervaldatum) < new Date()
                     const dagen = f.vervaldatum ? Math.abs(dagenVerschil(f.vervaldatum)) : null
-                    const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'termijn' ? 'Termijn' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : '-'
+                    const typeLabel = f.factuur_type === 'aanbetaling' ? 'Aanbetaling' : f.factuur_type === 'termijn' ? 'Termijn' : f.factuur_type === 'restbetaling' ? 'Restbetaling' : f.factuur_type === 'volledig' ? 'Volledig' : null
                     const typeColor = f.factuur_type === 'aanbetaling' ? 'text-blue-600 bg-blue-50' : f.factuur_type === 'termijn' ? 'text-purple-600 bg-purple-50' : f.factuur_type === 'restbetaling' ? 'text-orange-600 bg-orange-50' : 'text-gray-600 bg-gray-50'
                     const kanVerstuurd = f.status === 'concept' || f.status === 'vervallen'
                     const verstuurStatus = versturenStatus[f.id]
+                    const verkoopkansLabel = f.verkoopkans_naam || f.onderwerp
                     return (
                       <tr key={f.id} className={`border-t border-gray-50 hover:bg-gray-50/50 transition-colors ${isVervallen ? 'bg-red-50/20' : ''}`}>
-                        <td className="px-5 py-3 text-sm font-medium text-gray-900">
-                          {f.relatie_id ? (
-                            <Link href={`/relatiebeheer/${f.relatie_id}`} className="hover:text-[#00a66e] hover:underline">{f.relatie_bedrijfsnaam}</Link>
-                          ) : f.relatie_bedrijfsnaam}
+                        <td className="px-5 py-3">
+                          <div className="text-sm font-medium text-gray-900">
+                            {f.relatie_id ? (
+                              <Link href={`/relatiebeheer/${f.relatie_id}`} className="hover:text-[#00a66e] hover:underline">{f.relatie_bedrijfsnaam}</Link>
+                            ) : f.relatie_bedrijfsnaam}
+                          </div>
+                          {verkoopkansLabel && (
+                            <div className="text-xs text-gray-500 mt-0.5 truncate max-w-[220px]">
+                              {f.verkoopkans_naam && f.project_id ? (
+                                <Link href={`/projecten/${f.project_id}`} className="hover:text-[#00a66e] hover:underline">{f.verkoopkans_naam}</Link>
+                              ) : verkoopkansLabel}
+                            </div>
+                          )}
                         </td>
-                        <td className="px-3 py-3 text-sm text-gray-700">
-                          {f.verkoopkans_naam && f.project_id ? (
-                            <Link href={`/projecten/${f.project_id}`} className="hover:text-[#00a66e] hover:underline">{f.verkoopkans_naam}</Link>
-                          ) : (f.verkoopkans_naam || f.onderwerp || <span className="text-gray-300">—</span>)}
+                        <td className="px-3 py-3">
+                          <Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{f.factuurnummer}</Link>
+                          {typeLabel && (
+                            <div className="mt-0.5"><span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span></div>
+                          )}
                         </td>
-                        <td className="px-3 py-3"><Link href={`/facturatie/${f.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{f.factuurnummer}</Link></td>
-                        <td className="px-3 py-3"><span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${typeColor}`}>{typeLabel}</span></td>
-                        <td className="px-3 py-3 text-right text-sm text-gray-700">
-                          {f.verkoopkans_totaal != null && f.verkoopkans_totaal > 0
-                            ? formatCurrency(f.verkoopkans_totaal)
-                            : <span className="text-gray-300">—</span>}
+                        <td className="px-3 py-3 text-right">
+                          <div className={`text-sm font-semibold ${isVervallen ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(f.openstaand_bedrag)}</div>
+                          {f.verkoopkans_totaal != null && f.verkoopkans_totaal > 0 && (
+                            <div className="text-[10px] text-gray-400 mt-0.5">van {formatCurrency(f.verkoopkans_totaal)}</div>
+                          )}
                         </td>
-                        <td className={`px-3 py-3 text-sm text-right font-semibold ${isVervallen ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(f.openstaand_bedrag)}</td>
-                        <td className="px-3 py-3 text-center">{dagen !== null && <DagenPill dagen={dagen} isOver={!!isVervallen} />}</td>
-                        <td className="px-3 py-3"><Badge status={f.status} /></td>
+                        <td className="px-3 py-3">
+                          <Badge status={f.status} />
+                          {dagen !== null && (
+                            <div className="mt-1"><DagenPill dagen={dagen} isOver={!!isVervallen} /></div>
+                          )}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           {kanVerstuurd && (
                             <Button
@@ -811,7 +880,6 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Klant</th>
                     <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Order</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Bedrag</th>
-                    <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Datum</th>
                     <th className="text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2"></th>
                   </tr>
                 </thead>
@@ -819,9 +887,11 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                   {data.moetBesteldOrders.map(o => (
                     <tr key={o.id} className="border-t border-gray-50 hover:bg-orange-50/20 transition-colors">
                       <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={o.relatie_id} naam={o.relatie_bedrijfsnaam} /></td>
-                      <td className="px-3 py-3"><Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.ordernummer}</Link></td>
+                      <td className="px-3 py-3">
+                        <Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.ordernummer}</Link>
+                        <div className="text-[10px] text-gray-400 mt-0.5">{formatDateShort(o.datum)}</div>
+                      </td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
-                      <td className="px-3 py-3 text-sm text-gray-400">{formatDateShort(o.datum)}</td>
                       <td className="px-5 py-3 text-right">
                         <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={async () => { setBesteldLoading(o.id); await markOrderBesteld(o.id); setBesteldLoading(null); router.refresh() }} disabled={besteldLoading === o.id}>
                           {besteldLoading === o.id ? 'Bezig...' : 'Besteld'}
@@ -971,8 +1041,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                 <tr className="bg-gray-50/70">
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Klant</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Order</th>
-                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Leverdatum</th>
-                  <th className="text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Dagen</th>
+                  <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Levering</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-3 py-2">Restbetaling</th>
                   <th className="text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider px-5 py-2">Status</th>
                 </tr>
@@ -984,8 +1053,10 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                     <tr key={l.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={l.relatie_id} naam={l.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/orders/${l.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{l.ordernummer}</Link></td>
-                      <td className="px-3 py-3 text-sm text-gray-600">{formatDateShort(l.leverdatum)}</td>
-                      <td className="px-3 py-3 text-center"><DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} /></td>
+                      <td className="px-3 py-3">
+                        <div className="text-sm text-gray-600">{formatDateShort(l.leverdatum)}</div>
+                        <div className="mt-1"><DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} /></div>
+                      </td>
                       <td className="px-3 py-3">
                         {l.restbetaling ? (
                           <Link href={`/facturatie/${l.restbetaling.id}`} className="inline-flex items-center gap-1.5 group">
@@ -1260,13 +1331,20 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       const pct = (d.bedrag / maxVal) * 100
                       const isLast = i === data.gefactureerdPerMaand.length - 1
                       return (
-                        <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0 group">
+                        <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0 group relative">
+                          {/* Floating tooltip — duidelijk leesbaar, niet beperkt door staaf-breedte */}
+                          {d.bedrag > 0 && (
+                            <div className="absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full bg-gray-900 text-white text-[11px] font-medium px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-md">
+                              <div className="text-[10px] text-gray-300">{d.maand}</div>
+                              <div className="font-semibold">{formatCurrency(d.bedrag)}</div>
+                              <div className="text-[10px] text-gray-400">{d.aantal} {d.aantal === 1 ? 'factuur' : 'facturen'}</div>
+                              {/* Arrow */}
+                              <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-gray-900 rotate-45" />
+                            </div>
+                          )}
                           <div className="w-full flex flex-col items-center justify-end h-36">
-                            <span className="text-[9px] text-gray-500 mb-1 truncate max-w-full opacity-0 group-hover:opacity-100 transition-opacity font-medium">
-                              {d.bedrag >= 1000 ? `${(d.bedrag / 1000).toFixed(0)}K` : formatCurrency(d.bedrag)}
-                            </span>
                             <div
-                              className={`w-full max-w-[28px] rounded-t-md transition-all ${isLast ? 'bg-[#00a66e]' : 'bg-[#00a66e]/30 group-hover:bg-[#00a66e]/50'}`}
+                              className={`w-full max-w-[28px] rounded-t-md transition-all ${isLast ? 'bg-[#00a66e]' : 'bg-[#00a66e]/30 group-hover:bg-[#00a66e]/70'}`}
                               style={{ height: `${Math.max(pct, d.bedrag > 0 ? 4 : 0)}%` }}
                             />
                           </div>
