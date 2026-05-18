@@ -18,15 +18,18 @@ interface Regel {
   product_id?: string
 }
 
-// Standaard bezorgkosten-regel: €150 onder €1750.
-// Uitzondering voor Gealan en Schüco (zwaardere/lange-route leveringen):
-// €300 onder €6000.
+// Bezorgkosten worden alleen automatisch toegevoegd als het orderbedrag (excl
+// bezorg/korting) onder de €1750 ligt. Bedrag verschilt per leverancier:
+//   Standaard         → €150
+//   Gealan / Schüco   → €300 (zwaardere transporten / lange routes)
+// Detectie van Gealan/Schüco kijkt zowel naar de leverancier-naam (dealer) als
+// het profielsysteem (bv. dealer 'AKU Geveltechniek' levert Gealan-kozijnen).
 const BEZORGKOSTEN_LABEL = 'Bezorgkosten'
 const BEZORGKOSTEN_STANDAARD = { drempel: 1750, bedrag: 150 }
-const BEZORGKOSTEN_GEALAN_SCHUCO = { drempel: 6000, bedrag: 300 }
-function bezorgkostenRegel(leverancier: string | undefined): { drempel: number; bedrag: number } {
-  const lev = (leverancier || '').toLowerCase()
-  if (lev.includes('gealan') || lev.includes('schüco') || lev.includes('schuco')) {
+const BEZORGKOSTEN_GEALAN_SCHUCO = { drempel: 1750, bedrag: 300 }
+function bezorgkostenRegel(leverancier: string | undefined, profiel?: string | undefined): { drempel: number; bedrag: number } {
+  const tekst = ((leverancier || '') + ' ' + (profiel || '')).toLowerCase()
+  if (tekst.includes('gealan') || tekst.includes('schüco') || tekst.includes('schuco')) {
     return BEZORGKOSTEN_GEALAN_SCHUCO
   }
   return BEZORGKOSTEN_STANDAARD
@@ -106,7 +109,8 @@ export function StapControleren({
   // Gealan/Schüco: €300 bij producttotaal < €6000.
   // Telt ALLE product-regels op (excl. bezorgkosten en korting).
   const leverancierNaam = detectedLeverancier?.display_naam || detectedLeverancier?.leverancier || ''
-  const bezorgConfig = bezorgkostenRegel(leverancierNaam)
+  const leverancierProfiel = detectedLeverancier?.profiel || ''
+  const bezorgConfig = bezorgkostenRegel(leverancierNaam, leverancierProfiel)
   const updateBezorgkosten = useCallback((currentRegels: Regel[]) => {
     const productTotaal = currentRegels.reduce((sum, r) => {
       const o = r.omschrijving.toLowerCase()
