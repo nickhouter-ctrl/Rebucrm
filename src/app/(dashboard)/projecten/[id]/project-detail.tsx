@@ -87,10 +87,13 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
 
   async function handleTimelineDelete(item: TimelineItem) {
     if (!confirm(`Weet je zeker dat je "${item.titel}" wilt verwijderen?`)) return
+    // item.id is prefixed in de timeline ('offerte-<uuid>', 'factuur-<uuid>', 'taak-<uuid>').
+    // De server-actions verwachten alleen het UUID-deel.
+    const realId = item.id.replace(/^(offerte|factuur|taak)-/, '')
     let result: { error?: string } = {}
-    if (item.type.startsWith('offerte_')) result = await deleteOfferte(item.id)
-    else if (item.type.startsWith('factuur_')) result = await deleteFactuur(item.id)
-    else if (item.type === 'taak') result = await deleteTaak(item.id)
+    if (item.type.startsWith('offerte_')) result = await deleteOfferte(realId)
+    else if (item.type.startsWith('factuur_')) result = await deleteFactuur(realId)
+    else if (item.type === 'taak') result = await deleteTaak(realId)
     else if (item.type === 'email_verstuurd' && item.meta?.emailLogId) result = await deleteEmailLog(item.meta.emailLogId as string)
     if (result.error) setError(result.error)
     else router.refresh()
@@ -98,7 +101,8 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
 
   async function handleTimelineInlineRename(item: TimelineItem, nieuweTitel: string) {
     if (!item.type.startsWith('offerte_')) return { error: 'Alleen offertes kunnen hernoemd worden' }
-    const result = await updateOfferteOnderwerp(item.id, nieuweTitel)
+    const realId = item.id.replace(/^offerte-/, '')
+    const result = await updateOfferteOnderwerp(realId, nieuweTitel)
     if (!result.error) router.refresh()
     return result
   }
