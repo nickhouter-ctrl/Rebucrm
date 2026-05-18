@@ -345,7 +345,12 @@ export function StapTekeningen({
             headerMatch = ['Merk ' + letter] as unknown as RegExpMatchArray
           }
         }
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|%%2>-',8|1IVO\s*[%&'()*+,\-.]/i.test(pageText)
+        // Drawing-markers: aanzicht-tekst, dimensie-markers, of Gealan-tabel-headers.
+        // 'Productie maten' header + Aantal/Verbinding samen = sterke indicator van een
+        // element-tekening-pagina ook als de aanzicht-markers ontbreken/uitelkaar gebroken
+        // zijn door pdfjs text-extractie.
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|AANZICHT|%%2>-',8|1IVO\s*[%&'()*+,\-.]|Productie\s+maten/i.test(pageText)
+          || (/Aantal\s*:\s*\d+/i.test(pageText) && /Verbinding\s*:/i.test(pageText))
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         let elementNaam: string | null = null
         if (headerMatch) {
@@ -356,23 +361,22 @@ export function StapTekeningen({
         allPageScans.push({ pageNum, naam: elementNaam, hasDrawing, isStandaloneProduct })
       }
 
-      // FALLBACK voor Gealan-NL: deze PDFs gebruiken room-namen als element-naam
-      // ("BG", "Verdieping (buren)", "Badkamer") i.p.v. "Element 001"-codes. De
-      // regex die de naam uit "Productie maten ... Aantal:N Verbinding:" haalt
-      // is afhankelijk van de tekst-item-volgorde die pdfjs teruggeeft en faalt
-      // soms. In dat geval koppelen we drawing-pagina's op volgorde aan de
-      // elementen die de prijs-parser al heeft gevonden, zodat we tóch tekeningen
-      // krijgen i.p.v. een lege lijst.
-      const isGealanPdf = (leverancierKey as string).toLowerCase().includes('gealan')
-      if (isGealanPdf) {
-        const drawingPagesZonderNaam = allPageScans.filter(s => !s.naam && s.hasDrawing && !s.isStandaloneProduct)
-        const pagesMetNaam = allPageScans.filter(s => s.naam).length
-        // Alleen invullen als geen enkele pagina een naam kreeg (anders zou de
-        // regex deels werken en zouden we de orde verkeerd raden).
-        if (pagesMetNaam === 0 && drawingPagesZonderNaam.length > 0 && parsed.elementen.length > 0) {
-          for (let i = 0; i < drawingPagesZonderNaam.length && i < parsed.elementen.length; i++) {
-            drawingPagesZonderNaam[i].naam = parsed.elementen[i].naam
-          }
+      // FALLBACK: Gealan-NL PDFs (en soms andere) krijgen geen element-naam-match
+      // door de regex omdat ze room-namen gebruiken ("BG", "Verdieping", "Badkamer")
+      // i.p.v. "Element 001"-codes, of omdat pdfjs de cellen in een rare volgorde
+      // teruggeeft. We detecteren Gealan-NL via de PDF-inhoud zelf (niet via de
+      // leverancier-slug, want die kan de dealer-naam zijn zoals 'AKU').
+      // Als no enkele pagina een naam kreeg, koppelen we drawing-pagina's op volgorde
+      // aan de elementen uit de prijs-parser.
+      const allText = allPageScans.map(s => s.pageNum).join(',') // placeholder
+      void allText
+      const isGealanNLContent = leverancierKey.toLowerCase().includes('gealan')
+        || /Gealan\s*S\d|Productie\s+maten|Aanslag\s*$/im.test(fullText)
+      const pagesMetNaam = allPageScans.filter(s => s.naam).length
+      const drawingPagesZonderNaam = allPageScans.filter(s => !s.naam && s.hasDrawing && !s.isStandaloneProduct)
+      if (isGealanNLContent && pagesMetNaam === 0 && drawingPagesZonderNaam.length > 0 && parsed.elementen.length > 0) {
+        for (let i = 0; i < drawingPagesZonderNaam.length && i < parsed.elementen.length; i++) {
+          drawingPagesZonderNaam[i].naam = parsed.elementen[i].naam
         }
       }
 
@@ -410,6 +414,32 @@ export function StapTekeningen({
       for (const scan of allPageScans) {
         if (scan.naam && elementGroupMap.has(scan.naam) && elementGroupMap.get(scan.naam)!.length === 0) {
           elementGroupMap.get(scan.naam)!.push(scan.pageNum)
+        }
+      }
+
+      // LAATSTE VANGNET: als na alle matching elementGroupMap leeg is, maar we
+      // hebben WEL parsed.elementen (prijs is binnen) én pagina's met tekening-
+      // markers, koppel de pagina's op volgorde aan de elementen. Dit garandeert
+      // dat we tekeningen produceren ook bij onbekende leverancier-layouts.
+      if (elementGroupMap.size === 0 && parsed.elementen.length > 0) {
+        const eligiblePages = allPageScans.filter(s => s.hasDrawing).map(s => s.pageNum)
+        if (eligiblePages.length > 0) {
+          // Verdeel de pagina's gelijkmatig over de elementen. Als er evenveel
+          // pagina's als elementen zijn → 1:1 mapping. Anders krijgt elk element
+          // zo veel pagina's als 'eligible' / 'elementen'.
+          const pagesPerElement = Math.max(1, Math.floor(eligiblePages.length / parsed.elementen.length))
+          let pageIdx = 0
+          for (let ei = 0; ei < parsed.elementen.length && pageIdx < eligiblePages.length; ei++) {
+            const naam = parsed.elementen[ei].naam
+            elementGroupMap.set(naam, [])
+            elementOrder.push(naam)
+            const take = ei === parsed.elementen.length - 1
+              ? eligiblePages.length - pageIdx  // laatste element krijgt de rest
+              : pagesPerElement
+            for (let k = 0; k < take && pageIdx < eligiblePages.length; k++) {
+              elementGroupMap.get(naam)!.push(eligiblePages[pageIdx++])
+            }
+          }
         }
       }
       // Sort pages per element
