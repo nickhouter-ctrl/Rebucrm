@@ -3696,6 +3696,23 @@ export async function saveTaak(formData: FormData) {
   return { success: true, id: savedId }
 }
 
+// Lichte action voor inline deadline-edit op de taken-lijst.
+// Accepteert YYYY-MM-DD of leeg/null om de deadline te verwijderen.
+export async function updateTaakDeadline(id: string, deadline: string | null) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const value = deadline ? deadline.slice(0, 10) : null
+  const { error } = await supabase
+    .from('taken')
+    .update({ deadline: value })
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/taken')
+  return { success: true }
+}
+
 export async function deleteTaak(id: string) {
   const supabase = await createClient()
   const { error } = await supabase.from('taken').delete().eq('id', id)
@@ -3959,7 +3976,10 @@ export async function getDashboardData() {
   const [relatiesRes, profielenRes, openOffertesRes, tePlannenRes, geplandeLeveringenRes, ongelezenBerichtenRes, geaccepteerdRes, openstaandeFacturenRes, omzetdoelenRes, recenteOffertesRes, moetBesteldRes] = await Promise.all([
     supabase.from('relaties').select('type', { count: 'exact' }).eq('administratie_id', adminId),
     supabase.from('profielen').select('id, naam').eq('administratie_id', adminId),
-    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').order('datum', { ascending: true }).limit(200),
+    // Open offertes-lijst: zelfde 90-dagen-filter als de KPI-count (data.openOffertes)
+    // zodat sidebar en sectie identieke aantallen tonen. Oudere 'verzonden' offertes
+    // uit historische imports zijn praktisch dood en horen niet in deze actie-lijst.
+    supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').gte('datum', new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)).order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),

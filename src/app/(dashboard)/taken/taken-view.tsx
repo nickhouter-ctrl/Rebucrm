@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
-import { completeTaak, uncompleteTaak } from '@/lib/actions'
+import { completeTaak, uncompleteTaak, updateTaakDeadline } from '@/lib/actions'
 import { Plus, CheckSquare, X, Phone, FileText, ListTodo } from 'lucide-react'
 
 interface Taak {
@@ -62,23 +62,34 @@ function categorieTaak(taak: { titel: string; status: string; categorie?: string
   return 'alle'
 }
 
-function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: string) => void): ColumnDef<Taak, unknown>[] {
+function getColumns(
+  isAdmin: boolean,
+  onToggle: (id: string, currentStatus: string) => void,
+  onDeadlineChange: (id: string, newDeadline: string | null) => void,
+): ColumnDef<Taak, unknown>[] {
   const cols: ColumnDef<Taak, unknown>[] = [
     {
       id: 'afvinken',
       header: '',
       size: 40,
       cell: ({ row }) => (
-        <input
-          type="checkbox"
-          checked={row.original.status === 'afgerond'}
-          className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer"
+        // Wrapper vangt clicks zodat ze niet doorvallen naar de row-click (naar detail).
+        // Hele cel als klikbaar gebied, niet alleen het kleine checkbox-vinkje.
+        <div
+          className="flex items-center justify-center cursor-pointer -my-2 -mx-1 px-1 py-2"
           onClick={(e) => {
             e.stopPropagation()
+            e.preventDefault()
             onToggle(row.original.id, row.original.status)
           }}
-          readOnly
-        />
+        >
+          <input
+            type="checkbox"
+            checked={row.original.status === 'afgerond'}
+            readOnly
+            className="h-4 w-4 rounded border-gray-300 text-[#00a66e] focus:ring-[#00a66e] cursor-pointer pointer-events-none"
+          />
+        </div>
       ),
     },
     { accessorKey: 'taaknummer', header: 'Nummer', cell: ({ getValue }) => <span className="text-gray-500 font-mono text-xs">{(getValue() as string) || '-'}</span> },
@@ -99,10 +110,27 @@ function getColumns(isAdmin: boolean, onToggle: (id: string, currentStatus: stri
     } },
     { accessorKey: 'deadline', header: 'Deadline', cell: ({ row }) => {
       const d = row.original.deadline
-      if (!d) return '-'
       const tijd = row.original.deadline_tijd ? ` ${String(row.original.deadline_tijd).slice(0, 5)}` : ''
       const kleur = getDeadlineKleur(d, row.original.deadline_tijd, row.original.status)
-      return <span className={kleur}>{formatDateShort(d)}{tijd}</span>
+      const isoValue = d ? d.slice(0, 10) : ''
+      // Inline editable deadline: native date input gestyled als tekst.
+      // onClick stopt propagation zodat row-click niet activeert; bij wijziging
+      // belt updateTaakDeadline aan via de parent callback.
+      return (
+        <span
+          className="relative inline-flex items-center"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <input
+            type="date"
+            value={isoValue}
+            onChange={(e) => onDeadlineChange(row.original.id, e.target.value || null)}
+            className={`bg-transparent border-0 p-0 text-sm focus:outline-none focus:ring-1 focus:ring-[#00a66e] rounded cursor-pointer ${kleur} ${!d ? 'text-gray-400' : ''}`}
+            style={{ minWidth: '110px' }}
+          />
+          {tijd && <span className={`ml-1 ${kleur}`}>{tijd}</span>}
+        </span>
+      )
     } },
   ]
   if (isAdmin) {
@@ -233,6 +261,20 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     router.refresh()
   }
 
+  async function handleDeadlineChange(id: string, newDeadline: string | null) {
+    // Optimistic update — direct UI bijwerken zodat het responsief voelt.
+    setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, deadline: newDeadline } : t))
+    const result = await updateTaakDeadline(id, newDeadline)
+    if (result.error) {
+      // Rollback bij fout
+      const origineel = taken.find(t => t.id === id)
+      setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, deadline: origineel?.deadline ?? null } : t))
+      alert(`Deadline opslaan mislukt: ${result.error}`)
+    } else {
+      router.refresh()
+    }
+  }
+
   const tabs: { key: TabType; label: string; icon: typeof ListTodo; count: number }[] = [
     { key: 'alle', label: 'Alle open', icon: ListTodo, count: counts.alle },
     { key: 'opvolgen', label: 'Opvolgen', icon: Phone, count: counts.opvolgen },
@@ -310,7 +352,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
         <EmptyState icon={CheckSquare} title="Geen taken" description={activeTab === 'afgerond' ? 'Geen afgeronde taken.' : 'Geen taken in deze categorie.'} action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
       ) : (
         <DataTable
-          columns={getColumns(isAdmin, handleToggle)}
+          columns={getColumns(isAdmin, handleToggle, handleDeadlineChange)}
           data={takenLijst}
           searchPlaceholder="Zoek taak..."
           onRowClick={(row) => router.push(`/taken/${row.id}`)}
