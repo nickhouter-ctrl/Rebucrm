@@ -312,7 +312,13 @@ export function StapTekeningen({
         aantalElementen: finaleElementen.length,
       }
 
-      // Step 4: Render tekeningen from pages
+      // Step 4: Render tekeningen from pages.
+      // KRITIEK: vanaf hier draait alleen nog tekening-rendering. Faalt die,
+      // dan moet de gebruiker tóch door naar 'Controleren' kunnen — prijs en
+      // elementen zijn immers al binnen. We omsluiten daarom de rest met
+      // een try/catch en geven bij een fout het parsed-resultaat met lege
+      // tekeningen door (onPdfProcessed) i.p.v. de hele upload te laten klappen.
+      try {
       setProgress(`Tekeningen extraheren (0/${parsed.aantalElementen})...`)
 
       // Scan all pages for element names and drawing markers
@@ -772,6 +778,17 @@ export function StapTekeningen({
       setProgress('')
       setProcessing(false)
       onPdfProcessed(parsed, tekeningen, wipedRegionsCollector)
+      } catch (renderErr) {
+        // Tekening-rendering faalde, maar prijs/elementen zijn al verwerkt.
+        // Stuur het parsed-resultaat met lege tekeningen door zodat de gebruiker
+        // alsnog naar Controleren kan. wipedRegionsCollector is in scope van de
+        // inner try, dus hier niet beschikbaar — geen probleem, parameter is optioneel.
+        console.error('PDF render-tekeningen fout (niet kritiek):', renderErr)
+        setProgress('')
+        setProcessing(false)
+        setError('Tekeningen konden niet automatisch worden geëxtraheerd, maar de prijs is wél binnen. Je kunt doorgaan naar Controleren.')
+        onPdfProcessed(parsed, [])
+      }
     } catch (err) {
       console.error('PDF processing error:', err)
       setError(`Fout bij verwerken van PDF: ${err instanceof Error ? err.message : String(err)}`)
