@@ -356,6 +356,26 @@ export function StapTekeningen({
         allPageScans.push({ pageNum, naam: elementNaam, hasDrawing, isStandaloneProduct })
       }
 
+      // FALLBACK voor Gealan-NL: deze PDFs gebruiken room-namen als element-naam
+      // ("BG", "Verdieping (buren)", "Badkamer") i.p.v. "Element 001"-codes. De
+      // regex die de naam uit "Productie maten ... Aantal:N Verbinding:" haalt
+      // is afhankelijk van de tekst-item-volgorde die pdfjs teruggeeft en faalt
+      // soms. In dat geval koppelen we drawing-pagina's op volgorde aan de
+      // elementen die de prijs-parser al heeft gevonden, zodat we tóch tekeningen
+      // krijgen i.p.v. een lege lijst.
+      const isGealanPdf = (leverancierKey as string).toLowerCase().includes('gealan')
+      if (isGealanPdf) {
+        const drawingPagesZonderNaam = allPageScans.filter(s => !s.naam && s.hasDrawing && !s.isStandaloneProduct)
+        const pagesMetNaam = allPageScans.filter(s => s.naam).length
+        // Alleen invullen als geen enkele pagina een naam kreeg (anders zou de
+        // regex deels werken en zouden we de orde verkeerd raden).
+        if (pagesMetNaam === 0 && drawingPagesZonderNaam.length > 0 && parsed.elementen.length > 0) {
+          for (let i = 0; i < drawingPagesZonderNaam.length && i < parsed.elementen.length; i++) {
+            drawingPagesZonderNaam[i].naam = parsed.elementen[i].naam
+          }
+        }
+      }
+
       // Group pages per element: pages with same element name are combined.
       // Drawing-only pages (no header) are assigned to the PREVIOUS element
       // UNLESS they contain standalone product keywords (e.g. Rolluik, Zonwering).
