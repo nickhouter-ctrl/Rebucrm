@@ -121,19 +121,30 @@ export function StapControleren({
     const heeftBezorgkosten = bezorgIndex !== -1
     const huidigBedrag = heeftBezorgkosten ? Number(currentRegels[bezorgIndex].prijs) : 0
 
+    // Bekende default-bedragen — gebruikt om te detecteren of de huidige waarde
+    // nog "auto" is of door de gebruiker handmatig is aangepast.
+    const bekendeDefaults = new Set<number>([
+      BEZORGKOSTEN_STANDAARD.bedrag,
+      BEZORGKOSTEN_GEALAN_SCHUCO.bedrag,
+    ])
+
     if (productTotaal < bezorgConfig.drempel && productTotaal > 0) {
       if (!heeftBezorgkosten) {
         return [...currentRegels, { omschrijving: BEZORGKOSTEN_LABEL, aantal: 1, prijs: bezorgConfig.bedrag, btw_percentage: 21 }]
       }
-      // Bezorgkosten staat erin maar bedrag klopt niet (bv. switch
-      // standaard ↔ Gealan/Schüco) — corrigeer
-      if (huidigBedrag !== bezorgConfig.bedrag) {
+      // Alleen automatisch corrigeren als de huidige waarde nog een van de
+      // bekende defaults is (bv. switch standaard ↔ Gealan/Schüco). Een door de
+      // gebruiker ingevulde aangepaste prijs (bv. €275) laten we met rust.
+      if (huidigBedrag !== bezorgConfig.bedrag && bekendeDefaults.has(huidigBedrag)) {
         const updated = [...currentRegels]
         updated[bezorgIndex] = { ...updated[bezorgIndex], prijs: bezorgConfig.bedrag, aantal: 1 }
         return updated
       }
     } else {
-      if (heeftBezorgkosten) {
+      // Verwijder alleen als het nog een default-bedrag is. Bij handmatig
+      // ingevoerde bezorgkosten boven de drempel laten we het staan — de
+      // gebruiker heeft dat bewust toegevoegd.
+      if (heeftBezorgkosten && bekendeDefaults.has(huidigBedrag)) {
         return currentRegels.filter((_, i) => i !== bezorgIndex)
       }
     }
