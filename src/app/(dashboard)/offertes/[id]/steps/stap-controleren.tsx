@@ -782,7 +782,7 @@ export function StapControleren({
               {regels.map((regel, i) => {
                 const isBezorgkosten = regel.omschrijving === BEZORGKOSTEN_LABEL
                 return (
-                  <div key={i} className={`grid grid-cols-12 gap-2 items-end ${isBezorgkosten ? 'opacity-60 bg-orange-50 -mx-2 px-2 py-1 rounded' : ''}`}>
+                  <div key={i} className={`grid grid-cols-12 gap-2 items-end ${isBezorgkosten ? 'bg-orange-50 -mx-2 px-2 py-1 rounded' : ''}`}>
                     <div className="col-span-1">
                       <select className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs" value={regel.product_id || ''} onChange={(e) => selectProduct(i, e.target.value)} disabled={isBezorgkosten}>
                         <option value="">--</option>
@@ -793,10 +793,10 @@ export function StapControleren({
                       <input placeholder="Omschrijving" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.omschrijving} onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)} required readOnly={isBezorgkosten} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'aantal', v))} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Aantal" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.aantal} onChange={(e) => updateRegel(i, 'aantal', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'aantal', v))} />
                     </div>
                     <div className="col-span-2">
-                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'prijs', v))} readOnly={isBezorgkosten} />
+                      <input type="number" placeholder="Prijs" step="0.01" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.prijs} onChange={(e) => updateRegel(i, 'prijs', e.target.value)} onPaste={(e) => handleNumberPaste(e, (v) => updateRegel(i, 'prijs', v))} />
                     </div>
                     <div className="col-span-1">
                       <select className="w-full px-2 py-2 border border-gray-300 rounded-md text-xs" value={regel.btw_percentage} onChange={(e) => updateRegel(i, 'btw_percentage', parseInt(e.target.value))} disabled={isBezorgkosten}>
