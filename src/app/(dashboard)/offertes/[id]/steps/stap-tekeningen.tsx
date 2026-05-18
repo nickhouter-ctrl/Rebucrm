@@ -417,23 +417,27 @@ export function StapTekeningen({
         }
       }
 
-      // LAATSTE VANGNET: als na alle matching elementGroupMap leeg is, maar we
-      // hebben WEL parsed.elementen (prijs is binnen) én pagina's met tekening-
-      // markers, koppel de pagina's op volgorde aan de elementen. Dit garandeert
-      // dat we tekeningen produceren ook bij onbekende leverancier-layouts.
-      if (elementGroupMap.size === 0 && parsed.elementen.length > 0) {
+      // LAATSTE VANGNET: als na alle matching elementGroupMap leeg is, maar er zijn
+      // wél pagina's met tekening-markers, dan koppelen we die alsnog aan
+      // (synthetische) element-namen. Twee scenario's:
+      //   a) parsed.elementen heeft namen → gebruik die op volgorde
+      //   b) parsed.elementen is leeg (alleen totaal gevonden) → 'Element 1/2/3'
+      //      i.p.v. lege lijst, zodat de gebruiker tóch de tekeningen ziet en de
+      //      elementen handmatig kan invoeren op Controleren.
+      if (elementGroupMap.size === 0) {
         const eligiblePages = allPageScans.filter(s => s.hasDrawing).map(s => s.pageNum)
         if (eligiblePages.length > 0) {
-          // Verdeel de pagina's gelijkmatig over de elementen. Als er evenveel
-          // pagina's als elementen zijn → 1:1 mapping. Anders krijgt elk element
-          // zo veel pagina's als 'eligible' / 'elementen'.
-          const pagesPerElement = Math.max(1, Math.floor(eligiblePages.length / parsed.elementen.length))
+          // Aantal "buckets" — voorkeur voor prijs-elementen, anders 1 per pagina
+          const namen: string[] = parsed.elementen.length > 0
+            ? parsed.elementen.map(e => e.naam)
+            : eligiblePages.map((_, i) => `Element ${i + 1}`)
+          const pagesPerElement = Math.max(1, Math.floor(eligiblePages.length / namen.length))
           let pageIdx = 0
-          for (let ei = 0; ei < parsed.elementen.length && pageIdx < eligiblePages.length; ei++) {
-            const naam = parsed.elementen[ei].naam
+          for (let ei = 0; ei < namen.length && pageIdx < eligiblePages.length; ei++) {
+            const naam = namen[ei]
             elementGroupMap.set(naam, [])
             elementOrder.push(naam)
-            const take = ei === parsed.elementen.length - 1
+            const take = ei === namen.length - 1
               ? eligiblePages.length - pageIdx  // laatste element krijgt de rest
               : pagesPerElement
             for (let k = 0; k < take && pageIdx < eligiblePages.length; k++) {

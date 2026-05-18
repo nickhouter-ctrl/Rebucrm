@@ -111,8 +111,18 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
   // worden als EKO-Okna geclassificeerd. Variabele blijft staan voor
   // type-compatibility maar is altijd false.
   const isAluplast = false
-  const isGealanNL = hasHint ? useGealanNL : (!isAluplast && !isEkoOkna && /Productie\s+maten/i.test(text) && /Netto\s*prijs/i.test(text) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text))
-  const isGealan = hasHint ? useGealan : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
+  // Gealan-NL detectie via content. Ook als hint='gealan' (de AI groepeert
+  // beide varianten onder 'gealan') laten we content beslissen: een PDF met
+  // 'Productie maten' + 'Netto prijs' + 'Aantal:N Verbinding:' is Gealan-NL,
+  // ongeacht wat de hint zegt. Voorkomt dat NL-PDFs verkeerd door de oude
+  // 'Merk X'-flow lopen en 0 elementen opleveren.
+  const gealanNLFingerprint = !isAluplast && !isEkoOkna
+    && /Productie\s+maten/i.test(text)
+    && /Netto\s*prijs/i.test(text)
+    && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text)
+    && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
+  const isGealanNL = hasHint ? (useGealanNL || (useGealan && gealanNLFingerprint)) : gealanNLFingerprint
+  const isGealan = hasHint ? (useGealan && !isGealanNL) : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
   const isSchuco = hasHint ? useSchuco : (!isAluplast && !isEkoOkna && !isGealanNL && !isGealan && (
     /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
     /Sch[üu¿\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(text)
