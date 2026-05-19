@@ -4049,7 +4049,7 @@ export async function getDashboardData() {
     // zodat sidebar en sectie identieke aantallen tonen. Oudere 'verzonden' offertes
     // uit historische imports zijn praktisch dood en horen niet in deze actie-lijst.
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').gte('datum', new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer, project:projecten(id, naam))').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam, adres, postcode, plaats), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
@@ -4346,6 +4346,8 @@ export async function getDashboardData() {
   // Te plannen leveringen
   const tePlannenOrders = (tePlannenRes.data || []).map(o => {
     const rel = o.relatie as { id?: string; bedrijfsnaam: string; contactpersoon: string | null; email: string | null } | null
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const off = o.offerte as { offertenummer: string; project?: { id: string; naam: string } | null } | null
     return {
       id: o.id,
       ordernummer: o.ordernummer,
@@ -4353,7 +4355,9 @@ export async function getDashboardData() {
       relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
       relatie_contactpersoon: rel?.contactpersoon || null,
       relatie_email: rel?.email || null,
-      offerte_nummer: (o.offerte as { offertenummer: string } | null)?.offertenummer || null,
+      offerte_nummer: off?.offertenummer || null,
+      project_id: off?.project?.id || null,
+      project_naam: off?.project?.naam || null,
       onderwerp: o.onderwerp,
       totaal: o.totaal || 0,
       datum: o.datum,
