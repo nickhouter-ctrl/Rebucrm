@@ -95,77 +95,93 @@ function buildColumns(
   versturenStatus: Record<string, 'ok' | 'error'>,
   onVerstuur: (e: React.MouseEvent, id: string) => void,
 ): ColumnDef<Factuur, unknown>[] {
+  const vandaag = new Date().toISOString().slice(0, 10)
   return [
+  // 1) Nummer (met type-pill + factuurdatum als kleine subtekst)
   {
     accessorKey: 'factuurnummer',
     header: 'Nummer',
     cell: ({ row }) => (
-      <div className="flex items-center gap-2">
-        <span className="font-medium">{row.original.factuurnummer}</span>
-        {row.original.factuur_type && row.original.factuur_type !== 'volledig' && (
-          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[row.original.factuur_type] || ''}`}>
-            {typeLabels[row.original.factuur_type] || row.original.factuur_type}
-          </span>
-        )}
+      <div>
+        <div className="flex items-center gap-1.5">
+          <span className="font-medium text-gray-900">{row.original.factuurnummer}</span>
+          {row.original.factuur_type && row.original.factuur_type !== 'volledig' && (
+            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[row.original.factuur_type] || ''}`}>
+              {typeLabels[row.original.factuur_type] || row.original.factuur_type}
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-gray-400 mt-0.5">{formatDateShort(row.original.datum)}</div>
       </div>
     ),
   },
-  { accessorKey: 'datum', header: 'Datum', cell: ({ getValue }) => formatDateShort(getValue() as string) },
+  // 2) Klant (met verkoopkans als subtekst)
   {
     id: 'relatie',
     header: 'Klant',
     accessorFn: (row) => row.relatie?.bedrijfsnaam || '-',
     cell: ({ row }) => {
       const r = row.original.relatie
-      return r?.id ? (
-        <Link href={`/relatiebeheer/${r.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-[#00a66e] hover:underline">
-          {r.bedrijfsnaam}
-        </Link>
-      ) : (<span className="font-medium text-gray-900">{r?.bedrijfsnaam || '-'}</span>)
-    },
-  },
-  {
-    id: 'verkoopkans',
-    header: 'Verkoopkans',
-    accessorFn: (row) => row.offerte?.project?.naam || row.order?.offerte?.project?.naam || row.order?.onderwerp || '',
-    cell: ({ row }) => {
       const project = row.original.offerte?.project || row.original.order?.offerte?.project
-      const naam = project?.naam || row.original.order?.onderwerp
-      return project?.id ? (
-        <Link href={`/projecten/${project.id}`} onClick={(e) => e.stopPropagation()} className="text-sm hover:text-[#00a66e] hover:underline">
-          {naam}
-        </Link>
-      ) : (naam ? <span className="text-sm text-gray-600">{naam}</span> : <span className="text-gray-300">-</span>)
+      const projectNaam = project?.naam || row.original.order?.onderwerp
+      return (
+        <div className="min-w-0">
+          {r?.id ? (
+            <Link href={`/relatiebeheer/${r.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-medium text-gray-900 hover:text-[#00a66e] hover:underline truncate block">
+              {r.bedrijfsnaam}
+            </Link>
+          ) : (<span className="text-sm font-medium text-gray-900">{r?.bedrijfsnaam || '-'}</span>)}
+          {projectNaam && (
+            project?.id ? (
+              <Link href={`/projecten/${project.id}`} onClick={(e) => e.stopPropagation()} className="text-[11px] text-gray-500 hover:text-[#00a66e] hover:underline truncate block max-w-[260px]">
+                {projectNaam}
+              </Link>
+            ) : (
+              <div className="text-[11px] text-gray-500 truncate max-w-[260px]">{projectNaam}</div>
+            )
+          )}
+        </div>
+      )
     },
   },
+  // 3) Status (badge)
   { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
+  // 4) Bedrag (totaal + openstaand als subtekst)
   {
-    id: 'verkoopkans_totaal',
-    header: 'Totaal verkoopkans excl.',
-    accessorFn: (row) => Number(row.offerte?.subtotaal || row.order?.offerte?.subtotaal || row.order?.subtotaal || 0),
-    cell: ({ getValue }) => {
-      const v = getValue() as number
-      return v > 0 ? <span className="text-sm text-gray-700">{formatCurrency(v)}</span> : <span className="text-gray-300">-</span>
+    id: 'bedrag',
+    header: 'Bedrag',
+    accessorFn: (row) => row.totaal,
+    cell: ({ row }) => {
+      const f = row.original
+      const excl = f.subtotaal ?? ((f.totaal || 0) - (f.btw_totaal || 0))
+      const pct = f.totaal ? excl / f.totaal : 1
+      const openExcl = (f.totaal - f.betaald_bedrag) * pct
+      return (
+        <div className="text-right">
+          <div className="text-sm font-semibold text-gray-900">{formatCurrency(excl)}</div>
+          {openExcl > 0.01 && (
+            <div className="text-[11px] text-amber-600 font-medium mt-0.5">{formatCurrency(openExcl)} open</div>
+          )}
+        </div>
+      )
     },
   },
-  {
-    id: 'openstaand',
-    header: 'Openstaand excl.',
-    accessorFn: (row) => {
-      const excl = row.subtotaal ?? ((row.totaal || 0) - (row.btw_totaal || 0))
-      const pct = row.totaal ? excl / row.totaal : 1
-      return (row.totaal - row.betaald_bedrag) * pct
-    },
-    cell: ({ getValue }) => {
-      const val = getValue() as number
-      return <span className={val > 0 ? 'text-red-600 font-medium' : ''}>{formatCurrency(val)}</span>
-    },
-  },
+  // 5) Vervaldatum (met visuele waarschuwing bij vervallen)
   {
     accessorKey: 'vervaldatum',
     header: 'Vervaldatum',
-    cell: ({ getValue }) => getValue() ? formatDateShort(getValue() as string) : '-',
+    cell: ({ row }) => {
+      const v = row.original.vervaldatum
+      if (!v) return <span className="text-gray-300">-</span>
+      const isVervallen = v < vandaag && row.original.status !== 'betaald' && row.original.status !== 'gecrediteerd'
+      return (
+        <span className={`text-sm ${isVervallen ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+          {formatDateShort(v)}
+        </span>
+      )
+    },
   },
+  // 6) Actie (alleen voor verstuurbare facturen)
   {
     id: 'actie',
     header: '',
@@ -331,19 +347,15 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     <div>
       <PageHeader
         title="Facturatie"
-        description="Beheer uw facturen"
         actions={
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="ghost" size="sm" onClick={exportXlsx}>
+            <Button variant="ghost" size="sm" onClick={handleSyncSnelstart} disabled={syncing} title="SnelStart-betalingen ophalen">
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Bezig…' : 'Sync'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={exportXlsx} title="Exporteer huidige weergave naar Excel">
               <Download className="h-3.5 w-3.5" />
               Excel
-            </Button>
-            <Button variant="ghost" onClick={() => router.push('/facturatie/eindafrekening')}>
-              Eindafrekening nodig
-            </Button>
-            <Button variant="secondary" onClick={handleSyncSnelstart} disabled={syncing}>
-              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
-              {syncing ? 'Bezig...' : 'Sync SnelStart'}
             </Button>
             <Button onClick={() => router.push('/facturatie/nieuw')}>
               <Plus className="h-4 w-4" />
@@ -509,24 +521,29 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 }
 
 function StatsBar({ stats }: { stats: { aantal: number; totaal: number; open: number; vervallen: number } }) {
+  // Compacte inline-balk i.p.v. 4 grote cards. Eén strakke regel met de
+  // belangrijkste cijfers, kleurt alleen op bij relevant signaal.
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Aantal</p>
-        <p className="text-xl font-semibold text-gray-900 mt-0.5">{stats.aantal}</p>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Totaal</p>
-        <p className="text-xl font-semibold text-gray-900 mt-0.5">{formatCurrency(stats.totaal)}</p>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Openstaand</p>
-        <p className={`text-xl font-semibold mt-0.5 ${stats.open > 0 ? 'text-amber-600' : 'text-gray-900'}`}>{formatCurrency(stats.open)}</p>
-      </div>
-      <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-        <p className="text-[11px] uppercase tracking-wide text-gray-500 font-medium">Vervallen</p>
-        <p className={`text-xl font-semibold mt-0.5 ${stats.vervallen > 0 ? 'text-red-600' : 'text-gray-900'}`}>{formatCurrency(stats.vervallen)}</p>
-      </div>
+    <div className="bg-white border border-gray-100 rounded-lg px-4 py-2.5 mb-3 flex items-center gap-x-6 gap-y-2 flex-wrap text-sm">
+      <span className="text-gray-500">
+        <span className="font-semibold text-gray-900">{stats.aantal}</span> facturen
+      </span>
+      <span className="text-gray-400">·</span>
+      <span className="text-gray-500">
+        Totaal <span className="font-semibold text-gray-900">{formatCurrency(stats.totaal)}</span>
+      </span>
+      <span className="text-gray-400">·</span>
+      <span className="text-gray-500">
+        Open <span className={`font-semibold ${stats.open > 0 ? 'text-amber-600' : 'text-gray-900'}`}>{formatCurrency(stats.open)}</span>
+      </span>
+      {stats.vervallen > 0 && (
+        <>
+          <span className="text-gray-400">·</span>
+          <span className="text-gray-500">
+            Vervallen <span className="font-semibold text-red-600">{formatCurrency(stats.vervallen)}</span>
+          </span>
+        </>
+      )}
     </div>
   )
 }
