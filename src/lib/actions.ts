@@ -756,6 +756,19 @@ export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: stri
 
   if (archiveerIds.length > 0) {
     await supabase.from('projecten').update({ status: 'afgerond' }).in('id', archiveerIds)
+    // Audit-log per gearchiveerd project — voor latere debugging van situaties
+    // zoals het 23-24 april 2026 incident waar 7 verkoopkansen ten onrechte zijn afgearchiveerd.
+    try {
+      const { logAudit } = await import('@/lib/audit')
+      for (const id of archiveerIds) {
+        await logAudit({
+          actie: 'project.auto_archive',
+          entiteitType: 'project',
+          entiteitId: id,
+          details: { reden: 'alle relevante facturen betaald of gecrediteerd' },
+        })
+      }
+    } catch { /* niet kritiek */ }
   }
   return { gearchiveerd: archiveerIds.length }
 }
@@ -3484,8 +3497,25 @@ export async function getProject(id: string) {
 
 export async function setProjectStatus(projectId: string, status: string) {
   const supabase = await createClient()
+  // Pak huidige status zodat we de overgang kunnen loggen
+  const { data: huidig } = await supabase.from('projecten').select('status, naam').eq('id', projectId).maybeSingle()
   const { error } = await supabase.from('projecten').update({ status }).eq('id', projectId)
   if (error) return { error: error.message }
+  // Audit-log status-wijzigingen op verkoopkansen — voorheen ontbrak dit
+  // waardoor niet traceerbaar was wie/wat een verkoopkans op afgerond zette.
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({
+      actie: 'project.status_change',
+      entiteitType: 'project',
+      entiteitId: projectId,
+      details: {
+        van_status: huidig?.status,
+        naar_status: status,
+        naam: huidig?.naam,
+      },
+    })
+  } catch { /* niet kritiek */ }
   revalidatePath(`/projecten/${projectId}`)
   revalidatePath('/projecten')
   return { success: true }
