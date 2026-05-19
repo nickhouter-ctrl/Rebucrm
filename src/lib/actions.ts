@@ -2710,12 +2710,25 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
     // betaald_bedrag = totaal - openstaand (kan groter dan totaal zijn bij overbetaling/credit)
     const betaaldSS = Math.round((totaal - openstaandSS) * 100) / 100
 
-    // Status afleiden uit SnelStart openstaand
+    // Status afleiden uit SnelStart openstaand.
+    //
+    // BELANGRIJKE FIX (mei 2026): voorheen werd een factuur op 'gecrediteerd'
+    // gezet zodra SnelStart een negatief openstaand-saldo van zelfs maar 1 cent
+    // teruggaf. SnelStart hanteert echter eigen afrondingen (BTW per regel vs
+    // BTW over totaal, cent-verschillen bij betaling) — een paar centen
+    // negatief is GEEN credit, gewoon een lichte overbetaling/afronding.
+    //
+    // Nieuwe regel: alleen 'gecrediteerd' wanneer SnelStart het expliciet zo
+    // markeert (ss.gecrediteerd). Significante negatieve saldi (< €-1,00)
+    // behandelen we als 'betaald' met een waarschuwing in de log — niet als
+    // automatische credit.
     let nieuweStatus = f.status
-    if (ss.gecrediteerd || openstaandSS < -0.01) {
-      // Negatief openstaand = credit-overschot → gecrediteerd
+    if (ss.gecrediteerd) {
       nieuweStatus = 'gecrediteerd'
-    } else if (openstaandSS <= 0.01) {
+    } else if (openstaandSS <= 1.00) {
+      // Tot €1 openstaand = praktisch betaald (afrondingsverschillen tolereren).
+      // Voorheen was dit 0.01 wat te streng was — een 4-cent afronding tussen
+      // CRM en SnelStart kwam dan terecht in 'deels_betaald' of negatief.
       nieuweStatus = 'betaald'
     } else if (betaaldSS > 0.01) {
       nieuweStatus = 'deels_betaald'
@@ -2751,6 +2764,24 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
       if (nieuweStatus === 'betaald') betaaldNieuw++
       else if (nieuweStatus === 'deels_betaald') deelsBetaaldNieuw++
       else if (nieuweStatus === 'vervallen') vervallenNieuw++
+      // Audit-log voor status-wijzigingen door de sync zodat we later kunnen
+      // traceren welke factuur wanneer is veranderd en op basis waarvan.
+      try {
+        const { logAudit } = await import('@/lib/audit')
+        await logAudit({
+          actie: 'factuur.snelstart_sync',
+          entiteitType: 'factuur',
+          entiteitId: f.id,
+          details: {
+            factuurnummer: f.factuurnummer,
+            van_status: f.status,
+            naar_status: nieuweStatus,
+            ss_openstaand: openstaandSS,
+            ss_betaald: betaaldSS,
+            crm_totaal: totaal,
+          },
+        })
+      } catch { /* audit mag sync niet blokkeren */ }
     }
 
     // Bij transitie verzonden/deels_betaald → betaald: stuur betalingsbevestiging
