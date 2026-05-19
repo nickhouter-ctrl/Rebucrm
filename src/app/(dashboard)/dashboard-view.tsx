@@ -6,13 +6,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send } from 'lucide-react'
+import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
-import { ConversieFunnelDashboard, type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
+import { type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
 
 interface TePlannenOrder {
   id: string
@@ -716,8 +716,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
         )
       })()}
 
-      {/* Conversie-funnel (C) — klikbaar */}
-      <ConversieFunnelDashboard data={data.funnel} />
+      {/* Conversie-funnel staat op /rapportages — niet meer op dashboard om
+          drukte te beperken. */}
 
       {/* Omzetdoelen - mobiel (boven secties) */}
       <div className="lg:hidden">
@@ -732,7 +732,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           {/* Restbetalingen versturen (komt binnen 3 dagen levering) */}
           {(data.restbetalingTeVersturen || []).length > 0 && (
             <div id="restbet-versturen" className="scroll-mt-20">
-              <Section title="Restbetaling versturen" icon={Send} iconColor="bg-orange-50 text-orange-600" count={data.restbetalingTeVersturen!.length} linkHref="/orders" linkLabel="Alle leveringen" accentColor="bg-orange-100 text-orange-700">
+              <Section title="Restbetaling versturen" icon={Send} iconColor="bg-orange-50 text-orange-600" count={data.restbetalingTeVersturen!.length} linkHref="/orders" linkLabel="Alle leveringen" accentColor="bg-orange-100 text-orange-700" defaultOpen>
                 <div className="divide-y divide-gray-50">
                   {data.restbetalingTeVersturen!.map(r => {
                     const dagen = dagenVerschil(r.leverdatum)
@@ -788,7 +788,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
 
           {/* 1. Geaccepteerde offertes */}
           <div id="geaccepteerd" className="scroll-mt-20">
-            <Section title="Geaccepteerde offertes" icon={CheckSquare} iconColor="bg-emerald-50 text-[#00a66e]" count={data.geaccepteerdeOffertes.length} linkHref="/offertes" linkLabel="Alle offertes" accentColor="bg-emerald-100 text-emerald-700">
+            <Section title="Geaccepteerde offertes" icon={CheckSquare} iconColor="bg-emerald-50 text-[#00a66e]" count={data.geaccepteerdeOffertes.length} linkHref="/offertes" linkLabel="Alle offertes" accentColor="bg-emerald-100 text-emerald-700" defaultOpen>
               {/* Desktop tabel */}
               <table className="w-full hidden md:table">
                 <thead>
@@ -840,7 +840,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
 
           {/* 2. Openstaande facturen */}
           <div id="facturen" className="scroll-mt-20">
-            <Section title="Openstaande facturen" icon={Receipt} iconColor="bg-blue-50 text-blue-600" count={data.openstaandeFacturen.length} linkHref="/facturatie" linkLabel="Alle facturen" accentColor="bg-blue-100 text-blue-700">
+            <Section title="Openstaande facturen" icon={Receipt} iconColor="bg-blue-50 text-blue-600" count={data.openstaandeFacturen.length} linkHref="/facturatie" linkLabel="Alle facturen" accentColor="bg-blue-100 text-blue-700" defaultOpen>
               <table className="w-full hidden md:table">
                 <thead>
                   <tr className="bg-gray-50/70">
@@ -1107,7 +1107,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
           </Section>
 
           {/* 5. Geplande leveringen */}
-          <Section title="Geplande leveringen" icon={Truck} iconColor="bg-indigo-50 text-indigo-600" count={data.geplandeLeveringen.length} linkHref="/orders" linkLabel="Alle orders" accentColor="bg-indigo-100 text-indigo-700">
+          <Section title="Geplande leveringen" icon={Truck} iconColor="bg-indigo-50 text-indigo-600" count={data.geplandeLeveringen.length} linkHref="/orders" linkLabel="Alle orders" accentColor="bg-indigo-100 text-indigo-700" defaultOpen={false}>
             <table className="w-full hidden md:table">
               <thead>
                 <tr className="bg-gray-50/70">
@@ -1189,7 +1189,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
 
           {/* 6. Te plannen leveringen */}
           {data.tePlannenOrders.length > 0 && (
-            <Section title="Te plannen leveringen" icon={Calendar} iconColor="bg-teal-50 text-teal-600" count={data.tePlannenOrders.length} linkHref="/orders" linkLabel="Alle orders" accentColor="bg-teal-100 text-teal-700">
+            <Section title="Te plannen leveringen" icon={Calendar} iconColor="bg-teal-50 text-teal-600" count={data.tePlannenOrders.length} linkHref="/orders" linkLabel="Alle orders" accentColor="bg-teal-100 text-teal-700" defaultOpen>
               <table className="w-full hidden md:table">
                 <thead>
                   <tr className="bg-gray-50/70">
@@ -1445,54 +1445,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             </div>
           </Link>
 
-          {/* Snel overzicht */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-900">Snel overzicht</h3>
-            </div>
-            <div className="p-2">
-              <Link href="/offertes" className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-2.5"><FileText className="h-4 w-4 text-sky-500" /><span className="text-sm text-gray-700">Open offertes</span></div>
-                <span className="text-sm font-semibold text-gray-900">{data.openOffertes}</span>
-              </Link>
-              <Link href="/taken" className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-2.5"><CheckSquare className="h-4 w-4 text-amber-500" /><span className="text-sm text-gray-700">Open taken</span></div>
-                <span className="text-sm font-semibold text-gray-900">{data.openTaken}</span>
-              </Link>
-              <Link href="/relatiebeheer" className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-2.5"><Users className="h-4 w-4 text-violet-500" /><span className="text-sm text-gray-700">Klanten</span></div>
-                <span className="text-sm font-semibold text-gray-900">{data.organisaties.totaal}</span>
-              </Link>
-              <Link href="/orders" className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-2.5"><Package className="h-4 w-4 text-indigo-500" /><span className="text-sm text-gray-700">Leveringen</span></div>
-                <span className="text-sm font-semibold text-gray-900">{data.geplandeLeveringen.length}</span>
-              </Link>
-            </div>
-          </div>
-
-          {/* Top klanten */}
-          {data.topKlanten.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-900">Top klanten</h3>
-                <Link href="/relatiebeheer" className="text-[11px] font-medium text-[#00a66e] hover:underline">Alle klanten</Link>
-              </div>
-              <div className="divide-y divide-gray-50">
-                {data.topKlanten.slice(0, 8).map((k, i) => (
-                  <Link key={k.relatie_id} href={`/relatiebeheer/${k.relatie_id}`} className="flex items-center gap-3 px-5 py-2.5 hover:bg-gray-50 transition-colors">
-                    <span className="text-[10px] font-bold text-gray-300 w-4 text-right">{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900 truncate">{k.bedrijfsnaam}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-semibold text-gray-900">{formatCurrency(k.betaald)}</p>
-                      {k.offerte_waarde > 0 && <p className="text-[10px] text-gray-400">{formatCurrency(k.offerte_waarde)} geoffreerd</p>}
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* 'Snel overzicht' en 'Top klanten' zijn verwijderd uit de sidebar:
+              Snel overzicht was redundant met KPI's, Top klanten staat op /rapportages. */}
         </div>
       </div>
 
