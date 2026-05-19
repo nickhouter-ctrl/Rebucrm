@@ -387,7 +387,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
               offerteId={savedOfferteId}
               offerteType={offerteType}
               onBack={() => router.push(`/offertes/${savedOfferteId}`)}
-              onDone={() => router.push('/offertes')}
+              onDone={() => router.push(isConceptWizard ? '/offertes/concepten' : '/offertes')}
             />
           )}
         </div>
