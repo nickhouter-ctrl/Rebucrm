@@ -250,14 +250,11 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
 
   const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
 
-  // Sorteer op datum aflopend (nieuwste/laatst verstuurde eerst). Bij gelijke
-  // datum valt factuurnummer terug — zo houden we deterministische ordering.
-  const sorted = [...facturen].sort((a, b) => {
-    const da = (a.datum || '')
-    const db = (b.datum || '')
-    if (da !== db) return db.localeCompare(da)
-    return (b.factuurnummer || '').localeCompare(a.factuurnummer || '')
-  })
+  // Sorteer op factuurnummer aflopend (nieuwste factuurnummer bovenaan). Het
+  // format 'F-YYYY-NNNNN' is zero-padded dus localeCompare geeft de juiste
+  // numerieke volgorde. Datum gebruiken we niet meer als primaire sortering
+  // omdat factuurnummer-volgorde voor de boekhouding leidend is.
+  const sorted = [...facturen].sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
   const vandaagStr = new Date().toISOString().slice(0, 10)
   const openstaandFacturenAll = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
   // Bij ?vervallen=1 (vanuit dashboard 'Achterstallig'-KPI) tonen we alleen
