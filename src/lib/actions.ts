@@ -3461,7 +3461,15 @@ export async function getVerkoopkansenPipeline() {
   )
   return (data || []).map(p => {
     const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number; datum: string; geldig_tot: string | null }[]
-    const laatste = offertes.sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))[0]
+    // Meest recente offerte op datum, versie_nummer als tiebreaker. Voorheen
+    // alleen op versie_nummer wat bij meerdere aparte offertes per verkoopkans
+    // de verkeerde als 'laatste' aanwees.
+    const laatste = [...offertes].sort((a, b) => {
+      const da = a.datum ? new Date(a.datum).getTime() : 0
+      const db = b.datum ? new Date(b.datum).getTime() : 0
+      if (db !== da) return db - da
+      return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+    })[0]
     let fase: PipelineFase = 'aanvraag'
     if (p.status === 'afgerond') fase = 'afgerond'
     else if (laatste?.status === 'geaccepteerd') fase = 'geaccepteerd'
@@ -7485,10 +7493,10 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
   const afspraken = afsprakenRes.data || []
 
   // Financiële samenvatting — bedragen excl BTW (subtotaal).
-  // geoffreerd = alleen de laatste offerte (hoogste versie). Betaald/openstaand
-  // werken nog met totaal incl BTW omdat betaal_bedrag incl BTW is.
+  // geoffreerd = alleen de laatste offerte (meest recent op datum).
+  // Betaald/openstaand werken nog met totaal incl BTW omdat betaal_bedrag incl BTW is.
   const allFacturen = offertes.flatMap((o: Record<string, unknown>) => (o.facturen as Record<string, unknown>[]) || [])
-  const laatsteOfferte = offertes[0] as Record<string, unknown> | undefined // al gesorteerd op versie_nummer desc
+  const laatsteOfferte = offertes[0] as Record<string, unknown> | undefined // al gesorteerd op datum desc (zie offertesRes-query)
   const geoffreerd = (laatsteOfferte?.subtotaal as number) || 0
   const gefactureerd = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.subtotaal as number) || 0), 0)
   const betaald = allFacturen.reduce((sum: number, f: Record<string, unknown>) => sum + ((f.betaald_bedrag as number) || 0), 0)
