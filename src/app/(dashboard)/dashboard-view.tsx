@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { FileText, Truck, Package, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
@@ -172,6 +172,19 @@ interface DashboardData {
     relatie_bedrijfsnaam: string
     heeft_offerte: boolean
     aantal_emails: number
+  }[]
+  restbetalingTeVersturen?: {
+    order_id: string
+    ordernummer: string
+    leverdatum: string
+    relatie_id: string | null
+    relatie_bedrijfsnaam: string
+    relatie_adres: string | null
+    relatie_postcode: string | null
+    relatie_plaats: string | null
+    factuur_id: string
+    factuurnummer: string
+    bedrag: number
   }[]
 }
 
@@ -713,6 +726,63 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       <div className="flex gap-6 items-start">
         {/* Secties */}
         <div className="flex-1 min-w-0 space-y-3">
+
+          {/* Restbetalingen versturen (komt binnen 3 dagen levering) */}
+          {(data.restbetalingTeVersturen || []).length > 0 && (
+            <div id="restbet-versturen" className="scroll-mt-20">
+              <Section title="Restbetaling versturen" icon={Send} iconColor="bg-orange-50 text-orange-600" count={data.restbetalingTeVersturen!.length} linkHref="/orders" linkLabel="Alle leveringen" accentColor="bg-orange-100 text-orange-700">
+                <div className="divide-y divide-gray-50">
+                  {data.restbetalingTeVersturen!.map(r => {
+                    const dagen = dagenVerschil(r.leverdatum)
+                    const isVandaag = dagen === 0
+                    const isVerstreken = dagen < 0
+                    const verstuurStatus = versturenStatus[r.factuur_id]
+                    return (
+                      <div key={r.factuur_id} className="px-5 py-3 flex items-center gap-4 hover:bg-orange-50/30 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <KlantNaam id={r.relatie_id} naam={r.relatie_bedrijfsnaam} className="text-sm font-medium text-gray-900" />
+                            <Link href={`/facturatie/${r.factuur_id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-[#00a66e] hover:underline">
+                              {r.factuurnummer}
+                            </Link>
+                          </div>
+                          <p className="text-xs text-gray-500 truncate">
+                            {[r.relatie_adres, r.relatie_postcode, r.relatie_plaats].filter(Boolean).join(', ') || 'geen adres bekend'}
+                          </p>
+                          <p className={`text-[11px] mt-0.5 ${isVerstreken ? 'text-red-600 font-medium' : isVandaag ? 'text-amber-600 font-medium' : 'text-gray-400'}`}>
+                            {isVerstreken ? `Levering ${Math.abs(dagen)} dag${Math.abs(dagen) === 1 ? '' : 'en'} geleden` :
+                             isVandaag ? 'Levering vandaag' :
+                             `Levering over ${dagen} dag${dagen === 1 ? '' : 'en'}`} · {formatDateShort(r.leverdatum)}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-gray-900">{formatCurrency(r.bedrag)}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs bg-[#00a66e] hover:bg-[#008f5f] shadow-sm shrink-0"
+                          onClick={(e) => handleSnelVersturen(e, r.factuur_id)}
+                          disabled={versturenLoading === r.factuur_id}
+                        >
+                          {versturenLoading === r.factuur_id ? '...' :
+                           verstuurStatus === 'ok' ? '✓ Verzonden' :
+                           'Versturen'}
+                        </Button>
+                        <Link
+                          href={`/facturatie/${r.factuur_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-gray-300 hover:text-gray-600 shrink-0"
+                          title="Open factuur"
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Section>
+            </div>
+          )}
 
           {/* 1. Geaccepteerde offertes */}
           <div id="geaccepteerd" className="scroll-mt-20">

@@ -4042,7 +4042,7 @@ export async function getDashboardData() {
     // uit historische imports zijn praktisch dood en horen niet in deze actie-lijst.
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').gte('datum', new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)).order('datum', { ascending: true }),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam, adres, postcode, plaats), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
     supabase.from('facturen').select('id, factuurnummer, totaal, subtotaal, btw_totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, subtotaal, offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))), offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
@@ -4356,7 +4356,7 @@ export async function getDashboardData() {
   const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => {
     const facturen = (o.facturen || []) as { id: string; factuurnummer: string; status: string; factuur_type: string; totaal: number }[]
     const restbetaling = facturen.find(f => f.factuur_type === 'restbetaling')
-    const rel = o.relatie as { id?: string; bedrijfsnaam: string } | null
+    const rel = o.relatie as { id?: string; bedrijfsnaam: string; adres?: string | null; postcode?: string | null; plaats?: string | null } | null
     return {
       id: o.id,
       ordernummer: o.ordernummer,
@@ -4366,9 +4366,42 @@ export async function getDashboardData() {
       totaal: o.totaal || 0,
       relatie_id: rel?.id || null,
       relatie_bedrijfsnaam: rel?.bedrijfsnaam || '-',
+      relatie_adres: rel?.adres || null,
+      relatie_postcode: rel?.postcode || null,
+      relatie_plaats: rel?.plaats || null,
       restbetaling: restbetaling ? { id: restbetaling.id, factuurnummer: restbetaling.factuurnummer, status: restbetaling.status, totaal: restbetaling.totaal } : null,
     }
   })
+
+  // Restbetalingen te versturen: orders waarvan de leverdatum binnen 3 dagen is,
+  // mét een concept-restbetaling-factuur die nog verstuurd moet worden. Schuift
+  // automatisch mee zodra de leverdatum wijzigt (geen aparte planning-state).
+  const VERSTUUR_DAGEN_VOORAF = 3
+  const vandaagDate = new Date()
+  vandaagDate.setHours(0, 0, 0, 0)
+  const grensDate = new Date(vandaagDate)
+  grensDate.setDate(grensDate.getDate() + VERSTUUR_DAGEN_VOORAF)
+  const restbetalingTeVersturen = geplandeLeveringen
+    .filter(l => {
+      if (!l.leverdatum || !l.restbetaling) return false
+      if (l.restbetaling.status !== 'concept') return false
+      const lev = new Date(l.leverdatum)
+      lev.setHours(0, 0, 0, 0)
+      return lev <= grensDate
+    })
+    .map(l => ({
+      order_id: l.id,
+      ordernummer: l.ordernummer,
+      leverdatum: l.leverdatum as string,
+      relatie_id: l.relatie_id,
+      relatie_bedrijfsnaam: l.relatie_bedrijfsnaam,
+      relatie_adres: l.relatie_adres,
+      relatie_postcode: l.relatie_postcode,
+      relatie_plaats: l.relatie_plaats,
+      factuur_id: l.restbetaling!.id,
+      factuurnummer: l.restbetaling!.factuurnummer,
+      bedrag: l.restbetaling!.totaal,
+    }))
 
   // Geaccepteerde offertes (voor factuur aanmaken) — alleen als er nog geen factuur is
   const geaccepteerdeOffertes = (geaccepteerdRes.data || [])
@@ -4716,6 +4749,7 @@ export async function getDashboardData() {
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
     recenteNotities,
+    restbetalingTeVersturen,
   }
 }
 
