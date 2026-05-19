@@ -145,7 +145,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   if (isNew) {
     return (
       <div>
-        <PageHeader title="Nieuwe verkoopkans" actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Nieuwe verkoopkans" actions={<Button variant="ghost" onClick={() => navigateBack('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
         {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
         <form action={handleSubmit}>
           <Card>
@@ -184,7 +184,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
   if (!project || !timeline) {
     return (
       <div>
-        <PageHeader title="Verkoopkans niet gevonden" actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+        <PageHeader title="Verkoopkans niet gevonden" actions={<Button variant="ghost" onClick={() => navigateBack('/projecten')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       </div>
     )
   }
@@ -236,7 +236,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 Heropenen
               </Button>
             )}
-            <Button variant="ghost" onClick={() => router.back()}>
+            <Button variant="ghost" onClick={() => navigateBack('/projecten')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

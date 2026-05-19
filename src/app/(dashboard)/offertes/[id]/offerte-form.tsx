@@ -1,6 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { useState, useEffect } from 'react'
 import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage, archiveerOfferte } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
@@ -60,6 +61,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
 }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav('offerte-form')
   const isNew = !offerte
   const isConceptWizard = wizardMode === 'concept'
 
@@ -435,6 +437,7 @@ function EditOfferteView({
   emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
 }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav('offerte-edit')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedRelatieIdState, setSelectedRelatieIdState] = useState(initRelatieId)
@@ -642,7 +645,7 @@ function EditOfferteView({
         title={`Offerte ${offerte.offertenummer} v${versieNummer}`}
         actions={
           <div className="flex gap-2 flex-wrap">
-            <Button variant="ghost" onClick={() => router.back()}>
+            <Button variant="ghost" onClick={() => navigateBack('/offertes')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

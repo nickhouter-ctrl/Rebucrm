@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 import Link from 'next/link'
 import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie } from '@/lib/actions'
 import { EmailLogDialog } from '@/components/email-log-dialog'
@@ -168,8 +169,12 @@ interface Props {
 export function RelatieDetail({ detail, notities: initialNotities, klantAccounts: initialKlantAccounts, relatieTaken = [], relatieEmails = [], contactpersonen: initialContactpersonen = [], verstuurdeEmails = [] }: Props) {
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
+  const { navigateBack } = useBackNav(`relatie-${relatie.id}`)
   type TabKey = 'overzicht' | 'tijdlijn' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
-  // Initiele tab uit URL ?tab=... zodat back-navigatie de juiste tab laat zien
+  // Initiele tab uit URL ?tab=... zodat back-navigatie de juiste tab laat zien.
+  // De tab-wissel gebruikt router.replace() — anders weet Next.js' interne
+  // routing-state niets van de URL-update en stuurt back-navigatie de gebruiker
+  // naar de tab zonder query-param.
   const initialTab = (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tab') as TabKey) || 'overzicht'
   const [tab, setTabState] = useState<TabKey>(initialTab)
   function setTab(next: TabKey) {
@@ -178,7 +183,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       const url = new URL(window.location.href)
       if (next === 'overzicht') url.searchParams.delete('tab')
       else url.searchParams.set('tab', next)
-      window.history.replaceState({}, '', url.toString())
+      router.replace(url.pathname + url.search, { scroll: false })
     }
   }
   const [loading, setLoading] = useState(false)
@@ -437,7 +442,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
         description={`${relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)} ${relatie.plaats ? `- ${relatie.plaats}` : ''}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.back()}>
+            <Button variant="ghost" onClick={() => navigateBack('/relatiebeheer')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

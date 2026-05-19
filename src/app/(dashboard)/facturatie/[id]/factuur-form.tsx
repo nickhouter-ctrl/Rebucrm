@@ -168,7 +168,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
         title={isNew ? 'Nieuwe factuur' : `Factuur ${factuur?.factuurnummer}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>
+            <Button variant="ghost" onClick={() => navigateBack('/facturatie')}><ArrowLeft className="h-4 w-4" />Terug</Button>
             <Button
               variant="secondary"
               onClick={() => {
