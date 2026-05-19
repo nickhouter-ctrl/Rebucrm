@@ -906,7 +906,16 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             </Card>
           ) : (
             activeProjecten.map(p => {
-              const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+              // Sorteer op offerte-datum aflopend (meest recente eerst), versie_nummer
+              // als tiebreaker. Voorheen alleen op versie_nummer, waardoor bij meerdere
+              // offerte-revisies een oudere versie met hoog versie_nummer onterecht
+              // bovenaan stond i.p.v. de laatst verstuurde.
+              const sortedOffertes = [...(p.offertes || [])].sort((a, b) => {
+                const da = a.datum ? new Date(a.datum).getTime() : 0
+                const db = b.datum ? new Date(b.datum).getTime() : 0
+                if (db !== da) return db - da
+                return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+              })
               const laatsteOfferte = sortedOffertes[0]
               const oudereVersies = sortedOffertes.slice(1)
               // Excl BTW — subtotaal is het bedrag exclusief BTW
@@ -1121,7 +1130,12 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               </summary>
               <div className="space-y-3 mt-3">
                 {afgerondeProjecten.map(p => {
-                  const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+                  const sortedOffertes = [...(p.offertes || [])].sort((a, b) => {
+                    const da = a.datum ? new Date(a.datum).getTime() : 0
+                    const db = b.datum ? new Date(b.datum).getTime() : 0
+                    if (db !== da) return db - da
+                    return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+                  })
                   const laatsteOfferte = sortedOffertes[0]
                   const geoffreerd = laatsteOfferte?.subtotaal || 0
                   const offerteLabel = laatsteOfferte?.offertenummer
@@ -1162,7 +1176,12 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               </summary>
               <div className="space-y-3 mt-3">
                 {nietDoorgegaanProjecten.map(p => {
-                  const sortedOffertes = [...(p.offertes || [])].sort((a, b) => (b.versie_nummer || 0) - (a.versie_nummer || 0))
+                  const sortedOffertes = [...(p.offertes || [])].sort((a, b) => {
+                    const da = a.datum ? new Date(a.datum).getTime() : 0
+                    const db = b.datum ? new Date(b.datum).getTime() : 0
+                    if (db !== da) return db - da
+                    return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+                  })
                   const laatsteOfferte = sortedOffertes[0]
                   const geoffreerd = laatsteOfferte?.subtotaal || 0
                   const statusLabel = p.status.charAt(0).toUpperCase() + p.status.slice(1)
