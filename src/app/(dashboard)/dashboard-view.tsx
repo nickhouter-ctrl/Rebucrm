@@ -251,33 +251,33 @@ function Section({ title, icon: Icon, iconColor, count, children, defaultOpen, l
   }
 
   return (
-    <div className={`rounded-xl bg-white overflow-hidden shadow-sm border border-gray-100 ${!open ? 'hover:shadow-md transition-shadow' : ''}`}>
+    <div className={`rounded-2xl bg-white overflow-hidden border border-gray-100 ${!open ? 'hover:border-gray-200 transition-colors' : ''}`}>
       <button
         onClick={toggle}
-        className="w-full px-4 sm:px-5 py-3 sm:py-3.5 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
+        className="w-full px-5 sm:px-6 py-4 flex items-center justify-between hover:bg-gray-50/50 transition-colors"
       >
-        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-          <div className={`h-7 w-7 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center shrink-0 ${iconColor}`}>
-            <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${iconColor}`}>
+            <Icon className="h-4 w-4" />
           </div>
-          <h2 className="text-sm font-semibold text-gray-900 truncate">{title}</h2>
+          <h2 className="text-base font-semibold text-gray-900 truncate">{title}</h2>
           {count > 0 && (
-            <span className={`inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full text-[11px] font-bold shrink-0 ${accentColor || 'bg-gray-100 text-gray-600'}`}>
+            <span className={`inline-flex items-center justify-center h-5 min-w-[22px] px-2 rounded-full text-[11px] font-semibold shrink-0 ${accentColor || 'bg-gray-100 text-gray-600'}`}>
               {count}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           {linkHref && open && (
             <Link
               href={linkHref}
               onClick={(e) => e.stopPropagation()}
-              className="text-xs font-medium text-[#00a66e] hover:underline items-center gap-1 mr-1 hidden sm:flex"
+              className="text-xs font-medium text-[#00a66e] hover:underline items-center gap-1 hidden sm:flex"
             >
               {linkLabel || 'Bekijk alle'} <ArrowRight className="h-3 w-3" />
             </Link>
           )}
-          {open ? <ChevronUp className="h-4 w-4 text-gray-300" /> : <ChevronDown className="h-4 w-4 text-gray-300" />}
+          {open ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
         </div>
       </button>
       {open && count > 0 && <div className="border-t border-gray-100 max-h-[520px] overflow-y-auto">{children}</div>}
@@ -577,34 +577,37 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
   )
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
-      <div className="flex items-end justify-between gap-3">
+    <div className="space-y-6 sm:space-y-8">
+      {/* Header — strakker, datum als ondertitel */}
+      <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-xs sm:text-sm text-gray-400 mt-0.5 truncate">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+          <p className="text-sm text-gray-500 mt-1 capitalize">
             {format(new Date(), "EEEE d MMMM yyyy", { locale: nl })}
           </p>
         </div>
         <Link href="/offertes/nieuw" className="shrink-0">
-          <Button size="sm" className="bg-[#00a66e] hover:bg-[#008f5f] shadow-sm">
-            <FileText className="h-3.5 w-3.5 sm:mr-1.5" />
+          <Button className="bg-[#00a66e] hover:bg-[#008f5f] shadow-sm">
+            <FileText className="h-4 w-4 mr-1.5" />
             <span className="hidden sm:inline">Nieuwe offerte</span>
+            <span className="sm:hidden">Nieuw</span>
           </Button>
         </Link>
       </div>
 
-      {/* Notificatiebalk */}
+      {/* Notificatiebalk — subtiele info-pill, alleen als er meldingen zijn */}
       {notifications.length > 0 && (
-        <div className="bg-amber-50/80 border border-amber-200/60 rounded-xl px-3 sm:px-5 py-2.5 sm:py-3">
-          <div className="flex items-center gap-2 text-amber-700 mb-1.5 sm:mb-0 sm:inline-flex sm:mr-3">
-            <Bell className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            <span className="text-xs sm:text-sm font-medium">Actie vereist</span>
+        <div className="bg-white border border-amber-200/70 rounded-xl px-5 py-3.5 flex items-center gap-3 flex-wrap">
+          <div className="inline-flex items-center gap-2 text-amber-700">
+            <div className="h-7 w-7 rounded-full bg-amber-50 flex items-center justify-center shrink-0">
+              <Bell className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-sm font-semibold">Actie vereist</span>
           </div>
-          <div className="flex flex-wrap gap-2 sm:gap-3 sm:inline-flex">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {notifications.map((n, i) => (
-              <Link key={i} href={n.href} className="flex items-center gap-1 text-xs sm:text-sm text-amber-800 hover:text-amber-950 hover:underline transition-colors">
-                <span className="inline-flex items-center justify-center h-4 sm:h-5 min-w-[16px] sm:min-w-[20px] px-1 rounded-full bg-amber-200/70 text-amber-800 text-[10px] sm:text-[11px] font-bold">{n.count}</span>
+              <Link key={i} href={n.href} className="inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-amber-700 transition-colors">
+                <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">{n.count}</span>
                 {n.label}
               </Link>
             ))}
@@ -612,103 +615,112 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
         </div>
       )}
 
-      {/* KPI rij */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* KPI rij — moderner, royaler, icoon RECHTS in pastel cirkel (Houter-stijl) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Omzet */}
         <Link href="/facturatie" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <div className="h-9 w-9 rounded-lg bg-emerald-50 flex items-center justify-center">
-                <DollarSign className="h-4 w-4 text-[#00a66e]" />
+          <div className="relative bg-white rounded-2xl border border-gray-100 p-6 group-hover:border-gray-200 group-hover:shadow-sm transition-all overflow-hidden">
+            <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-[#00a66e] to-emerald-400" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Omzet deze maand</p>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2 tracking-tight">{formatCurrency(data.omzet)}</p>
+                <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                  <span>excl. BTW</span>
+                  {data.omzetVorigeMaand > 0 && (() => {
+                    const delta = data.omzet - data.omzetVorigeMaand
+                    const pct = Math.round((delta / data.omzetVorigeMaand) * 100)
+                    const up = delta >= 0
+                    return (
+                      <span className={`inline-flex items-center gap-0.5 font-semibold ${up ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                        {Math.abs(pct)}%
+                      </span>
+                    )
+                  })()}
+                </div>
               </div>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Deze maand</span>
-            </div>
-            <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(data.omzet)}</p>
-            <div className="flex items-center gap-2 mt-1">
-              <p className="text-xs text-gray-400">Omzet (excl. BTW)</p>
-              {data.omzetVorigeMaand > 0 && (() => {
-                const delta = data.omzet - data.omzetVorigeMaand
-                const pct = Math.round((delta / data.omzetVorigeMaand) * 100)
-                const up = delta >= 0
-                return (
-                  <span className={`inline-flex items-center gap-0.5 text-[10px] font-semibold rounded px-1.5 py-0.5 ${up ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                    {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                    {Math.abs(pct)}%
-                  </span>
-                )
-              })()}
+              <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+                <DollarSign className="h-5 w-5 text-[#00a66e]" />
+              </div>
             </div>
           </div>
         </Link>
+        {/* Openstaand */}
         <Link href="/facturatie?tab=openstaand" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <div className="h-9 w-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Receipt className="h-4 w-4 text-blue-600" />
+          <div className="relative bg-white rounded-2xl border border-gray-100 p-6 group-hover:border-gray-200 group-hover:shadow-sm transition-all overflow-hidden">
+            <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-blue-500 to-sky-400" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Openstaand</p>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2 tracking-tight">{formatCurrency(data.openstaand)}</p>
+                <p className="text-xs text-gray-400 mt-2">{data.openstaandeFacturen.length} {data.openstaandeFacturen.length === 1 ? 'factuur' : 'facturen'}</p>
               </div>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{data.openstaandeFacturen.length} facturen</span>
+              <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                <Receipt className="h-5 w-5 text-blue-600" />
+              </div>
             </div>
-            <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{formatCurrency(data.openstaand)}</p>
-            <p className="text-xs text-gray-400 mt-1">Openstaand</p>
           </div>
         </Link>
+        {/* Conversie */}
         <Link href="/offertes" className="block group">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all">
-            <div className="flex items-center justify-between mb-3">
-              <div className="h-9 w-9 rounded-lg bg-violet-50 flex items-center justify-center">
-                <TrendingUp className="h-4 w-4 text-violet-600" />
+          <div className="relative bg-white rounded-2xl border border-gray-100 p-6 group-hover:border-gray-200 group-hover:shadow-sm transition-all overflow-hidden">
+            <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-violet-500 to-fuchsia-400" />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Conversie</p>
+                <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2 tracking-tight">{conversieGraad}%</p>
+                <p className="text-xs text-gray-400 mt-2">{data.totaalOffertes} offertes (12 mnd)</p>
               </div>
-              <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{data.totaalOffertes} offertes</span>
+              <div className="h-12 w-12 rounded-full bg-violet-50 flex items-center justify-center shrink-0">
+                <TrendingUp className="h-5 w-5 text-violet-600" />
+              </div>
             </div>
-            <p className="text-lg sm:text-2xl font-bold text-gray-900 tracking-tight">{conversieGraad}%</p>
-            <p className="text-xs text-gray-400 mt-1">Conversie</p>
           </div>
         </Link>
+        {/* Achterstallig */}
         <Link href="/facturatie?tab=openstaand&vervallen=1" className="block group">
-          <div className={`bg-white rounded-xl border shadow-sm p-4 sm:p-5 group-hover:shadow-md transition-all ${achterstalligBedrag > 0 ? 'border-red-200/60' : 'border-gray-100'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <div className={`h-9 w-9 rounded-lg flex items-center justify-center ${achterstalligBedrag > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
-                <AlertTriangle className={`h-4 w-4 ${achterstalligBedrag > 0 ? 'text-red-500' : 'text-gray-400'}`} />
+          <div className={`relative bg-white rounded-2xl border p-6 group-hover:shadow-sm transition-all overflow-hidden ${achterstalligBedrag > 0 ? 'border-red-200' : 'border-gray-100 group-hover:border-gray-200'}`}>
+            <div className={`absolute top-0 left-0 h-1 w-full ${achterstalligBedrag > 0 ? 'bg-gradient-to-r from-red-500 to-rose-400' : 'bg-gradient-to-r from-gray-200 to-gray-100'}`} />
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Achterstallig</p>
+                <p className={`text-2xl sm:text-3xl font-bold mt-2 tracking-tight ${achterstalligBedrag > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                  {formatCurrency(achterstalligBedrag)}
+                </p>
+                <p className="text-xs text-gray-400 mt-2">
+                  {achterstalligeFacturen.length > 0 ? `${achterstalligeFacturen.length} vervallen` : 'Geen vervallen'}
+                </p>
               </div>
-              {achterstalligeFacturen.length > 0 ? (
-                <span className="text-[10px] font-medium text-red-500 uppercase tracking-wider">{achterstalligeFacturen.length} vervallen</span>
-              ) : (
-                <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Geen</span>
-              )}
+              <div className={`h-12 w-12 rounded-full flex items-center justify-center shrink-0 ${achterstalligBedrag > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <AlertTriangle className={`h-5 w-5 ${achterstalligBedrag > 0 ? 'text-red-500' : 'text-gray-400'}`} />
+              </div>
             </div>
-            <p className={`text-lg sm:text-2xl font-bold tracking-tight ${achterstalligBedrag > 0 ? 'text-red-600' : 'text-gray-900'}`}>
-              {formatCurrency(achterstalligBedrag)}
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Achterstallig</p>
           </div>
         </Link>
       </div>
 
-      {/* Deze week-strook (B) */}
+      {/* Deze week — moderner, rustigere visuele ruis, gelijke verdeling */}
       {(() => {
         const w = data.dezeWeek
         const items = [
-          { label: 'Nieuwe aanvragen', value: w.nieuweAanvragen, icon: Mail, color: 'text-blue-600 bg-blue-50' },
-          { label: 'Offertes verstuurd', value: w.offertesVerstuurd, icon: FileText, color: 'text-violet-600 bg-violet-50' },
-          { label: 'Geaccepteerd', value: w.offertesGeaccepteerd, icon: CheckSquare, color: 'text-emerald-600 bg-emerald-50' },
-          { label: 'Facturen verstuurd', value: w.facturenVerstuurd, icon: Receipt, color: 'text-orange-600 bg-orange-50' },
-          { label: 'Betalingen', value: w.betalingenOntvangen, icon: DollarSign, color: 'text-[#00a66e] bg-emerald-50' },
+          { label: 'Nieuwe aanvragen', value: w.nieuweAanvragen },
+          { label: 'Offertes verstuurd', value: w.offertesVerstuurd },
+          { label: 'Geaccepteerd', value: w.offertesGeaccepteerd },
+          { label: 'Facturen verstuurd', value: w.facturenVerstuurd },
+          { label: 'Betalingen', value: w.betalingenOntvangen },
         ]
         return (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 sm:px-5 py-3 sm:py-3.5">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Deze week</span>
-              <span className="text-[10px] text-gray-400">vanaf maandag</span>
+          <div className="bg-white rounded-2xl border border-gray-100 px-6 py-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wider">Deze week</h2>
+              <span className="text-xs text-gray-400">vanaf maandag</span>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
-              {items.map((it) => (
-                <div key={it.label} className="flex items-center gap-2.5">
-                  <div className={`h-7 w-7 rounded-md flex items-center justify-center ${it.color}`}>
-                    <it.icon className="h-3.5 w-3.5" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-base sm:text-lg font-bold text-gray-900 leading-none">{it.value}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5 truncate">{it.label}</p>
-                  </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-x-4 gap-y-4">
+              {items.map((it, i) => (
+                <div key={it.label} className={`${i > 0 ? 'sm:border-l sm:border-gray-100 sm:pl-4' : ''}`}>
+                  <p className="text-2xl font-bold text-gray-900 tracking-tight leading-none">{it.value}</p>
+                  <p className="text-xs text-gray-500 mt-1.5">{it.label}</p>
                 </div>
               ))}
             </div>
@@ -727,7 +739,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       {/* Main content */}
       <div className="flex gap-6 items-start">
         {/* Secties */}
-        <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex-1 min-w-0 space-y-4">
 
           {/* Restbetalingen versturen (komt binnen 3 dagen levering) */}
           {(data.restbetalingTeVersturen || []).length > 0 && (
