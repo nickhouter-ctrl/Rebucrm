@@ -723,9 +723,13 @@ export async function getArchiefFacturen() {
 // Projecten waarvan alle facturen zijn betaald (of credit-facturen erna zijn
 // gecompenseerd) worden automatisch op 'afgerond' gezet. Zo verdwijnen ze uit
 // de actieve verkoopkansen-lijst en duiken op in het archief.
+//
+// Zelfherstel: een project dat 'afgerond' staat terwijl er nog een restbetaling/
+// eindfactuur open staat (bv. door de verkoopkansen-import die op 'klaar' afging,
+// niet op betaling) wordt automatisch teruggezet naar 'actief'.
 export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: string) {
   const adminId = administratieId || await getAdministratieId()
-  if (!adminId) return { gearchiveerd: 0 }
+  if (!adminId) return { gearchiveerd: 0, heropend: 0 }
   const supabase = createAdminClient()
   const { data: projecten } = await supabase
     .from('projecten')
@@ -734,16 +738,33 @@ export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: stri
       offertes:offertes(id, status, facturen:facturen(id, status, factuur_type))
     `)
     .eq('administratie_id', adminId)
-    .in('status', ['actief', 'on_hold'])
-  if (!projecten) return { gearchiveerd: 0 }
+    .in('status', ['actief', 'on_hold', 'afgerond'])
+  if (!projecten) return { gearchiveerd: 0, heropend: 0 }
+
+  // Een nog-niet-voldane restbetaling/eind- of volledige factuur betekent dat
+  // de klus financieel niet klaar is — het project hoort dan niet op 'afgerond'.
+  const OPEN_STATUSSEN = new Set(['concept', 'verzonden', 'deels_betaald', 'vervallen'])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isOpenEindFactuur = (f: any) =>
+    (f.factuur_type === 'restbetaling' || f.factuur_type === 'volledig' || f.factuur_type === 'termijn' || f.factuur_type === null)
+    && OPEN_STATUSSEN.has(f.status)
 
   const archiveerIds: string[] = []
+  const heropenIds: string[] = []
   for (const p of projecten) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const offertes = ((p as any).offertes as any[]) || []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const facturen = offertes.flatMap((o: any) => (o.facturen as any[]) || [])
     if (facturen.length === 0) continue
+
+    if (p.status === 'afgerond') {
+      // Zelfherstel: staat er nog een eindfactuur open, dan terug naar 'actief'.
+      if (facturen.some(isOpenEindFactuur)) heropenIds.push(p.id)
+      continue
+    }
+
+    // actief / on_hold → in aanmerking voor archivering
     // Negeer concept-facturen (nog niet verstuurd) en credit-facturen bij de "alle betaald" check
     const relevant = facturen.filter(f => f.status !== 'concept' && f.factuur_type !== 'credit')
     if (relevant.length === 0) continue
@@ -771,7 +792,23 @@ export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: stri
       }
     } catch { /* niet kritiek */ }
   }
-  return { gearchiveerd: archiveerIds.length }
+
+  if (heropenIds.length > 0) {
+    await supabase.from('projecten').update({ status: 'actief' }).in('id', heropenIds)
+    try {
+      const { logAudit } = await import('@/lib/audit')
+      for (const id of heropenIds) {
+        await logAudit({
+          actie: 'project.auto_unarchive',
+          entiteitType: 'project',
+          entiteitId: id,
+          details: { reden: 'restbetaling/eindfactuur nog niet voldaan' },
+        })
+      }
+    } catch { /* niet kritiek */ }
+  }
+
+  return { gearchiveerd: archiveerIds.length, heropend: heropenIds.length }
 }
 
 // Afgeronde verkoopkansen voor in archief-overzicht
