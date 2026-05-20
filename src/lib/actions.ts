@@ -10,6 +10,7 @@ const EIGEN_MAILBOX_EMAILS = new Set<string>([
   'verkoop@rebukozijnen.nl',  // Jordy
 ])
 import { revalidatePath } from 'next/cache'
+import { cookies, headers } from 'next/headers'
 import { sendEmail } from '@/lib/email'
 import { buildRebuEmailHtml } from '@/lib/email-template'
 import { getAppUrl } from '@/lib/utils'
@@ -825,6 +826,19 @@ export async function getOfferte(id: string) {
     .eq('id', id)
     .single()
   return data
+}
+
+// Open (niet-afgeronde) taken gekoppeld aan een offerte — getoond op de
+// offerte-detailpagina zodat je ze daar direct kunt afronden.
+export async function getOpenTakenVoorOfferte(offerteId: string) {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('taken')
+    .select('id, taaknummer, titel, status, deadline, prioriteit')
+    .eq('offerte_id', offerteId)
+    .neq('status', 'afgerond')
+    .order('deadline', { ascending: true, nullsFirst: false })
+  return data || []
 }
 
 export async function saveOfferte(formData: FormData) {
@@ -6341,7 +6355,10 @@ export async function sendOfferteEmail(offerteId: string, options: {
     await supabaseAdmin.from('email_log').update({ bijlagen: updatedBijlagen }).eq('id', emailLogRow.id)
   }
 
-  // Auto-taak: "Offerte opvolgen" na 3 werkdagen
+  // Auto-taak: "Offerte opvolgen" na 3 werkdagen.
+  // Bestaat er al een open opvolgtaak voor deze offerte? Dan maken we GEEN
+  // nieuwe taak aan (anders krijg je een dubbele taak bij elke her-verzending),
+  // maar verversen we de deadline en loggen we een notitie op de bestaande taak.
   try {
     const deadline = new Date()
     let werkdagen = 0
@@ -6350,33 +6367,61 @@ export async function sendOfferteEmail(offerteId: string, options: {
       const dag = deadline.getDay()
       if (dag !== 0 && dag !== 6) werkdagen++
     }
-    // Get relatie_id via project
-    let relatieId = offerte.relatie_id
-    // Match medewerker van de ingelogde gebruiker
-    let opvolgMedewerkerId: string | null = null
-    if (user?.id) {
-      const { data: mw } = await supabaseAdmin
-        .from('medewerkers')
-        .select('id')
-        .eq('profiel_id', user.id)
-        .eq('administratie_id', offerte.administratie_id)
-        .maybeSingle()
-      opvolgMedewerkerId = mw?.id || null
+    const deadlineStr = deadline.toISOString().split('T')[0]
+
+    // Zoek een bestaande open opvolgtaak voor deze offerte
+    const { data: bestaandeTaak } = await supabaseAdmin
+      .from('taken')
+      .select('id')
+      .eq('offerte_id', offerteId)
+      .ilike('titel', 'Offerte opvolgen%')
+      .neq('status', 'afgerond')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (bestaandeTaak?.id) {
+      // Bestaande opvolgtaak: deadline verversen + notitie i.p.v. dubbele taak
+      await supabaseAdmin
+        .from('taken')
+        .update({ deadline: deadlineStr })
+        .eq('id', bestaandeTaak.id)
+      if (user?.id) {
+        await supabaseAdmin.from('taak_notities').insert({
+          administratie_id: offerte.administratie_id,
+          taak_id: bestaandeTaak.id,
+          gebruiker_id: user.id,
+          tekst: `Offerte ${offerte.offertenummer} opnieuw verzonden naar ${options.to} op ${new Date().toLocaleDateString('nl-NL')}. Deadline opvolgtaak verzet naar ${deadlineStr}.`,
+        })
+      }
+    } else {
+      // Geen open opvolgtaak — maak er één aan
+      // Match medewerker van de ingelogde gebruiker
+      let opvolgMedewerkerId: string | null = null
+      if (user?.id) {
+        const { data: mw } = await supabaseAdmin
+          .from('medewerkers')
+          .select('id')
+          .eq('profiel_id', user.id)
+          .eq('administratie_id', offerte.administratie_id)
+          .maybeSingle()
+        opvolgMedewerkerId = mw?.id || null
+      }
+      await supabaseAdmin.from('taken').insert({
+        administratie_id: offerte.administratie_id,
+        taaknummer: await getVolgendTaaknummer(supabaseAdmin),
+        titel: `Offerte opvolgen: ${offerte.offertenummer}`,
+        omschrijving: `Offerte ${offerte.offertenummer} is verzonden naar ${options.to}. Neem contact op om te checken of alles duidelijk is.`,
+        project_id: offerte.project_id || null,
+        relatie_id: offerte.relatie_id || null,
+        offerte_id: offerteId,
+        deadline: deadlineStr,
+        status: 'open',
+        prioriteit: 'normaal',
+        medewerker_id: opvolgMedewerkerId,
+        toegewezen_aan: user?.id || null,
+      })
     }
-    await supabaseAdmin.from('taken').insert({
-      administratie_id: offerte.administratie_id,
-      taaknummer: await getVolgendTaaknummer(supabaseAdmin),
-      titel: `Offerte opvolgen: ${offerte.offertenummer}`,
-      omschrijving: `Offerte ${offerte.offertenummer} is verzonden naar ${options.to}. Neem contact op om te checken of alles duidelijk is.`,
-      project_id: offerte.project_id || null,
-      relatie_id: relatieId || null,
-      offerte_id: offerteId,
-      deadline: deadline.toISOString().split('T')[0],
-      status: 'open',
-      prioriteit: 'normaal',
-      medewerker_id: opvolgMedewerkerId,
-      toegewezen_aan: user?.id || null,
-    })
   } catch (err) {
     console.error('Auto-taak aanmaken mislukt:', err)
   }
@@ -6521,11 +6566,39 @@ export async function getEmailLogByRelatie(relatieId: string) {
   if (!adminId) return []
   const { data } = await supabase
     .from('email_log')
-    .select('id, aan, onderwerp, bijlagen, verstuurd_op, offerte_id, order_id, offerte:offertes(id, offertenummer)')
+    .select(`
+      id, aan, onderwerp, bijlagen, verstuurd_op, offerte_id, order_id, factuur_id,
+      offerte:offertes(id, offertenummer, project:projecten(id, naam)),
+      order:orders(id, offerte:offertes(id, offertenummer, project:projecten(id, naam))),
+      factuur:facturen(id,
+        offerte:offertes(id, offertenummer, project:projecten(id, naam)),
+        order:orders(id, offerte:offertes(id, offertenummer, project:projecten(id, naam))))
+    `)
     .eq('relatie_id', relatieId)
     .eq('administratie_id', adminId)
     .order('verstuurd_op', { ascending: false })
-  return data || []
+
+  // Normaliseer: zoek de gekoppelde offerte (en daarmee de verkoopkans/project)
+  // via de eerste beschikbare koppeling — direct, of via order/factuur.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data || []).map((e: any) => {
+    const offerte =
+      e.offerte ||
+      e.order?.offerte ||
+      e.factuur?.offerte ||
+      e.factuur?.order?.offerte ||
+      null
+    const project = offerte?.project || null
+    return {
+      id: e.id as string,
+      aan: e.aan as string,
+      onderwerp: (e.onderwerp as string) || null,
+      bijlagen: (e.bijlagen as { filename: string }[] | null) || null,
+      verstuurd_op: e.verstuurd_op as string,
+      offerte: offerte ? { id: offerte.id as string, offertenummer: offerte.offertenummer as string } : null,
+      verkoopkans: project ? { id: project.id as string, naam: project.naam as string } : null,
+    }
+  })
 }
 
 // Alle verzonden e-mails voor een verkoopkans (project) — via offertes van het project
@@ -6653,6 +6726,128 @@ export async function getEmailLogDetail(id: string) {
     .single()
 
   return data
+}
+
+// Verstuur een eerder verzonden e-mail opnieuw — inclusief de bijlagen.
+// PDF-bijlagen (offerte/tekeningen/factuur) worden opnieuw gegenereerd via de
+// bestaande PDF-routes; geüploade bestanden komen uit de email-bijlagen-bucket.
+export async function resendEmailLog(emailLogId: string, overrideTo?: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!adminId || !user) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+  const { data: log } = await supabaseAdmin
+    .from('email_log')
+    .select('id, aan, onderwerp, body_html, bijlagen, offerte_id, factuur_id, order_id, relatie_id, administratie_id')
+    .eq('id', emailLogId)
+    .eq('administratie_id', adminId)
+    .single()
+  if (!log) return { error: 'E-mail niet gevonden' }
+
+  const to = (overrideTo || log.aan || '').trim()
+  if (!to || !to.includes('@')) return { error: 'Geen geldig e-mailadres om naartoe te sturen' }
+  if (!log.body_html) {
+    return { error: 'Deze mail is verstuurd vóór de archivering en heeft geen opgeslagen inhoud — opnieuw versturen kan niet.' }
+  }
+
+  // Basis-URL = dezelfde host als de huidige request, zodat de interne
+  // PDF-fetch in dev én productie naar de juiste deployment gaat.
+  const hdrs = await headers()
+  const host = hdrs.get('host')
+  const baseUrl = host
+    ? `${host.includes('localhost') ? 'http' : 'https'}://${host}`
+    : getAppUrl()
+  // Cookies doorgeven zodat de PDF-routes de ingelogde sessie zien (RLS).
+  const cookieStore = await cookies()
+  const cookieHeader = cookieStore.getAll().map(c => `${c.name}=${c.value}`).join('; ')
+
+  const fetchPdf = async (path: string): Promise<Buffer | null> => {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        headers: { cookie: cookieHeader },
+        cache: 'no-store',
+      })
+      if (!res.ok) return null
+      const buf = Buffer.from(await res.arrayBuffer())
+      return buf.length > 0 ? buf : null
+    } catch {
+      return null
+    }
+  }
+
+  // Reconstrueer de bijlagen
+  type BijlageMeta = { filename: string; storage_path?: string; kind?: string }
+  const bijlagen: BijlageMeta[] = Array.isArray(log.bijlagen) ? log.bijlagen : []
+  const attachments: { filename: string; content: Buffer }[] = []
+  const ontbrekend: string[] = []
+
+  for (const b of bijlagen) {
+    let buf: Buffer | null = null
+    if (b.storage_path) {
+      // Geüpload bestand uit storage
+      const { data: file } = await supabaseAdmin.storage.from('email-bijlagen').download(b.storage_path)
+      if (file) buf = Buffer.from(await file.arrayBuffer())
+    } else if ((b.kind === 'offerte_pdf' || b.filename.startsWith('Offerte-')) && log.offerte_id) {
+      buf = await fetchPdf(`/api/pdf/offerte/${log.offerte_id}`)
+    } else if ((b.kind === 'tekeningen_pdf' || b.filename.startsWith('Tekeningen-')) && log.offerte_id) {
+      buf = await fetchPdf(`/api/pdf/offerte/${log.offerte_id}/tekeningen`)
+    } else if ((b.kind === 'factuur_pdf' || b.filename.startsWith('Factuur-')) && log.factuur_id) {
+      buf = await fetchPdf(`/api/pdf/factuur/${log.factuur_id}`)
+    }
+    if (buf) attachments.push({ filename: b.filename, content: buf })
+    else ontbrekend.push(b.filename)
+  }
+
+  // Als er bijlagen waren maar geen enkele teruggehaald kon worden, stoppen we
+  // — een offerte zonder PDF opnieuw sturen heeft geen zin.
+  if (bijlagen.length > 0 && attachments.length === 0) {
+    return { error: `De bijlage(n) konden niet worden opgehaald: ${ontbrekend.join(', ')}` }
+  }
+
+  // Afzender = ingelogde medewerker (eigen mailbox indien toegestaan)
+  const { data: profiel } = await supabaseAdmin
+    .from('profielen')
+    .select('naam, email')
+    .eq('id', user.id)
+    .maybeSingle()
+  const eigenMailbox = profiel?.email && EIGEN_MAILBOX_EMAILS.has(profiel.email.toLowerCase())
+
+  try {
+    await sendEmail({
+      to,
+      subject: log.onderwerp || '(geen onderwerp)',
+      html: log.body_html,
+      attachments,
+      fromName: profiel?.naam || 'Rebu Kozijnen',
+      fromEmail: eigenMailbox ? profiel!.email! : undefined,
+      replyTo: eigenMailbox ? profiel!.email! : undefined,
+    })
+  } catch (err) {
+    console.error('Opnieuw versturen mislukt:', err)
+    return { error: 'E-mail verzenden mislukt. Probeer het later opnieuw.' }
+  }
+
+  // Log de nieuwe verzending. De bijlagen-meta hergebruiken we: storage_paths
+  // wijzen nog naar dezelfde (bestaande) bestanden in de bucket.
+  await supabaseAdmin.from('email_log').insert({
+    administratie_id: log.administratie_id,
+    offerte_id: log.offerte_id,
+    factuur_id: log.factuur_id,
+    order_id: log.order_id,
+    relatie_id: log.relatie_id,
+    aan: to,
+    onderwerp: log.onderwerp,
+    body_html: log.body_html,
+    bijlagen: log.bijlagen,
+    verstuurd_door: user.id,
+  })
+
+  revalidatePath('/relatiebeheer')
+  if (log.relatie_id) revalidatePath(`/relatiebeheer/${log.relatie_id}`)
+  if (log.offerte_id) revalidatePath(`/offertes/${log.offerte_id}`)
+  return { success: true, ontbrekend, verstuurdNaar: to }
 }
 
 // === LEVERPLANNING ===

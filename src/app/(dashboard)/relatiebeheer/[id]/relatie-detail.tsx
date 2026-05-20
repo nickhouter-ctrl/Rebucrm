@@ -139,6 +139,7 @@ interface VerstuurdeEmail {
   bijlagen: { filename: string }[] | null
   verstuurd_op: string
   offerte?: { id: string; offertenummer: string } | null
+  verkoopkans?: { id: string; naam: string } | null
 }
 
 interface Props {
@@ -852,14 +853,23 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 text-xs text-gray-500 mb-0.5">
-                              <ArrowUpRight className="h-3 w-3 text-gray-400" />
-                              <span>{datumStr}</span>
-                              <span>·</span>
+                              <ArrowUpRight className="h-3 w-3 text-gray-400 shrink-0" />
+                              <span className="shrink-0">{datumStr}</span>
+                              <span className="shrink-0">·</span>
                               <span className="truncate">naar {e.aan}</span>
                               {e.offerte?.offertenummer && (
                                 <>
-                                  <span>·</span>
-                                  <span className="text-primary font-medium">{e.offerte.offertenummer}</span>
+                                  <span className="shrink-0">·</span>
+                                  <span className="text-primary font-medium shrink-0">{e.offerte.offertenummer}</span>
+                                </>
+                              )}
+                              {e.verkoopkans?.naam && (
+                                <>
+                                  <span className="shrink-0">·</span>
+                                  <span className="inline-flex items-center gap-1 text-gray-600 min-w-0">
+                                    <FolderKanban className="h-3 w-3 text-gray-400 shrink-0" />
+                                    <span className="truncate">{e.verkoopkans.naam}</span>
+                                  </span>
                                 </>
                               )}
                             </div>

@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { getEmailLogDetail, getEmailBijlageUrl } from '@/lib/actions'
-import { Mail, Paperclip, Loader2, ExternalLink } from 'lucide-react'
+import { getEmailLogDetail, getEmailBijlageUrl, resendEmailLog } from '@/lib/actions'
+import { Mail, Paperclip, Loader2, ExternalLink, Send, CheckCircle2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 
@@ -32,16 +32,36 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
   const [detail, setDetail] = useState<EmailLogDetail | null>(null)
   const [bijlageLoading, setBijlageLoading] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [resending, setResending] = useState(false)
+  const [resendStatus, setResendStatus] = useState<{ type: 'ok' | 'warn'; text: string } | null>(null)
 
   useEffect(() => {
     if (!emailLogId) { setDetail(null); return }
     setLoading(true)
     setError('')
+    setResendStatus(null)
     getEmailLogDetail(emailLogId).then(d => {
       setDetail(d as EmailLogDetail | null)
       setLoading(false)
     })
   }, [emailLogId])
+
+  async function handleResend() {
+    if (!detail) return
+    if (!confirm(`Deze e-mail opnieuw versturen naar ${detail.aan}?\n\nDe bijlagen worden automatisch opnieuw meegestuurd.`)) return
+    setResending(true)
+    setError('')
+    setResendStatus(null)
+    const result = await resendEmailLog(detail.id)
+    setResending(false)
+    if (result.error) {
+      setError(result.error)
+    } else if (result.ontbrekend && result.ontbrekend.length > 0) {
+      setResendStatus({ type: 'warn', text: `Verstuurd naar ${result.verstuurdNaar}, maar deze bijlage(n) ontbraken: ${result.ontbrekend.join(', ')}` })
+    } else {
+      setResendStatus({ type: 'ok', text: `Opnieuw verstuurd naar ${result.verstuurdNaar}` })
+    }
+  }
 
   async function openBijlage(b: BijlageMeta) {
     if (!detail) return
@@ -186,7 +206,20 @@ export function EmailLogDialog({ emailLogId, onClose }: { emailLogId: string | n
             <p className="text-sm text-gray-500 italic">Geen tekst opgeslagen</p>
           )}
 
-          <div className="flex justify-end pt-2 border-t border-gray-200">
+          {resendStatus && (
+            <div className={`text-sm p-3 rounded-md flex items-center gap-2 ${
+              resendStatus.type === 'ok' ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'
+            }`}>
+              <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+              {resendStatus.text}
+            </div>
+          )}
+
+          <div className="flex justify-between items-center gap-2 pt-2 border-t border-gray-200">
+            <Button onClick={handleResend} disabled={resending}>
+              {resending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {resending ? 'Versturen...' : 'Opnieuw versturen'}
+            </Button>
             <Button variant="ghost" onClick={onClose}>Sluiten</Button>
           </div>
         </div>

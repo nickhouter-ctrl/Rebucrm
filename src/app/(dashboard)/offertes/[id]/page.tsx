@@ -1,4 +1,4 @@
-import { getOfferte, getRelaties, getProducten, getOrderByOfferteId, getOfferteEmailLog } from '@/lib/actions'
+import { getOfferte, getRelaties, getProducten, getOrderByOfferteId, getOfferteEmailLog, getOpenTakenVoorOfferte } from '@/lib/actions'
 import { OfferteForm } from './offerte-form'
 
 export default async function OfferteDetailPage({
@@ -10,12 +10,13 @@ export default async function OfferteDetailPage({
 }) {
   const { id } = await params
   const { relatie_id, wizard } = await searchParams
-  const [offerte, relaties, producten, linkedOrder, emailLog] = await Promise.all([
+  const [offerte, relaties, producten, linkedOrder, emailLog, openTaken] = await Promise.all([
     id === 'nieuw' ? null : getOfferte(id),
     getRelaties(),
     getProducten(),
     id === 'nieuw' ? null : getOrderByOfferteId(id),
     id === 'nieuw' ? [] : getOfferteEmailLog(id),
+    id === 'nieuw' ? [] : getOpenTakenVoorOfferte(id),
   ])
 
   const relatiesWithDetails = relaties.map((r: Record<string, unknown>) => ({
@@ -43,6 +44,7 @@ export default async function OfferteDetailPage({
       wizardMode={wizard === 'concept' ? 'concept' : wizard === 'true' ? true : false}
       linkedOrder={linkedOrder}
       emailLog={emailLog as unknown as EmailLogEntry[]}
+      openTaken={openTaken}
     />
   )
 }

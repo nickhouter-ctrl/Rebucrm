@@ -33,4 +33,5 @@ type VerstuurdeEmailPassthrough = {
   bijlagen: { filename: string }[] | null
   verstuurd_op: string
   offerte?: { id: string; offertenummer: string } | null
+  verkoopkans?: { id: string; naam: string } | null
 }

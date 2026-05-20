@@ -274,6 +274,13 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const restBetaald = restbetalingFacturen.filter(f => f.status === 'betaald' || f.status === 'gecrediteerd')
   const ordersMetActie = ordersMetStatus.filter(o => o.eindafrekeningNodig || o.restKanVerstuurd)
 
+  // Badge-telling naast de tabs: alleen facturen die nog actie vragen
+  // (niet betaald/geannuleerd/gecrediteerd). Het totaal-ooit zou misleidend
+  // hoog zijn — het grootste deel is allang betaald.
+  const isNogOpenstaand = (f: Factuur) => f.status !== 'betaald' && f.status !== 'geannuleerd' && f.status !== 'gecrediteerd'
+  const aanbetalingOpenAantal = aanbetalingFacturen.filter(isNogOpenstaand).length
+  const restbetalingOpenAantal = restbetalingFacturen.filter(isNogOpenstaand).length
+
   function berekenStats(list: Factuur[]) {
     const aantal = list.length
     let totaal = 0
@@ -312,8 +319,8 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const tabs: { key: TabType; label: string; count?: number }[] = [
     { key: 'alle', label: 'Alle facturen' },
     { key: 'openstaand', label: vervallenOnly ? 'Openstaand · alleen vervallen' : 'Openstaand', count: openstaandFacturen.length },
-    { key: 'aanbetaling', label: 'Aanbetalingen', count: aanbetalingFacturen.length },
-    { key: 'restbetaling', label: 'Restbetalingen', count: restbetalingFacturen.length },
+    { key: 'aanbetaling', label: 'Aanbetalingen', count: aanbetalingOpenAantal },
+    { key: 'restbetaling', label: 'Restbetalingen', count: restbetalingOpenAantal },
     { key: 'per-klus', label: 'Per klus', count: ordersMetActie.length > 0 ? ordersMetActie.length : undefined },
   ]
 

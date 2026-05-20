@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { useState, useEffect } from 'react'
-import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage, archiveerOfferte } from '@/lib/actions'
+import { deleteOfferte, duplicateOfferte, sendOfferteEmail, getOfferteEmailDefaults, convertToFactuur, acceptOfferte, getOfferteBerichten, sendBerichtAdmin, getLeverancierPdfData, deleteLeverancierPdf, updateMargePercentage, archiveerOfferte, completeTaak } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { RichTextEditor, plainTextToHtml } from '@/components/ui/rich-text-editor'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2, History } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, X, Copy, Download, Send, Receipt, Link2, FolderKanban, Loader2, Paperclip, Mail, CheckCircle, MessageCircle, ChevronDown, ChevronRight, Upload, FileText, Percent, Building2, History, CheckSquare } from 'lucide-react'
 import { VersieDiffDialog } from '@/components/offerte/versie-diff-dialog'
 import { RecentTracker } from '@/components/layout/recent-tracker'
 import { EmailLogDialog } from '@/components/email-log-dialog'
@@ -50,7 +50,9 @@ const ZAKELIJK_REGELS: Regel[] = [
   { omschrijving: 'Kunststof kozijnen leveren', aantal: 1, prijs: 0, btw_percentage: 21 },
 ]
 
-export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder, emailLog }: {
+type OpenTaak = { id: string; taaknummer: string | null; titel: string; status: string; deadline: string | null; prioriteit: string }
+
+export function OfferteForm({ offerte, relaties, producten, initialRelatieId, initialRelatieName, wizardMode, linkedOrder, emailLog, openTaken }: {
   offerte: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
@@ -59,6 +61,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   wizardMode?: boolean | 'concept'
   linkedOrder?: { id: string; ordernummer: string; status: string } | null
   emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
+  openTaken?: OpenTaak[]
 }) {
   const router = useRouter()
   const { navigateBack } = useBackNav('offerte-form')
@@ -408,6 +411,7 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
       selectedProjectName={selectedProjectName}
       linkedOrder={linkedOrder}
       emailLog={emailLog}
+      openTaken={openTaken}
     />
   )
 }
@@ -424,6 +428,7 @@ function EditOfferteView({
   selectedProjectName,
   linkedOrder,
   emailLog,
+  openTaken,
 }: {
   offerte: Record<string, unknown>
   relaties: { id: string; bedrijfsnaam: string; contactpersoon?: string | null; email?: string | null; telefoon?: string | null; plaats?: string | null; standaard_marge?: number | null }[]
@@ -435,6 +440,7 @@ function EditOfferteView({
   selectedProjectName: string
   linkedOrder?: { id: string; ordernummer: string; status: string } | null
   emailLog?: { id: string; aan: string; onderwerp: string | null; bijlagen: { filename: string }[] | null; verstuurd_op: string }[]
+  openTaken?: OpenTaak[]
 }) {
   const router = useRouter()
   const { navigateBack } = useBackNav('offerte-edit')
@@ -454,6 +460,9 @@ function EditOfferteView({
   const [showFactuurDialog, setShowFactuurDialog] = useState(false)
   const [showVersieDiff, setShowVersieDiff] = useState(false)
   const [openEmailLogId, setOpenEmailLogId] = useState<string | null>(null)
+
+  // Open taken gekoppeld aan deze offerte — direct afvinkbaar op deze pagina
+  const [openTakenState, setOpenTakenState] = useState<OpenTaak[]>(openTaken || [])
 
   // Chat state
   const [showChat, setShowChat] = useState(false)
@@ -511,6 +520,19 @@ function EditOfferteView({
     const result = await updateMargePercentage(offerte.id as string, margePercentage)
     if (result.error) setError(result.error)
     setMargeSaving(false)
+  }
+
+  // Taak direct afronden vanaf de offerte-pagina
+  async function handleCompleteOfferteTaak(taakId: string) {
+    const vorige = openTakenState
+    setOpenTakenState(prev => prev.filter(t => t.id !== taakId)) // optimistic
+    const result = await completeTaak(taakId)
+    if (result.error) {
+      setOpenTakenState(vorige) // rollback
+      setError(`Taak afronden mislukt: ${result.error}`)
+    } else {
+      router.refresh()
+    }
   }
 
   const versieNummer = (offerte.versie_nummer as number) || 1
@@ -741,6 +763,36 @@ function EditOfferteView({
             <FolderKanban className="h-3.5 w-3.5" />
             Bekijk klus
           </Button>
+        </div>
+      )}
+
+      {/* Open taken gekoppeld aan deze offerte — direct afvinkbaar */}
+      {openTakenState.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+            <CheckSquare className="h-4 w-4 text-gray-500" />
+            Open taken ({openTakenState.length})
+          </h3>
+          <div className="space-y-2">
+            {openTakenState.map(t => (
+              <div key={t.id} className="flex items-center gap-3 border border-gray-100 rounded-md p-3 text-sm">
+                <button
+                  type="button"
+                  onClick={() => router.push(`/taken/${t.id}`)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="font-medium text-gray-900 truncate hover:text-[#00a66e]">{t.titel}</div>
+                  {t.deadline && (
+                    <div className="text-xs text-gray-500">Deadline {formatDateShort(t.deadline)}</div>
+                  )}
+                </button>
+                <Button variant="secondary" size="sm" onClick={() => handleCompleteOfferteTaak(t.id)}>
+                  <CheckCircle className="h-3.5 w-3.5" />
+                  Afronden
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
