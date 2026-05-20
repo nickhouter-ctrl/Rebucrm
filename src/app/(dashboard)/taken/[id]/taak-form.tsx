@@ -51,6 +51,9 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   const [notities, setNotities] = useState(initialNotities)
   const [notitieText, setNotitieText] = useState('')
+  // Notities die je bij een NIEUWE taak alvast typt — worden samen met de
+  // taak opgeslagen zodra die is aangemaakt (er is dan pas een taak_id).
+  const [pendingNotities, setPendingNotities] = useState<string[]>([])
   const { navigateBack } = useBackNav(`taak-${(taak?.id as string) || 'nieuw'}`)
   const [editNotitieId, setEditNotitieId] = useState<string | null>(null)
   const [editNotitieText, setEditNotitieText] = useState('')
@@ -81,9 +84,19 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
     formData.set('relatie_id', selectedRelatieId)
     const result = await saveTaak(formData)
     if (result.error) { setError(result.error); setLoading(false); return }
+    const savedId = (taak?.id as string) || (result.id as string | undefined)
+    // Nieuwe taak: alvast getypte notities nu persisteren (incl. een notitie
+    // die nog in het invoerveld staat maar niet via 'Toevoegen' is bevestigd).
+    if (!taak && savedId) {
+      const teBewaren = [...pendingNotities]
+      if (notitieText.trim()) teBewaren.push(notitieText.trim())
+      for (const tekst of teBewaren) {
+        await saveTaakNotitie({ taak_id: savedId, tekst })
+      }
+    }
     const { showToast } = await import('@/components/ui/toast')
     showToast('Taak opgeslagen')
-    navigateAfterSave((taak?.id as string) || (result.id as string | undefined))
+    navigateAfterSave(savedId)
   }
 
   async function handleDelete() {
@@ -124,6 +137,13 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
       setNotitieText('')
     }
     setLoading(false)
+  }
+
+  // Nieuwe taak: notitie aan de lokale lijst toevoegen (nog geen taak_id)
+  function addPendingNotitie() {
+    if (!notitieText.trim()) return
+    setPendingNotities(prev => [...prev, notitieText.trim()])
+    setNotitieText('')
   }
 
   async function handleCreateVervolgTaak() {
@@ -374,6 +394,65 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
       )}
 
       <EmailLogDialog emailLogId={openEmailLogId} onClose={() => setOpenEmailLogId(null)} />
+
+      {/* Notities bij een NIEUWE taak — alvast typen, opgeslagen mét de taak */}
+      {isNew && (
+        <div className="mt-6 space-y-4 pb-80">
+          <h3 className="text-sm font-semibold text-gray-900">Notities</h3>
+
+          {/* Notitie invoer */}
+          <Card>
+            <CardContent className="pt-4 pb-3 space-y-3">
+              <textarea
+                placeholder="Schrijf een notitie..."
+                value={notitieText}
+                onChange={e => setNotitieText(e.target.value)}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00a66e] focus:border-transparent resize-none"
+              />
+              {notitieText.trim() && (
+                <div className="flex gap-2 justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => setNotitieText('')}>Annuleren</Button>
+                  <Button type="button" size="sm" className="bg-[#00a66e] hover:bg-[#008f5f]" onClick={addPendingNotitie}>
+                    <Plus className="h-3.5 w-3.5" />Toevoegen
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Toegevoegde notities */}
+          {pendingNotities.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-gray-500 text-sm">
+                <MessageSquare className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                Nog geen notities — wat je hier toevoegt wordt samen met de taak opgeslagen.
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-4 pb-3 space-y-2">
+                <p className="text-xs text-gray-400">
+                  {pendingNotities.length === 1 ? 'Deze notitie wordt' : `Deze ${pendingNotities.length} notities worden`} opgeslagen zodra je de taak aanmaakt.
+                </p>
+                {pendingNotities.map((tekst, i) => (
+                  <div key={i} className="flex items-start justify-between gap-3 border border-gray-100 rounded-lg px-3 py-2">
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap flex-1">{tekst}</p>
+                    <button
+                      type="button"
+                      onClick={() => setPendingNotities(prev => prev.filter((_, idx) => idx !== i))}
+                      className="p-1 text-gray-300 hover:text-red-500 shrink-0"
+                      title="Verwijderen"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* Notities sectie - alleen bij bestaande taken */}
       {!isNew && (
