@@ -123,7 +123,11 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     && /Productie\s+maten/i.test(text)
     && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text)
     && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
-  const isGealanNL = hasHint ? (useGealanNL || (useGealan && gealanNLFingerprint)) : gealanNLFingerprint
+  // De Gealan-NL-vingerafdruk ('Productie maten' + 'Aantal:N Verbinding:') is
+  // zo specifiek dat de inhoud altijd wint — ook van een verkeerde AI-hint.
+  // Voorheen leverde een hint als 'schuco'/'default'/'onbekend' 0 elementen op
+  // bij een PDF die overduidelijk Gealan-NL is (bv. AKUGT-tekeningen).
+  const isGealanNL = useGealanNL || gealanNLFingerprint
   const isGealan = hasHint ? (useGealan && !isGealanNL) : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
   const isSchuco = hasHint ? useSchuco : (!isAluplast && !isEkoOkna && !isGealanNL && !isGealan && (
     /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
