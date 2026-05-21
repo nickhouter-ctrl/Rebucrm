@@ -104,7 +104,7 @@ function buildColumns(
     cell: ({ row }) => (
       <div>
         <div className="flex items-center gap-1.5">
-          <span className="font-medium text-gray-900">{row.original.factuurnummer}</span>
+          <span className="font-medium text-gray-900 group-hover/row:text-[#00a66e] transition-colors">{row.original.factuurnummer}</span>
           {row.original.factuur_type && row.original.factuur_type !== 'volledig' && (
             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${typeKleuren[row.original.factuur_type] || ''}`}>
               {typeLabels[row.original.factuur_type] || row.original.factuur_type}

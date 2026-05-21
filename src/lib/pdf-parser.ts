@@ -113,12 +113,14 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
   const isAluplast = false
   // Gealan-NL detectie via content. Ook als hint='gealan' (de AI groepeert
   // beide varianten onder 'gealan') laten we content beslissen: een PDF met
-  // 'Productie maten' + 'Netto prijs' + 'Aantal:N Verbinding:' is Gealan-NL,
-  // ongeacht wat de hint zegt. Voorkomt dat NL-PDFs verkeerd door de oude
-  // 'Merk X'-flow lopen en 0 elementen opleveren.
+  // 'Productie maten' + 'Aantal:N Verbinding:' is Gealan-NL, ongeacht de hint.
+  // Voorkomt dat NL-PDFs verkeerd door de oude 'Merk X'-flow lopen en 0
+  // elementen opleveren.
+  // GEEN prijs-eis: productietekeningen zonder prijzen (bv. AKUGT, zelfde
+  // formaat als Gealan) moeten ook hun elementen + tekeningen opleveren.
+  // Prijzen komen dan op 0 binnen en worden handmatig/via de marge ingevuld.
   const gealanNLFingerprint = !isAluplast && !isEkoOkna
     && /Productie\s+maten/i.test(text)
-    && /Netto\s*prijs/i.test(text)
     && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(text)
     && !/Merk\s+[\dA-Z]+\s*Aantal/.test(text)
   const isGealanNL = hasHint ? (useGealanNL || (useGealan && gealanNLFingerprint)) : gealanNLFingerprint
