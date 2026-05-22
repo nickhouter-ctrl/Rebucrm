@@ -26,7 +26,7 @@ type Notitie = {
   gebruiker: { naam: string } | null
 }
 
-export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId, currentMedewerkerId, offerteStatus, offerteEmails = [] }: {
+export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, notities: initialNotities = [], defaultRelatieId, defaultProjectId, currentMedewerkerId, offerteStatus, offerteEmails = [] }: {
   taak: Record<string, unknown> | null
   projecten: { id: string; naam: string; relatie_id?: string }[]
   medewerkers: { id: string; naam: string; type: string; actief: boolean }[]
@@ -34,6 +34,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   offertes: { id: string; offertenummer: string; relatie_id: string }[]
   notities?: Notitie[]
   defaultRelatieId?: string
+  defaultProjectId?: string
   currentMedewerkerId?: string | null
   offerteStatus?: { status: string; offertenummer: string; datum: string | null; totaal: number | null } | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,7 +45,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedRelatieId, setSelectedRelatieId] = useState((taak?.relatie_id as string) || defaultRelatieId || '')
-  const [selectedProjectId, setSelectedProjectId] = useState((taak?.project_id as string) || '')
+  const [selectedProjectId, setSelectedProjectId] = useState((taak?.project_id as string) || defaultProjectId || '')
   const [selectedMedewerkerId, setSelectedMedewerkerId] = useState((taak?.medewerker_id as string) || (taak ? '' : currentMedewerkerId || ''))
   const [selectedOfferteId, setSelectedOfferteId] = useState((taak?.offerte_id as string) || '')
   const isNew = !taak

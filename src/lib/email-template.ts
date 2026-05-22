@@ -125,3 +125,155 @@ export function buildRebuEmailHtml(
 </body>
 </html>`
 }
+
+// Dedicated factuurmail: header + banner-kop + nette gegevensbox + prominente
+// betaalknop. Indeling geïnspireerd op een nette boekingsbevestiging, geheel
+// in Rebu-huisstijl (groen #00a66e).
+export function buildFactuurEmailHtml(opts: {
+  body: string
+  factuurnummer: string
+  factuurdatum?: string | null
+  vervaldatum?: string | null
+  bedrag: number
+  betaalLink?: string
+  betaalBedrag?: number
+  medewerker?: { naam?: string; email?: string; telefoon?: string }
+}): string {
+  const baseUrl = getAppUrl()
+  const logoUrl = `${baseUrl}/images/logo-rebu.png`
+  const euro = (n: number) => new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(n || 0)
+  const datumNL = (d?: string | null) => d ? new Date(d).toLocaleDateString('nl-NL') : '—'
+
+  // Body → HTML (zelfde detectie als buildRebuEmailHtml).
+  const isHtml = /<(p|br|div|b|i|u|ul|ol|span|font|strong|em)\b/i.test(opts.body)
+  const bodyHtml = isHtml
+    ? `<div style="font-size:15px;line-height:1.65;color:#1f2937;">${opts.body}</div>`
+    : opts.body.split('\n').map(line => {
+        const l = line.trim()
+        if (l === '') return '<div style="height:10px;line-height:10px;">&nbsp;</div>'
+        return `<p style="margin:0 0 10px 0;font-size:15px;line-height:1.65;color:#1f2937;">${l}</p>`
+      }).join('\n')
+
+  const detailRow = (label: string, value: string, opt?: { emphasis?: boolean; topBorder?: boolean }) => `
+                  <tr>
+                    <td style="padding:9px 0;font-size:14px;color:#6b7280;${opt?.topBorder ? 'border-top:1px solid #e6f4ee;padding-top:13px;' : ''}">${label}</td>
+                    <td style="padding:9px 0;font-size:${opt?.emphasis ? '16px' : '14px'};font-weight:${opt?.emphasis ? '700' : '600'};color:${opt?.emphasis ? '#064e3b' : '#1f2937'};text-align:right;${opt?.topBorder ? 'border-top:1px solid #e6f4ee;padding-top:13px;' : ''}">${value}</td>
+                  </tr>`
+
+  const betaalBlock = opts.betaalLink ? `
+        <tr>
+          <td align="center" style="padding:8px 40px 8px 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
+              <tr>
+                <td bgcolor="#00a66e" align="center" style="background-color:#00a66e;background:linear-gradient(135deg,#00a66e 0%,#008f5f 100%);border-radius:10px;">
+                  <a href="${opts.betaalLink}" target="_blank" style="display:inline-block;background-color:#00a66e;color:#ffffff !important;padding:16px 52px;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px;letter-spacing:0.2px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+                    <!--[if mso]>&nbsp;&nbsp;&nbsp;<![endif]--><span style="color:#ffffff;">Klik om te betalen</span><!--[if mso]>&nbsp;&nbsp;&nbsp;<![endif]-->
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding:10px 40px 30px 40px;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">Liever zelf overmaken? IBAN NL80 INGB 0675 6102 73 t.n.v. Rebu Kozijnen B.V.,<br>o.v.v. ${opts.factuurnummer}</p>
+          </td>
+        </tr>` : `
+        <tr><td style="padding:0 40px 20px 40px;"></td></tr>`
+
+  return `<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+</head>
+<body style="margin:0;padding:0;background-color:#f1f5f4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">
+  <div style="display:none;max-height:0;overflow:hidden;">Factuur ${opts.factuurnummer} — Rebu Kozijnen</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f1f5f4;padding:40px 16px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(15,23,42,0.06);">
+        <!-- Header -->
+        <tr>
+          <td style="background-color:#ffffff;padding:32px 40px 20px 40px;text-align:left;border-bottom:1px solid #f1f5f4;">
+            <img src="${logoUrl}" alt="Rebu Kozijnen" width="150" style="display:block;max-width:150px;height:auto;" />
+          </td>
+        </tr>
+        <tr><td style="height:4px;background:linear-gradient(90deg,#00a66e 0%,#22d3ae 50%,#00a66e 100%);"></td></tr>
+        <!-- Banner-kop -->
+        <tr>
+          <td style="padding:28px 40px 4px 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#ecfdf5;border-left:4px solid #00a66e;border-radius:6px;">
+              <tr><td style="padding:14px 18px;font-size:17px;font-weight:700;color:#064e3b;">Factuur ${opts.factuurnummer}</td></tr>
+            </table>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:24px 40px 8px 40px;">
+            ${bodyHtml}
+          </td>
+        </tr>
+        <!-- Gegevensbox -->
+        <tr>
+          <td style="padding:8px 40px 20px 40px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8faf9;border:1px solid #e6f4ee;border-radius:12px;">
+              <tr>
+                <td style="padding:20px 24px;">
+                  <p style="margin:0 0 10px 0;font-size:13px;font-weight:700;color:#064e3b;letter-spacing:0.3px;text-transform:uppercase;">Factuurgegevens</p>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    ${detailRow('Factuurnummer', opts.factuurnummer)}
+                    ${detailRow('Factuurdatum', datumNL(opts.factuurdatum))}
+                    ${detailRow('Vervaldatum', datumNL(opts.vervaldatum))}
+                    ${detailRow('Factuurbedrag', euro(opts.bedrag), { emphasis: true, topBorder: true })}
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        ${betaalBlock}
+        <!-- Contact kaart -->
+        <tr>
+          <td style="padding:0 40px 28px 40px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f8faf9;border-radius:12px;border:1px solid #e6f4ee;">
+              <tr>
+                <td style="padding:20px 24px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="vertical-align:top;width:50%;padding-right:12px;">
+                        <p style="margin:0 0 4px 0;font-size:13px;font-weight:700;color:#064e3b;letter-spacing:0.3px;">REBU KOZIJNEN B.V.</p>
+                        <p style="margin:0;font-size:13px;color:#4b5563;line-height:1.6;">Samsonweg 26F<br>1521 RM Wormerveer</p>
+                      </td>
+                      <td style="vertical-align:top;width:50%;padding-left:12px;border-left:2px solid #00a66e;">
+                        ${opts.medewerker?.naam ? `<p style="margin:0 0 4px 0;font-size:13px;font-weight:600;color:#064e3b;">${opts.medewerker.naam}</p>` : ''}
+                        <p style="margin:0;font-size:13px;color:#4b5563;line-height:1.8;">
+                          <a href="tel:${(opts.medewerker?.telefoon || '+31658866070').replace(/\s/g, '')}" style="color:#00a66e;text-decoration:none;font-weight:500;">📞 ${opts.medewerker?.telefoon || '+31 6 58 86 60 70'}</a><br>
+                          <a href="mailto:${opts.medewerker?.email || 'info@rebukozijnen.nl'}" style="color:#00a66e;text-decoration:none;font-weight:500;">✉️ ${opts.medewerker?.email || 'info@rebukozijnen.nl'}</a><br>
+                          <a href="https://www.rebukozijnen.nl" style="color:#00a66e;text-decoration:none;font-weight:500;">🌐 www.rebukozijnen.nl</a>
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#f8faf9;padding:14px 40px;border-top:1px solid #e6f4ee;">
+            <p style="margin:0;font-size:11px;color:#6b7280;text-align:center;letter-spacing:0.2px;">KVK 907 204 74 · BTW NL 865 427 926 B01 · IBAN NL80 INGB 0675 6102 73</p>
+          </td>
+        </tr>
+      </table>
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;margin-top:16px;">
+        <tr><td style="text-align:center;padding:0 16px;">
+          <p style="margin:0;font-size:11px;color:#9ca3af;">Rebu Kozijnen · Kwaliteitskozijnen direct van de leverancier</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`
+}

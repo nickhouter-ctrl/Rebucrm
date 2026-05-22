@@ -12,7 +12,7 @@ const EIGEN_MAILBOX_EMAILS = new Set<string>([
 import { revalidatePath } from 'next/cache'
 import { cookies, headers } from 'next/headers'
 import { sendEmail } from '@/lib/email'
-import { buildRebuEmailHtml } from '@/lib/email-template'
+import { buildRebuEmailHtml, buildFactuurEmailHtml } from '@/lib/email-template'
 import { getAppUrl } from '@/lib/utils'
 
 // Helper: pagineer Supabase queries die door de 1000-rij limiet heen moeten
@@ -2023,19 +2023,14 @@ export async function getFactuurEmailDefaults(factuurId: string) {
     ? `U kunt direct online betalen via de groene knop hieronder, of handmatig overmaken naar:`
     : `Wij verzoeken u het factuurbedrag voor de vervaldatum over te maken naar:`
 
+  // Korte begeleidende tekst — de factuurgegevens, betaalknop en IBAN staan in
+  // de mail-template zelf (gegevensbox + 'Nu betalen'-knop).
+  void totaalFormatted; void vervaldatum; void betaalSectie
   const body = `Beste ${klantNaam},
 
-Bijgevoegd treft u de factuur aan voor ${onderwerp}:
-- Factuurnummer: ${factuur.factuurnummer}
-- Factuurbedrag: ${totaalFormatted}
-- Vervaldatum: ${vervaldatum}
+Bijgaand ontvangt u de factuur voor ${onderwerp}. Hieronder vindt u de gegevens; u kunt het bedrag eenvoudig online betalen via de knop.
 
-${betaalSectie}
-IBAN: NL80 INGB 0675 6102 73
-T.n.v. Rebu Kozijnen B.V.
-O.v.v. ${factuur.factuurnummer}
-
-Mocht u vragen hebben over deze factuur, neem dan gerust contact met ons op.
+Heeft u vragen over deze factuur? Neem dan gerust contact met ons op.
 
 Met vriendelijke groet,
 ${medewerkerNaam}`
@@ -2329,8 +2324,16 @@ export async function sendFactuurEmail(factuurId: string, options: {
   const ctaLink = betaalLink && publiekToken
     ? `${baseUrl}/api/factuur/${publiekToken}/betaal`
     : (betaalLink || undefined)
-  const ctaLabel = betaalLink ? `Betaal direct €${Number(openstaandBedrag).toFixed(2).replace('.', ',')}` : undefined
-  const emailHtml = buildRebuEmailHtml(options.body, ctaLink, ctaLabel, mwInfo)
+  const emailHtml = buildFactuurEmailHtml({
+    body: options.body,
+    factuurnummer: factuur.factuurnummer as string,
+    factuurdatum: factuur.datum as string | null,
+    vervaldatum: factuur.vervaldatum as string | null,
+    bedrag: Number(factuur.totaal || 0),
+    betaalLink: ctaLink,
+    betaalBedrag: ctaLink ? Number(openstaandBedrag) : undefined,
+    medewerker: mwInfo,
+  })
 
   const attachments: { filename: string; content: string }[] = []
   if (pdfBase64) {

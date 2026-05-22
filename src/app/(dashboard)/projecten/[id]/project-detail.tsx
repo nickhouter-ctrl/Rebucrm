@@ -407,6 +407,16 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 <Receipt className="h-4 w-4" />
                 Factuur maken
               </Button>
+
+              <Button
+                className="w-full"
+                variant="secondary"
+                disabled={loading}
+                onClick={() => router.push(`/taken/nieuw?project_id=${project.id}&relatie_id=${relatieId || ''}`)}
+              >
+                <Plus className="h-4 w-4" />
+                Nieuwe taak
+              </Button>
             </div>
           )}
         </div>

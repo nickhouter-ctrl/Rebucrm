@@ -2,9 +2,9 @@ import { getTaak, getProjecten, getMedewerkers, getRelaties, getOffertes, getTaa
 import { createClient } from '@/lib/supabase/server'
 import { TaakForm } from './taak-form'
 
-export default async function TaakDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ relatie_id?: string }> }) {
+export default async function TaakDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ relatie_id?: string; project_id?: string }> }) {
   const { id } = await params
-  const { relatie_id } = await searchParams
+  const { relatie_id, project_id } = await searchParams
   const isNew = id === 'nieuw'
   const [taak, projecten, medewerkers, relaties, offertes, notities, currentMedewerkerId] = await Promise.all([
     isNew ? null : getTaak(id),
@@ -33,5 +33,5 @@ export default async function TaakDetailPage({ params, searchParams }: { params:
     offerteEmails = await getOfferteEmailLog(offerteId)
   }
 
-  return <TaakForm taak={taak} projecten={projecten} medewerkers={medewerkers} relaties={relaties} offertes={offertes} notities={notities} defaultRelatieId={relatie_id} currentMedewerkerId={currentMedewerkerId} offerteStatus={offerteStatus} offerteEmails={offerteEmails} />
+  return <TaakForm taak={taak} projecten={projecten} medewerkers={medewerkers} relaties={relaties} offertes={offertes} notities={notities} defaultRelatieId={relatie_id} defaultProjectId={project_id} currentMedewerkerId={currentMedewerkerId} offerteStatus={offerteStatus} offerteEmails={offerteEmails} />
 }

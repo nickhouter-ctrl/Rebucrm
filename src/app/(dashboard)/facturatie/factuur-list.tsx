@@ -212,20 +212,20 @@ function buildColumns(
   ]
 }
 
-type TabType = 'alle' | 'openstaand' | 'aanbetaling' | 'restbetaling' | 'per-klus'
+type TabType = 'alle' | 'openstaand' | 'aanbetaling' | 'restbetaling' | 'gecrediteerd' | 'per-klus'
 
 export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]; ordersMetStatus: OrderMetStatus[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   // Tab uit URL lezen zodat dashboard-KPI's direct naar 'Openstaand' (etc)
   // kunnen springen via /facturatie?tab=openstaand[&vervallen=1].
-  const initialTab = (searchParams.get('tab') as TabType) || 'alle'
-  const [tab, setTab] = useState<TabType>(['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'per-klus'].includes(initialTab) ? initialTab : 'alle')
+  const initialTab = (searchParams.get('tab') as TabType) || 'openstaand'
+  const [tab, setTab] = useState<TabType>(['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'gecrediteerd', 'per-klus'].includes(initialTab) ? initialTab : 'openstaand')
   const [vervallenOnly, setVervallenOnly] = useState<boolean>(searchParams.get('vervallen') === '1')
 
   useEffect(() => {
     const t = searchParams.get('tab') as TabType | null
-    if (t && ['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'per-klus'].includes(t)) setTab(t)
+    if (t && ['alle', 'openstaand', 'aanbetaling', 'restbetaling', 'gecrediteerd', 'per-klus'].includes(t)) setTab(t)
     setVervallenOnly(searchParams.get('vervallen') === '1')
   }, [searchParams])
   const [syncing, setSyncing] = useState(false)
@@ -264,12 +264,24 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     return (b.factuurnummer || '').localeCompare(a.factuurnummer || '')
   })
   const vandaagStr = new Date().toISOString().slice(0, 10)
-  const openstaandFacturenAll = sorted.filter(f => f.status !== 'betaald' && f.status !== 'geannuleerd')
+  // Openstaand = niet betaald, niet geannuleerd, niet gecrediteerd (en geen
+  // credit-nota). Gecrediteerde facturen krijgen een eigen tab.
+  const openstaandFacturenAll = sorted.filter(f =>
+    f.status !== 'betaald' && f.status !== 'geannuleerd' && f.status !== 'gecrediteerd' && f.factuur_type !== 'credit'
+  )
+  // Openstaand sorteren op datum oplopend (oudste bovenaan — die vragen het
+  // eerst om actie). De andere tabs houden nieuwste-eerst aan.
+  const sorteerOudNaarNieuw = (lijst: Factuur[]) => [...lijst].sort((a, b) => {
+    const da = a.datum || '', db = b.datum || ''
+    if (da !== db) return da.localeCompare(db)
+    return (a.factuurnummer || '').localeCompare(b.factuurnummer || '')
+  })
   // Bij ?vervallen=1 (vanuit dashboard 'Achterstallig'-KPI) tonen we alleen
   // facturen waarvan de vervaldatum is gepasseerd.
-  const openstaandFacturen = vervallenOnly
+  const openstaandFacturen = sorteerOudNaarNieuw(vervallenOnly
     ? openstaandFacturenAll.filter(f => f.vervaldatum && f.vervaldatum < vandaagStr)
-    : openstaandFacturenAll
+    : openstaandFacturenAll)
+  const gecrediteerdeFacturen = sorted.filter(f => f.status === 'gecrediteerd' || f.factuur_type === 'credit')
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
   const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
   // Restbetaling-segmentatie voor overzichtelijke weergave
@@ -325,6 +337,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     { key: 'openstaand', label: vervallenOnly ? 'Openstaand · alleen vervallen' : 'Openstaand', count: openstaandFacturen.length },
     { key: 'aanbetaling', label: 'Aanbetalingen', count: aanbetalingOpenAantal },
     { key: 'restbetaling', label: 'Restbetalingen', count: restbetalingOpenAantal },
+    { key: 'gecrediteerd', label: 'Gecrediteerd', count: gecrediteerdeFacturen.length || undefined },
     { key: 'per-klus', label: 'Per klus', count: ordersMetActie.length > 0 ? ordersMetActie.length : undefined },
   ]
 
@@ -521,6 +534,23 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             columns={columns}
             berekenStats={berekenStats}
             router={router}
+          />
+        )
+      )}
+
+      {tab === 'gecrediteerd' && (
+        gecrediteerdeFacturen.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="Geen gecrediteerde facturen"
+            description="Er zijn nog geen facturen gecrediteerd."
+          />
+        ) : (
+          <DataTable
+            columns={columns}
+            data={gecrediteerdeFacturen}
+            searchPlaceholder="Zoek gecrediteerde factuur..."
+            onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
           />
         )
       )}
