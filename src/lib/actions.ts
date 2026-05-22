@@ -3602,8 +3602,41 @@ export async function saveProject(formData: FormData) {
     const { error } = await supabase.from('projecten').update(record).eq('id', id)
     if (error) return { error: error.message }
   } else {
-    const { error } = await supabase.from('projecten').insert(record)
+    const { data: nieuwProject, error } = await supabase.from('projecten').insert(record).select('id').single()
     if (error) return { error: error.message }
+
+    // Nieuwe verkoopkans → automatisch een opvolgtaak voor de medewerker die
+    // 'm heeft aangemaakt (offerte opstellen). Niet-kritiek: faalt dit, dan
+    // wordt de verkoopkans alsnog gewoon opgeslagen.
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      let medewerkerId: string | null = null
+      if (user?.id) {
+        const { data: mw } = await supabase
+          .from('medewerkers')
+          .select('id')
+          .eq('profiel_id', user.id)
+          .eq('administratie_id', adminId)
+          .maybeSingle()
+        medewerkerId = mw?.id || null
+      }
+      await supabase.from('taken').insert({
+        administratie_id: adminId,
+        taaknummer: await getVolgendTaaknummer(supabase as unknown as ReturnType<typeof createAdminClient>),
+        titel: `Offerte opstellen: ${record.naam}`,
+        omschrijving: 'Automatisch aangemaakt bij een nieuwe verkoopkans.',
+        categorie: 'Uitwerken',
+        project_id: nieuwProject?.id || null,
+        relatie_id: record.relatie_id,
+        status: 'open',
+        prioriteit: 'normaal',
+        toegewezen_aan: user?.id || null,
+        medewerker_id: medewerkerId,
+      })
+      revalidatePath('/taken')
+    } catch (err) {
+      console.error('Auto-taak bij nieuwe verkoopkans mislukt:', err)
+    }
   }
 
   revalidatePath('/projecten')

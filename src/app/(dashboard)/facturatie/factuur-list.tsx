@@ -26,6 +26,7 @@ interface Factuur {
   btw_totaal: number | null
   betaald_bedrag: number
   factuur_type: string | null
+  onderwerp: string | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   relatie: { id?: string; bedrijfsnaam: string } | any | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -123,7 +124,10 @@ function buildColumns(
     cell: ({ row }) => {
       const r = row.original.relatie
       const project = row.original.offerte?.project || row.original.order?.offerte?.project
-      const projectNaam = project?.naam || row.original.order?.onderwerp
+      // Val terug op het onderwerp van de order en daarna van de factuur zelf —
+      // 'losse' facturen (geen offerte/order) hebben geen project-join, maar
+      // hun eigen onderwerp bevat doorgaans de verkoopkans-/klusnaam.
+      const projectNaam = project?.naam || row.original.order?.onderwerp || row.original.onderwerp
       return (
         <div className="min-w-0">
           {r?.id ? (
