@@ -90,6 +90,11 @@ export function DataTable<T>({
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    // Standaard reset react-table naar pagina 1 zodra de data-referentie
+    // verandert. Bij inline-acties (taak afvinken, deadline aanpassen) doet
+    // het CRM een router.refresh() — dan sprong de gebruiker telkens terug
+    // naar pagina 1. Met deze flag blijft de paginering staan.
+    autoResetPageIndex: false,
     initialState: {
       pagination: { pageSize: 20 },
     },

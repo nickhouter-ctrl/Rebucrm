@@ -251,11 +251,13 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
   ].filter(Boolean).join(' — ')
 
   async function handleToggle(id: string, currentStatus: string) {
+    // Rij meteen uit de huidige view halen: na afvinken hoort de taak in
+    // 'Afgerond' (en bij heropenen verlaat 'ie 'Afgerond'). Server bijwerken
+    // gebeurt direct erna; router.refresh houdt de tellers consistent.
+    setTakenLijst(prev => prev.filter(t => t.id !== id))
     if (currentStatus === 'afgerond') {
-      setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, status: 'open' } : t))
       await uncompleteTaak(id)
     } else {
-      setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, status: 'afgerond' } : t))
       await completeTaak(id)
     }
     router.refresh()
