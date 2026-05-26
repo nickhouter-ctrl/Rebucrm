@@ -7480,11 +7480,13 @@ export async function deleteContactpersoon(id: string, relatieId: string) {
 
 export async function getNotities(relatieId: string) {
   const supabase = await createClient()
-  // 1. Directe klant-notities
+  // 1. Directe klant-notities — notities mét project_id zijn verkoopkans-
+  // notities en horen daar (niet op het klant-dashboard).
   const { data: direct } = await supabase
     .from('notities')
     .select('*, gebruiker:profielen(naam)')
     .eq('relatie_id', relatieId)
+    .is('project_id', null)
     .order('created_at', { ascending: false })
 
   // 2. Taak-notities: notities op taken van deze klant
@@ -7650,6 +7652,12 @@ export async function globalSearch(query: string) {
   const searchTerm = `%${trimmed}%`
   const digitsOnly = trimmed.replace(/\D/g, '')
   const digitsTerm = digitsOnly.length >= 3 ? `%${digitsOnly}%` : null
+  // Losse-cijfer-patroon: matcht telefoonnummers ongeacht spaties/streepjes/
+  // pluskenmerken — "0612345678" vindt ook "06 12 34 56 78" en "+31 6 1234 5678".
+  // Alleen toepassen vanaf 6 cijfers om false positives te beperken.
+  const digitsLooseTerm = digitsOnly.length >= 6
+    ? `%${digitsOnly.split('').join('%')}%`
+    : null
 
   const relatieFilters = [
     `bedrijfsnaam.ilike.${searchTerm}`,
@@ -7658,6 +7666,7 @@ export async function globalSearch(query: string) {
     `telefoon.ilike.${searchTerm}`,
   ]
   if (digitsTerm) relatieFilters.push(`telefoon.ilike.${digitsTerm}`)
+  if (digitsLooseTerm) relatieFilters.push(`telefoon.ilike.${digitsLooseTerm}`)
 
   const [relatiesRes, offertesRes, projectenRes] = await Promise.all([
     supabase
