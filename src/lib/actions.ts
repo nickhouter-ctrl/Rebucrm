@@ -37,6 +37,35 @@ export async function getAdministratieId(): Promise<string | null> {
   return getAdministratieIdCached()
 }
 
+// Voorkomt dubbele relaties op de drie sterkste signalen: KvK-nummer,
+// e-mailadres en factuur-e-mailadres. E-mails worden kruislings gecheckt
+// (een binnenkomend e-mailadres kan ook in factuur_email van een bestaande
+// relatie staan). Gebruikt door saveRelatie, de e-mail-aanmaakflow en de
+// lead-converter. Heeft een paar duplicaten gehad doordat het oude .maybeSingle()
+// faalde bij >1 match en daarmee ELKE keer een nieuw record aanmaakte.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function vindBestaandeRelatieKandidaat(sb: any, adminId: string, kandidaat: { kvk?: string | null; email?: string | null; factuur_email?: string | null }): Promise<{ id: string; bedrijfsnaam: string } | null> {
+  const kvk = (kandidaat.kvk || '').replace(/\D/g, '')
+  if (kvk.length >= 6) {
+    const { data } = await sb.from('relaties').select('id, bedrijfsnaam')
+      .eq('administratie_id', adminId).eq('kvk_nummer', kvk)
+      .order('created_at', { ascending: true }).limit(1)
+    if (data && data.length) return data[0]
+  }
+  const adressen = [kandidaat.email, kandidaat.factuur_email]
+    .map(e => (e || '').trim().toLowerCase())
+    .filter(e => e.includes('@'))
+  for (const adres of adressen) {
+    for (const col of ['email', 'factuur_email']) {
+      const { data } = await sb.from('relaties').select('id, bedrijfsnaam')
+        .eq('administratie_id', adminId).ilike(col, adres)
+        .order('created_at', { ascending: true }).limit(1)
+      if (data && data.length) return data[0]
+    }
+  }
+  return null
+}
+
 export async function getVolgendeNummer(type: string): Promise<string> {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
@@ -350,6 +379,15 @@ export async function saveRelatie(formData: FormData) {
     revalidatePath('/relatiebeheer')
     return { success: true, id }
   } else {
+    // Voorkom duplicaat: check op KvK / e-mail / factuur-e-mail vóór insert.
+    const dup = await vindBestaandeRelatieKandidaat(supabase, adminId, {
+      kvk: record.kvk_nummer,
+      email: record.email,
+      factuur_email: record.factuur_email,
+    })
+    if (dup) {
+      return { error: `Er bestaat al een relatie met dit KvK-nummer of e-mailadres: "${dup.bedrijfsnaam}". Open die kaart of pas de gegevens aan.` }
+    }
     const { data, error } = await supabase.from('relaties').insert(record).select('id').single()
     if (error) return { error: error.message }
     // Best-effort: nieuwe relatie ook in SnelStart aanmaken zodat hij direct
@@ -2102,8 +2140,10 @@ export async function maakOfferteVanuitEmail(emailId: string) {
   // Zoek of maak relatie obv afzender
   let relatieId: string | null = email.relatie_id
   if (!relatieId && email.van_email) {
-    const { data: bestaand } = await sb.from('relaties').select('id').eq('administratie_id', adminId).ilike('email', email.van_email).maybeSingle()
-    if (bestaand) relatieId = bestaand.id
+    // De oude .maybeSingle()-check faalde bij meerdere matches en maakte dan
+    // élke keer een nieuw duplicaat aan — hoofdoorzaak van de duplicaten-stroom.
+    const dup = await vindBestaandeRelatieKandidaat(sb, adminId, { email: email.van_email })
+    if (dup) relatieId = dup.id
     else {
       const { data: nieuw } = await sb.from('relaties').insert({
         administratie_id: adminId,
@@ -6020,6 +6060,16 @@ export async function convertAiLeadToRelatie(leadId: string) {
   const { data: lead } = await supabase.from('leads').select('*').eq('id', leadId).eq('administratie_id', adminId).maybeSingle()
   if (!lead) return { error: 'Lead niet gevonden' }
   if (lead.relatie_id) return { relatieId: lead.relatie_id as string, success: true }
+
+  // Voorkom duplicaat: koppel aan bestaande relatie als die op e-mail/KvK matcht.
+  const dup = await vindBestaandeRelatieKandidaat(supabase, adminId, {
+    email: lead.email as string | null,
+    kvk: (lead as Record<string, unknown>).kvk_nummer as string | null,
+  })
+  if (dup) {
+    await supabase.from('leads').update({ relatie_id: dup.id }).eq('id', leadId)
+    return { relatieId: dup.id, success: true }
+  }
 
   const { data: nieuw, error } = await supabase.from('relaties').insert({
     administratie_id: adminId,
