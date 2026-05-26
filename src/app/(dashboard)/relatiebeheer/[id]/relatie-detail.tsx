@@ -1731,6 +1731,16 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                     { value: 'zakelijk', label: 'Zakelijk' },
                   ]}
                 />
+                <Select
+                  id="actief"
+                  name="actief"
+                  label="Status"
+                  defaultValue={(relatie as unknown as Record<string, unknown>).actief === false ? 'voormalig' : 'actief'}
+                  options={[
+                    { value: 'actief', label: 'Actief' },
+                    { value: 'voormalig', label: 'Voormalig — niet meer benaderen' },
+                  ]}
+                />
                 <Input id="contactpersoon" name="contactpersoon" label="Contactpersoon" defaultValue={relatie.contactpersoon || ''} />
                 <Input id="email" name="email" label="E-mail" type="email" defaultValue={relatie.email || ''} />
                 <Input id="factuur_email" name="factuur_email" label="Factuur-e-mail (optioneel)" type="email" defaultValue={(relatie as Record<string, unknown>).factuur_email as string || ''} placeholder="Leeg = algemene e-mail gebruiken" />

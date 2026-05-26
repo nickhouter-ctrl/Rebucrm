@@ -19,6 +19,7 @@ interface Relatie {
   id: string
   bedrijfsnaam: string
   type: string
+  actief?: boolean | null
   contactpersoon: string | null
   email: string | null
   telefoon: string | null
@@ -52,7 +53,18 @@ function relatieveDatum(datum: string): string {
 }
 
 const columns: ColumnDef<Relatie, unknown>[] = [
-  { accessorKey: 'bedrijfsnaam', header: 'Bedrijfsnaam' },
+  {
+    accessorKey: 'bedrijfsnaam',
+    header: 'Bedrijfsnaam',
+    cell: ({ row }) => (
+      <span className="flex items-center gap-2">
+        <span className={row.original.actief === false ? 'text-gray-400' : ''}>{row.original.bedrijfsnaam}</span>
+        {row.original.actief === false && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 text-gray-600 shrink-0">Voormalig</span>
+        )}
+      </span>
+    ),
+  },
   {
     accessorKey: 'type',
     header: 'Type',
@@ -157,6 +169,7 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   const [importOpen, setImportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [filterType, setFilterType] = useState<'alle' | 'zakelijk' | 'particulier' | 'top'>('alle')
+  const [verbergVoormalig, setVerbergVoormalig] = useState(false)
   const [bulkMailDialog, setBulkMailDialog] = useState<{ ids: string[] } | null>(null)
   const [bulkOnderwerp, setBulkOnderwerp] = useState('')
   const [bulkBericht, setBulkBericht] = useState('')
@@ -172,6 +185,8 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
   } else {
     gefilterd = relaties.filter(r => r.type === filterType)
   }
+  // Voormalige relaties blijven standaard zichtbaar (met badge); optioneel verbergen.
+  if (verbergVoormalig) gefilterd = gefilterd.filter(r => r.actief !== false)
 
   async function handleExport() {
     setExporting(true)
@@ -279,6 +294,14 @@ export function RelatieList({ relaties }: { relaties: Relatie[] }) {
             {t.label}
           </button>
         ))}
+        <button
+          onClick={() => setVerbergVoormalig(v => !v)}
+          className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+            verbergVoormalig ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          }`}
+        >
+          Voormalige verbergen
+        </button>
         <span className="text-sm text-gray-400 ml-2">{gefilterd.length} relaties</span>
       </div>
 

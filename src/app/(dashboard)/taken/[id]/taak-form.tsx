@@ -63,9 +63,16 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   const [vervolgDeadline, setVervolgDeadline] = useState('')
   const [vervolgAangemaakt, setVervolgAangemaakt] = useState(false)
 
-  const filteredProjecten = selectedRelatieId
-    ? projecten.filter(p => p.relatie_id === selectedRelatieId)
-    : projecten
+  // Verkoopkansen-keuzelijst: ALLE projecten tonen (met klantnaam in het label).
+  // Voorheen werd er gefilterd op de relatie van de taak — bij een taak zonder
+  // (juiste) klant viel de lijst dan leeg, waardoor handmatig koppelen niet kon.
+  const relatieNaamMap = new Map(relaties.map(r => [r.id, r.bedrijfsnaam]))
+  const projectOptions = projecten.map(p => ({
+    value: p.id,
+    label: p.relatie_id && relatieNaamMap.get(p.relatie_id)
+      ? `${p.naam} — ${relatieNaamMap.get(p.relatie_id)}`
+      : p.naam,
+  }))
 
   const filteredOffertes = selectedRelatieId
     ? offertes.filter(o => o.relatie_id === selectedRelatieId)
@@ -271,9 +278,17 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
                 name="project_id"
                 label="Verkoopkans"
                 placeholder="Zoek verkoopkans..."
-                options={filteredProjecten.map(p => ({ value: p.id, label: p.naam }))}
+                options={projectOptions}
                 value={selectedProjectId}
-                onChange={setSelectedProjectId}
+                onChange={(val) => {
+                  setSelectedProjectId(val)
+                  // Vul de klant automatisch in op basis van het project,
+                  // als die nog leeg is.
+                  if (val && !selectedRelatieId) {
+                    const p = projecten.find(x => x.id === val)
+                    if (p?.relatie_id) setSelectedRelatieId(p.relatie_id)
+                  }
+                }}
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
