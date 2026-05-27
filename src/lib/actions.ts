@@ -6364,8 +6364,13 @@ export async function sendOfferteEmail(offerteId: string, options: {
             // Handmatige override wint van de (her-geparste) AI-prijs.
             // Idem voor hoeveelheid — als de gebruiker die heeft bijgesteld
             // willen we zijn waarde gebruiken, niet de PDF-waarde.
-            const inkoopPrijs = prijzen[naam]?.prijs ?? matchingElement?.prijs ?? 0
-            const hoeveelheid = prijzen[naam]?.hoeveelheid ?? matchingElement?.hoeveelheid ?? 1
+            // Fallback: zoek met case/whitespace-insensitive match zodat
+            // kleine verschillen tussen opgeslagen naam en geparste naam
+            // (bv. trailing space) de override niet om zeep helpen.
+            const norm = (s: string) => s.toLowerCase().trim().replace(/\s+/g, ' ')
+            const overrideEntry = prijzen[naam] ?? Object.entries(prijzen).find(([k]) => norm(k) === norm(naam))?.[1]
+            const inkoopPrijs = overrideEntry?.prijs ?? matchingElement?.prijs ?? 0
+            const hoeveelheid = overrideEntry?.hoeveelheid ?? matchingElement?.hoeveelheid ?? 1
             const margePerc = marges[naam] ?? margePercentage
             const verkoopPrijs = margePerc > 0 ? Math.round(inkoopPrijs * (1 + margePerc / 100) * 100) / 100 : inkoopPrijs
 
@@ -8318,6 +8323,57 @@ export async function saveLeverancierTekeningen(offerteId: string, elementen: { 
       entiteit_id: offerteId,
     })
 
+  return { success: true }
+}
+
+// Werk alleen marges + prijzen-overrides bij zonder de tekeningen-mapping te
+// raken. Wordt gebruikt in re-edit-flow waar geen nieuwe leverancier-PDF wordt
+// geupload, maar wel inkoopprijzen handmatig zijn aangepast.
+export async function updateLeverancierOverrides(
+  offerteId: string,
+  margePercentage?: number,
+  elementMarges?: Record<string, number>,
+  elementPrijzen?: Record<string, { prijs: number; hoeveelheid: number }>,
+) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const supabaseAdmin = createAdminClient()
+
+  const { data: metaDoc } = await supabaseAdmin
+    .from('documenten')
+    .select('id, storage_path')
+    .eq('entiteit_type', 'offerte_leverancier_data')
+    .eq('entiteit_id', offerteId)
+    .maybeSingle()
+
+  if (!metaDoc) return { error: 'Geen leverancier-metadata gevonden' }
+
+  let existing: { tekeningen?: unknown[]; margePercentage?: number; marges?: Record<string, number>; prijzen?: Record<string, { prijs: number; hoeveelheid: number }> } = {}
+  try {
+    const parsed = JSON.parse(metaDoc.storage_path)
+    if (Array.isArray(parsed)) {
+      existing = { tekeningen: parsed }
+    } else {
+      existing = parsed
+    }
+  } catch {
+    return { error: 'Metadata is corrupt' }
+  }
+
+  const merged = {
+    tekeningen: existing.tekeningen || [],
+    margePercentage: (margePercentage && margePercentage > 0) ? margePercentage : existing.margePercentage,
+    marges: (elementMarges && Object.keys(elementMarges).length > 0) ? elementMarges : existing.marges,
+    prijzen: (elementPrijzen && Object.keys(elementPrijzen).length > 0) ? elementPrijzen : existing.prijzen,
+  }
+
+  const { error } = await supabaseAdmin
+    .from('documenten')
+    .update({ storage_path: JSON.stringify(merged) })
+    .eq('id', metaDoc.id)
+
+  if (error) return { error: error.message }
   return { success: true }
 }
 

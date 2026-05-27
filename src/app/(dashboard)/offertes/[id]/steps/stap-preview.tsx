@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { ArrowLeft, ArrowRight, Loader2, Eye, EyeOff, Pencil, Trash2, MoreVertical, Percent, Sparkles, Undo2, X, FileText, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate, saveLeverancierPrijsCorrecties, processLeverancierPdf } from '@/lib/actions'
+import { saveOfferte, uploadLeverancierTekening, saveLeverancierTekeningen, saveConceptState, loadConceptState, approveConceptState, saveLeverancierWipeTemplate, saveLeverancierPrijsCorrecties, processLeverancierPdf, updateLeverancierOverrides } from '@/lib/actions'
 import type { ParsedPdfResult, RenderedTekening, WipedRegion } from './stap-tekeningen'
 import { PdfViewer, type PdfViewerHandle } from './preview/pdf-viewer'
 import { PreviewChecklist } from './preview/checklist'
@@ -869,6 +869,21 @@ export function StapPreview({
       if (pendingPdfFile) {
         const up = await uploadPreProcessedPdf(offerteId)
         if (!up.ok) { setSaving(false); return }
+      } else if (parsedPdfResult?.elementen?.length > 0) {
+        // Re-edit-flow zonder nieuwe PDF: alleen marges + prijs/hoeveelheid-
+        // overrides bijwerken (tekeningen-mapping blijft staan). Anders gaat
+        // een gecorrigeerde inkoopprijs verloren bij volgend PDF-render.
+        try {
+          const elementPrijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
+          for (const e of parsedPdfResult.elementen) {
+            if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) continue
+            const prijs = prijsOverrides[e.naam] ?? e.prijs
+            elementPrijzen[e.naam] = { prijs, hoeveelheid: e.hoeveelheid }
+          }
+          await updateLeverancierOverrides(offerteId, margePercentage, elementMarges, elementPrijzen)
+        } catch (e) {
+          console.warn('Marge/prijs-update bij re-edit mislukt:', e)
+        }
       }
       // AI leert van handmatige prijs-correcties
       if (detectedLeverancier?.leverancier && detectedLeverancier.leverancier !== 'onbekend' && Object.keys(prijsOverrides).length > 0) {

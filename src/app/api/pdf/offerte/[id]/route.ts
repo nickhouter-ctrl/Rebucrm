@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { OfferteDocument, KozijnElement } from '@/lib/pdf/offerte-template'
 import { parseLeverancierPdfText } from '@/lib/pdf-parser'
 
+export const dynamic = 'force-dynamic'
+
 function normalizeName(name: string): string {
   // Normaliseer: 'Deur 008', 'DEUR 008', 'Element 008' → allemaal '008' voor matching
   // zodat labels van de Aluplast/Aluprof parser ('Deur X') en de prijzen-meta
@@ -324,6 +326,9 @@ export async function GET(
       headers: {
         'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="Offerte-${offerte.offertenummer}${suffix}.pdf"`,
+        // Geen cache: na een save moet de PDF direct de nieuwe prijzen tonen,
+        // niet een eerder gegenereerde versie uit browser/CDN-cache.
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
       },
     })
   } catch (err) {
