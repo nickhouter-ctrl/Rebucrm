@@ -6304,12 +6304,18 @@ export async function sendOfferteEmail(offerteId: string, options: {
         let tekeningData: { naam: string; tekeningPath: string }[]
         let margePercentage = 0
         let marges: Record<string, number> = {}
+        // Handmatige inkoopprijs-overrides per element (gebruiker kan in de
+        // wizard de AI-prijs corrigeren). Deze MOETEN voorrang krijgen op de
+        // re-geparste PDF-prijzen — anders zie je in de verzonden offerte
+        // alsnog de originele AI-waarde i.p.v. de gecorrigeerde.
+        let prijzen: Record<string, { prijs: number; hoeveelheid: number }> = {}
         if (Array.isArray(rawMeta)) {
           tekeningData = rawMeta
         } else {
           tekeningData = rawMeta.tekeningen || []
           margePercentage = rawMeta.margePercentage || 0
           marges = rawMeta.marges || {}
+          prijzen = rawMeta.prijzen || {}
         }
 
         const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
@@ -6355,13 +6361,17 @@ export async function sendOfferteEmail(offerteId: string, options: {
             }
 
             const matchingElement = elementData.find(e => e.naam === naam)
-            const inkoopPrijs = matchingElement?.prijs || 0
+            // Handmatige override wint van de (her-geparste) AI-prijs.
+            // Idem voor hoeveelheid — als de gebruiker die heeft bijgesteld
+            // willen we zijn waarde gebruiken, niet de PDF-waarde.
+            const inkoopPrijs = prijzen[naam]?.prijs ?? matchingElement?.prijs ?? 0
+            const hoeveelheid = prijzen[naam]?.hoeveelheid ?? matchingElement?.hoeveelheid ?? 1
             const margePerc = marges[naam] ?? margePercentage
             const verkoopPrijs = margePerc > 0 ? Math.round(inkoopPrijs * (1 + margePerc / 100) * 100) / 100 : inkoopPrijs
 
             kozijnElementen.push({
               naam: matchingElement?.naam || naam,
-              hoeveelheid: matchingElement?.hoeveelheid || 1,
+              hoeveelheid,
               systeem: matchingElement?.systeem || '',
               kleur: matchingElement?.kleur || '',
               afmetingen: matchingElement?.afmetingen || '',

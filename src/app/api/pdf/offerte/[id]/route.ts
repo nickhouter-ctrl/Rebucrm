@@ -198,10 +198,13 @@ export async function GET(
           parsed: typeof elementData[0] | null,
         ): KozijnElement {
           const marge = findMarge(naam)
-          // Use parsed price, fallback to saved price from metadata
+          // Handmatige override uit de wizard wint van de (her-geparste)
+          // AI-prijs. Zonder deze volgorde zou een verkeerd geparseerde
+          // AI-prijs in de PDF blijven staan, ook nadat de gebruiker hem
+          // in de wizard had bijgesteld.
           const saved = findSavedPrijs(naam)
-          const inkoopPrijs = parsed?.prijs || saved?.prijs || 0
-          const hoeveelheid = parsed?.hoeveelheid || saved?.hoeveelheid || 1
+          const inkoopPrijs = saved?.prijs ?? parsed?.prijs ?? 0
+          const hoeveelheid = saved?.hoeveelheid ?? parsed?.hoeveelheid ?? 1
           const verkoopPrijs = marge > 0
             ? Math.round(inkoopPrijs * (1 + marge / 100) * 100) / 100
             : inkoopPrijs
