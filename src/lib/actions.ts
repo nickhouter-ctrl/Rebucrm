@@ -301,7 +301,7 @@ export async function getRelatieTimeline(relatieId: string, limit = 50) {
     sb.from('notities').select('id, tekst, created_at').eq('relatie_id', relatieId).order('created_at', { ascending: false }).limit(limit),
     sb.from('emails').select('id, onderwerp, van_email, aan_email, datum, richting').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
     sb.from('offertes').select('id, offertenummer, status, datum, totaal').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
-    sb.from('facturen').select('id, factuurnummer, status, datum, totaal').eq('relatie_id', relatieId).order('datum', { ascending: false }).limit(limit),
+    sb.from('facturen').select('id, factuurnummer, status, datum, totaal, created_at').eq('relatie_id', relatieId).order('datum', { ascending: false, nullsFirst: false }).limit(limit),
     sb.from('taken').select('id, taaknummer, titel, status, created_at').eq('relatie_id', relatieId).order('created_at', { ascending: false }).limit(limit),
   ])
 
@@ -316,7 +316,7 @@ export async function getRelatieTimeline(relatieId: string, limit = 50) {
     richting: e.richting,
   })
   for (const o of offertes.data || []) items.push({ id: o.id, type: 'offerte', titel: o.offertenummer, status: o.status, bedrag: o.totaal, datum: o.datum, href: `/offertes/${o.id}` })
-  for (const f of facturen.data || []) items.push({ id: f.id, type: 'factuur', titel: f.factuurnummer, status: f.status, bedrag: f.totaal, datum: f.datum, href: `/facturatie/${f.id}` })
+  for (const f of facturen.data || []) items.push({ id: f.id, type: 'factuur', titel: f.factuurnummer, status: f.status, bedrag: f.totaal, datum: f.datum || f.created_at, href: `/facturatie/${f.id}` })
   for (const t of taken.data || []) items.push({ id: t.id, type: 'taak', titel: t.titel, subtitle: t.taaknummer, status: t.status, datum: t.created_at, href: `/taken/${t.id}` })
 
   items.sort((a, b) => b.datum.localeCompare(a.datum))
@@ -1627,8 +1627,8 @@ export async function maakEindafrekening(aanbetalingId: string) {
     factuur_type: 'restbetaling',
     gerelateerde_factuur_id: aanbet.id,
     factuurnummer: nummer,
-    datum: new Date().toISOString().slice(0, 10),
-    vervaldatum: new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10),
+    datum: null,
+    vervaldatum: null,
     status: 'concept',
     onderwerp: `Restbetaling${offertenummer ? ` — ${offertenummer}` : ''}${aanbet.onderwerp ? ` / ${aanbet.onderwerp.replace(/^Aanbetaling\s*\d+%\s*-\s*/i, '')}` : ''}`,
     subtotaal: restSubtotaal,
@@ -1929,14 +1929,18 @@ export async function saveFactuur(formData: FormData) {
   const subtotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number }) => sum + r.aantal * r.prijs, 0)
   const btwTotaal = regels.reduce((sum: number, r: { aantal: number; prijs: number; btw_percentage: number }) => sum + (r.aantal * r.prijs * r.btw_percentage) / 100, 0)
 
+  const status = (formData.get('status') as string) || 'concept'
+  const datumInput = (formData.get('datum') as string) || null
+  const vervaldatumInput = (formData.get('vervaldatum') as string) || null
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
     order_id: formData.get('order_id') as string || null,
     factuurnummer: formData.get('factuurnummer') as string,
-    datum: formData.get('datum') as string,
-    vervaldatum: formData.get('vervaldatum') as string || null,
-    status: formData.get('status') as string || 'concept',
+    // Concept-facturen krijgen pas een datum bij verzending (zie sendFactuurEmail).
+    datum: status === 'concept' ? datumInput : (datumInput || new Date().toISOString().slice(0, 10)),
+    vervaldatum: vervaldatumInput,
+    status,
     onderwerp: formData.get('onderwerp') as string || null,
     subtotaal,
     btw_totaal: btwTotaal,
@@ -2409,18 +2413,24 @@ export async function sendFactuurEmail(factuurId: string, options: {
     return { error: 'E-mail verzenden mislukt' }
   }
 
-  // Update status naar verzonden. Als de factuur in 'concept' stond, dan
-  // is de oorspronkelijke datum gezet bij het aanmaken (bv. bij offerte-
-  // acceptatie weken geleden). Voor de boekhouding wil je de factuurdatum
-  // op het moment van verzending — dus we updaten datum + vervaldatum
-  // (met behoud van het oorspronkelijke verschil tussen beide).
+  // Update status naar verzonden. Concept-facturen krijgen pas hun datum bij
+  // verzending — daarvóór hebben ze geen datum (factuur is nog geen feit).
+  // Vervaldatum wordt afgeleid van het factuur_type, of van een handmatig
+  // ingestelde verval (verschil oude datum/vervaldatum behouden).
   const factuurUpdate: Record<string, unknown> = { status: 'verzonden' }
   if (factuur.status === 'concept') {
     const vandaag = new Date().toISOString().slice(0, 10)
     factuurUpdate.datum = vandaag
     const oudeDatum = factuur.datum ? new Date(factuur.datum) : null
     const oudeVervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum) : null
-    let dagenTermijn = 14
+    // Standaard-termijn op basis van factuur_type
+    const typeTermijn: Record<string, number> = {
+      aanbetaling: 14,
+      termijn: 21,
+      restbetaling: 30,
+      volledig: 30,
+    }
+    let dagenTermijn = typeTermijn[(factuur.factuur_type as string) || ''] ?? 14
     if (oudeDatum && oudeVervaldatum) {
       const diff = Math.round((oudeVervaldatum.getTime() - oudeDatum.getTime()) / (1000 * 60 * 60 * 24))
       if (diff > 0 && diff <= 90) dagenTermijn = diff
@@ -2531,6 +2541,7 @@ export async function pushFactuurToSnelStart(factuurId: string) {
   if (factuur.snelstart_boeking_id) return { error: 'Factuur is al gesynchroniseerd' }
   // Concept-facturen worden NOOIT naar de boekhouding gestuurd
   if (factuur.status === 'concept') return { error: 'Factuur is nog concept, niet naar SnelStart' }
+  if (!factuur.datum) return { error: 'Factuur heeft nog geen datum — kan niet naar SnelStart' }
 
   const relatie = factuur.relatie as {
     id: string
@@ -7136,8 +7147,8 @@ export async function factureerVerkoopkans(
       offerte_id: laatste?.id || null,
       factuur_type: 'volledig',
       factuurnummer: nummer,
-      datum: new Date().toISOString().slice(0, 10),
-      vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      datum: null,
+      vervaldatum: null,
       status: 'concept',
       onderwerp: opties.omschrijving || laatste?.onderwerp || project.naam,
       subtotaal: excl,
@@ -7202,8 +7213,8 @@ export async function convertToFactuur(
         order_id: orderId,
         factuur_type: 'volledig',
         factuurnummer: nummer,
-        datum: new Date().toISOString().split('T')[0],
-        vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        datum: null,
+        vervaldatum: null,
         status: 'concept',
         onderwerp: offerte.onderwerp,
         subtotaal: offerte.subtotaal,
@@ -7269,8 +7280,8 @@ export async function convertToFactuur(
         order_id: orderId,
         factuur_type: 'aanbetaling',
         factuurnummer: nummer1,
-        datum: new Date().toISOString().split('T')[0],
-        vervaldatum: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        datum: null,
+        vervaldatum: null,
         status: 'concept',
         onderwerp: `Aanbetaling ${aanbetalingPercentage}% - ${offerte.onderwerp || offerte.offertenummer}`,
         subtotaal: aanbetalingSubtotaal,
@@ -7302,8 +7313,8 @@ export async function convertToFactuur(
         factuur_type: 'restbetaling',
         gerelateerde_factuur_id: factuur1.id,
         factuurnummer: nummer2,
-        datum: new Date().toISOString().split('T')[0],
-        vervaldatum: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        datum: null,
+        vervaldatum: null,
         status: 'concept',
         onderwerp: `Restbetaling ${100 - aanbetalingPercentage}% - ${offerte.onderwerp || offerte.offertenummer}`,
         subtotaal: restSubtotaal,
@@ -7379,8 +7390,8 @@ export async function convertToFactuur(
           order_id: orderId,
           factuur_type: t.factuur_type,
           factuurnummer: nummer,
-          datum: new Date().toISOString().split('T')[0],
-          vervaldatum: new Date(Date.now() + t.vervalDagen * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          datum: null,
+          vervaldatum: null,
           status: 'concept',
           onderwerp: `${t.label} - ${offerte.onderwerp || offerte.offertenummer}`,
           subtotaal: t.sub,

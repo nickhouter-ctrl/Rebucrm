@@ -37,7 +37,7 @@ export default async function PortaalFacturenPage() {
                   {facturen.map((factuur) => (
                     <tr key={factuur.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-3 font-medium text-gray-900">{factuur.factuurnummer}</td>
-                      <td className="px-6 py-3 text-gray-600">{formatDateShort(factuur.datum)}</td>
+                      <td className="px-6 py-3 text-gray-600">{factuur.datum ? formatDateShort(factuur.datum) : '—'}</td>
                       <td className="px-6 py-3 text-gray-600">{factuur.vervaldatum ? formatDateShort(factuur.vervaldatum) : '-'}</td>
                       <td className="px-6 py-3"><Badge status={factuur.status} /></td>
                       <td className="px-6 py-3 text-right font-medium text-gray-900">{formatCurrency(factuur.totaal || 0)}</td>

@@ -18,7 +18,7 @@ import { showToast } from '@/components/ui/toast'
 interface Factuur {
   id: string
   factuurnummer: string
-  datum: string
+  datum: string | null
   vervaldatum: string | null
   status: string
   totaal: number
@@ -112,7 +112,7 @@ function buildColumns(
             </span>
           )}
         </div>
-        <div className="text-[10px] text-gray-400 mt-0.5">{formatDateShort(row.original.datum)}</div>
+        <div className="text-[10px] text-gray-400 mt-0.5">{row.original.datum ? formatDateShort(row.original.datum) : 'concept'}</div>
       </div>
     ),
   },

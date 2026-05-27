@@ -478,13 +478,36 @@ export function StapPreview({
     }
   }
 
-  // Bouw PDF zodra gebruiker naar pdf-tab schakelt en hij is leeg
+  // Bouw PDF zodra gebruiker naar pdf-tab schakelt en hij is leeg.
+  // Hangt ook van pdfPreviewUrl af zodat een geïnvalideerde cache automatisch
+  // tot een herbouw leidt zolang de gebruiker op de pdf-tab staat.
   useEffect(() => {
     if (rightTab === 'pdf' && !pdfPreviewUrl && !pdfLoading) {
       buildPdfPreview()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rightTab])
+  }, [rightTab, pdfPreviewUrl])
+
+  // Invalideer de gecachete PDF-preview zodra prijzen, marges, zichtbaarheid
+  // of regels wijzigen. Anders kan de gebruiker na bv. een handmatige
+  // inkoopprijs-correctie de OUDE preview blijven zien (live UI rekent met
+  // nieuwe waarde, maar de PDF was al gerenderd). 300ms debounce voorkomt
+  // dat we tijdens typen continu herrenderen.
+  const invalidateRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const firstRenderRef = useRef(true)
+  useEffect(() => {
+    if (firstRenderRef.current) {
+      firstRenderRef.current = false
+      return
+    }
+    if (invalidateRef.current) clearTimeout(invalidateRef.current)
+    invalidateRef.current = setTimeout(() => {
+      setPdfPreviewUrl('')
+    }, 300)
+    return () => {
+      if (invalidateRef.current) clearTimeout(invalidateRef.current)
+    }
+  }, [prijsOverrides, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, regels, vrijTekst, onderwerp])
 
   // Cleanup blob-url op unmount
   useEffect(() => () => {

@@ -21,8 +21,9 @@ interface Relatie {
 
 interface FactuurData {
   factuurnummer: string
-  datum: string
+  datum: string | null
   vervaldatum?: string | null
+  status?: string | null
   onderwerp?: string | null
   subtotaal: number
   btw_totaal: number
@@ -35,13 +36,11 @@ interface FactuurData {
 }
 
 const logoPath = path.join(process.cwd(), 'public', 'images', 'logo-rebu.png')
-const coverBgPath = path.join(process.cwd(), 'public', 'images', 'cover-bg.png')
-const backPagePath = path.join(process.cwd(), 'public', 'images', 'back-page.jpg')
-const rkIconPath = path.join(process.cwd(), 'public', 'images', 'rk-icon-transparent.png')
 
 export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
   const regels = factuur.regels || []
   const relatie = factuur.relatie
+  const isConcept = factuur.status === 'concept'
 
   // Bereken BTW groepen
   const btwGroepen: Record<number, number> = {}
@@ -52,68 +51,90 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
 
   return (
     <Document>
-      {/* ====== PAGINA 1: COVER ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
+      {/* ====== PAGINA 1: COVER — fris wit met groen accent ====== */}
+      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: '#FFFFFF' }]}>
         <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={coverBgPath} style={s.fullPageBg} />
-          <View style={s.coverBottomBar}>
-            <View>
-              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5 }}>
-                <Text>FACTUURNUMMER:  </Text>
-                <Text style={{ fontFamily: 'Helvetica' }}>{factuur.factuurnummer}</Text>
+          {/* Top gradient accent */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, backgroundColor: COLORS.green }} />
+
+          {/* Logo groot centraal */}
+          <View style={{ marginTop: 180, alignItems: 'center' }}>
+            <Image src={logoPath} style={{ width: 280, height: 'auto' }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 12, letterSpacing: 2 }}>MAKEN HET VERSCHIL</Text>
+          </View>
+
+          {/* FACTUUR titel */}
+          <View style={{ marginTop: 90, alignItems: 'center' }}>
+            <Text style={{ fontSize: 34, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 4 }}>
+              {isConcept ? 'CONCEPT FACTUUR' : 'FACTUUR'}
+            </Text>
+            <View style={{ width: 60, height: 3, backgroundColor: COLORS.green, marginTop: 14 }} />
+          </View>
+
+          {/* Factuur info block */}
+          <View style={{ marginTop: 40, alignItems: 'center' }}>
+            {relatie && (
+              <Text style={{ fontSize: 14, color: COLORS.text, marginBottom: 14 }}>
+                Voor: <Text style={{ fontFamily: 'Helvetica-Bold' }}>{relatie.bedrijfsnaam}</Text>
               </Text>
-              <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5, marginTop: 2 }}>
-                <Text>FACTUURDATUM:   </Text>
-                <Text style={{ fontFamily: 'Helvetica' }}>{formatDatePdf(factuur.datum)}</Text>
+            )}
+            <Text style={{ fontSize: 10, color: COLORS.textLight, letterSpacing: 1 }}>
+              FACTUURNUMMER · <Text style={{ color: COLORS.text, fontFamily: 'Helvetica-Bold' }}>{factuur.factuurnummer}</Text>
+            </Text>
+            {!isConcept && factuur.datum && (
+              <Text style={{ fontSize: 10, color: COLORS.textLight, letterSpacing: 1, marginTop: 4 }}>
+                FACTUURDATUM · <Text style={{ color: COLORS.text, fontFamily: 'Helvetica-Bold' }}>{formatDatePdf(factuur.datum)}</Text>
               </Text>
-              {factuur.vervaldatum && (
-                <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: COLORS.white, letterSpacing: 0.5, marginTop: 2 }}>
-                  <Text>VERVALDATUM:    </Text>
-                  <Text style={{ fontFamily: 'Helvetica' }}>{formatDatePdf(factuur.vervaldatum)}</Text>
-                </Text>
-              )}
-            </View>
+            )}
+            {!isConcept && factuur.vervaldatum && (
+              <Text style={{ fontSize: 10, color: COLORS.textLight, letterSpacing: 1, marginTop: 4 }}>
+                VERVALDATUM · <Text style={{ color: COLORS.text, fontFamily: 'Helvetica-Bold' }}>{formatDatePdf(factuur.vervaldatum)}</Text>
+              </Text>
+            )}
+          </View>
+
+          {/* Footer — company info */}
+          <View style={{ position: 'absolute', bottom: 50, left: 50, right: 50, alignItems: 'center' }}>
+            <View style={{ width: '100%', height: 0.5, backgroundColor: '#E5E7EB', marginBottom: 16 }} />
+            <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: COLORS.green, letterSpacing: 1 }}>{COMPANY.naam.toUpperCase()}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 4 }}>{COMPANY.adres} · {COMPANY.postcode} {COMPANY.plaats}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 2 }}>{COMPANY.telefoon} · {COMPANY.email} · {COMPANY.website}</Text>
           </View>
         </View>
       </Page>
 
-      {/* ====== PAGINA 2: INHOUD ====== */}
-      <Page size="A4" style={[s.page, s.contentPage]}>
-        {/* Zwarte sidebar rechts */}
-        <View style={s.contentSidebar} />
+      {/* ====== PAGINA 2: INHOUD — fris zonder sidebar/watermerk ====== */}
+      <Page size="A4" style={[s.page, { paddingTop: 40, paddingBottom: 60, paddingLeft: 50, paddingRight: 50 }]}>
+        {/* Top groene accent */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, backgroundColor: COLORS.green }} />
 
-        {/* Watermark RK icoon */}
-        <Image src={rkIconPath} style={s.watermarkImage} />
-
-        {/* Logo rechts boven */}
-        <View style={s.logoArea}>
-          <Image src={logoPath} style={{ width: 160, height: 'auto' }} />
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+          <View style={{ flex: 1 }}>
+            {relatie && (
+              <>
+                <Text style={s.clientName}>{relatie.bedrijfsnaam}</Text>
+                {relatie.contactpersoon && <Text style={s.clientDetail}>t.a.v. {relatie.contactpersoon}</Text>}
+                {relatie.adres && <Text style={s.clientDetail}>{relatie.adres}</Text>}
+                {(relatie.postcode || relatie.plaats) && (
+                  <Text style={s.clientDetail}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
+                )}
+              </>
+            )}
+          </View>
+          <Image src={logoPath} style={{ width: 130, height: 'auto' }} />
         </View>
 
-        {/* Klantgegevens links boven */}
-        <View style={s.clientSection}>
-          {relatie && (
-            <>
-              <Text style={s.clientName}>{relatie.bedrijfsnaam}</Text>
-              {relatie.contactpersoon && <Text style={s.clientDetail}>t.a.v. {relatie.contactpersoon}</Text>}
-              {relatie.adres && <Text style={s.clientDetail}>{relatie.adres}</Text>}
-              {(relatie.postcode || relatie.plaats) && (
-                <Text style={s.clientDetail}>{[relatie.postcode, relatie.plaats].filter(Boolean).join(' ')}</Text>
-              )}
-            </>
-          )}
-        </View>
-
-        {/* Meta info: factuur details */}
         <View style={s.metaSection}>
           <View style={s.metaLeft}>
             <Text style={s.metaLine}>
               <Text style={s.metaLabel}>Factuurnummer: </Text>{factuur.factuurnummer}
             </Text>
-            <Text style={s.metaLine}>
-              <Text style={s.metaLabel}>Factuurdatum: </Text>{formatDatePdf(factuur.datum)}
-            </Text>
-            {factuur.vervaldatum && (
+            {!isConcept && factuur.datum && (
+              <Text style={s.metaLine}>
+                <Text style={s.metaLabel}>Factuurdatum: </Text>{formatDatePdf(factuur.datum)}
+              </Text>
+            )}
+            {!isConcept && factuur.vervaldatum && (
               <Text style={s.metaLine}>
                 <Text style={s.metaLabel}>Vervaldatum: </Text>{formatDatePdf(factuur.vervaldatum)}
               </Text>
@@ -160,10 +181,6 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
           <View style={s.totalsRow}>
             <Text style={s.totalsLabel}>Subtotaal</Text>
             <Text style={s.totalsValue}>{formatCurrencyPdf(factuur.subtotaal)}</Text>
-          </View>
-          <View style={s.totalsRow}>
-            <Text style={s.totalsLabel}></Text>
-            <Text style={s.totalsValue}>{formatCurrencyPdf(0)}</Text>
           </View>
           <View style={s.totalsRow}>
             <Text style={s.totalsLabel}>Totaal excl. BTW</Text>
@@ -225,10 +242,34 @@ export function FactuurDocument({ factuur }: { factuur: FactuurData }) {
         </View>
       </Page>
 
-      {/* ====== ACHTERPAGINA MET FOTO ====== */}
-      <Page size="A4" style={[s.page, { padding: 0 }]}>
-        <View style={{ width: '100%', height: '100%', position: 'relative' }}>
-          <Image src={backPagePath} style={s.fullPageBg} />
+      {/* ====== ACHTERPAGINA — fris, wit met groene accent ====== */}
+      <Page size="A4" style={[s.page, { padding: 0, backgroundColor: '#FFFFFF' }]}>
+        <View style={{ width: '100%', height: '100%', position: 'relative', alignItems: 'center' }}>
+          {/* Top groene accent */}
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, backgroundColor: COLORS.green }} />
+
+          {/* Logo + bedankje */}
+          <View style={{ marginTop: 240, alignItems: 'center' }}>
+            <Image src={logoPath} style={{ width: 220, height: 'auto' }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 10, letterSpacing: 2 }}>MAKEN HET VERSCHIL</Text>
+          </View>
+
+          <View style={{ marginTop: 80, alignItems: 'center' }}>
+            <Text style={{ fontSize: 22, fontFamily: 'Helvetica-Bold', color: COLORS.text, letterSpacing: 1 }}>Bedankt voor uw vertrouwen</Text>
+            <View style={{ width: 60, height: 3, backgroundColor: COLORS.green, marginTop: 14 }} />
+            <Text style={{ fontSize: 11, color: COLORS.textLight, marginTop: 18, textAlign: 'center', maxWidth: 360, lineHeight: 1.6 }}>
+              Heeft u vragen over deze factuur? Neem gerust contact met ons op.
+            </Text>
+          </View>
+
+          {/* Footer company info */}
+          <View style={{ position: 'absolute', bottom: 50, left: 50, right: 50, alignItems: 'center' }}>
+            <View style={{ width: '100%', height: 0.5, backgroundColor: '#E5E7EB', marginBottom: 16 }} />
+            <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: COLORS.green, letterSpacing: 1 }}>{COMPANY.naam.toUpperCase()}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 6 }}>{COMPANY.adres} · {COMPANY.postcode} {COMPANY.plaats}</Text>
+            <Text style={{ fontSize: 9, color: COLORS.textLight, marginTop: 2 }}>{COMPANY.telefoon} · {COMPANY.email} · {COMPANY.website}</Text>
+            <Text style={{ fontSize: 8, color: COLORS.textLight, marginTop: 8 }}>BTW {COMPANY.btw} · KVK {COMPANY.kvk} · IBAN {COMPANY.iban}</Text>
+          </View>
         </View>
       </Page>
     </Document>

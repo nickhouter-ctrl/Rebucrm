@@ -127,6 +127,7 @@ export async function POST(req: NextRequest) {
           if (o.status === 'geaccepteerd') buckets[k].geaccepteerd += Number(o.totaal || 0)
         }
         for (const f of (facturen || [])) {
+          if (!f.datum) continue
           const k = get(f.datum); if (!buckets[k]) buckets[k] = { offertes: 0, geaccepteerd: 0, gefactureerd: 0, betaald: 0 }
           buckets[k].gefactureerd += Number(f.totaal || 0)
           buckets[k].betaald += Number(f.betaald_bedrag || 0)

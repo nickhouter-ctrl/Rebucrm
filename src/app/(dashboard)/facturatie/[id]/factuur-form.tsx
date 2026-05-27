@@ -289,7 +289,7 @@ export function FactuurForm({ factuur, relaties, producten }: {
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input id="factuurnummer" name="factuurnummer" label="Factuurnummer *" defaultValue={(factuur?.factuurnummer as string) || ''} required />
-              <Input id="datum" name="datum" label="Datum *" type="date" defaultValue={(factuur?.datum as string) || new Date().toISOString().split('T')[0]} required />
+              <Input id="datum" name="datum" label={factuur?.datum ? 'Factuurdatum' : 'Factuurdatum (volgt bij verzending)'} type="date" defaultValue={(factuur?.datum as string) || ''} />
               <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || ''} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
