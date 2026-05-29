@@ -113,7 +113,7 @@ export async function getMolliePaymentStatus(paymentId: string) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const link: any = await (mollie as any).paymentLinks.get(paymentId)
     // Pak de laatste succesvolle payment om exact bedrag + timestamp te hebben.
-    let paidAt: Date | null = null
+    let paidAt: Date | null = link.paidAt ? new Date(link.paidAt) : null
     let paidAmount = 0
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,9 +128,15 @@ export async function getMolliePaymentStatus(paymentId: string) {
         }
       }
     } catch { /* ignore: payment-link-payments is optional */ }
+    // BELANGRIJK: het Mollie Payment-Link-object heeft GEEN `paid` boolean —
+    // alleen een `paidAt` timestamp. Bepaal 'paid' dus op basis van paidAt of
+    // een gevonden betaalde onderliggende payment. Voorheen werd `link.paid`
+    // gebruikt, wat ALTIJD undefined was → de factuur werd nooit als betaald
+    // gemarkeerd (ook niet door de safety-net cron).
+    const isBetaald = Boolean(link.paidAt) || paidAmount > 0
     return {
       id: link.id as string,
-      status: (link.paid ? 'paid' : 'open') as string,
+      status: (isBetaald ? 'paid' : 'open') as string,
       amount: paidAmount > 0 ? paidAmount : parseFloat(link.amount?.value || '0'),
       paidAt,
     }
