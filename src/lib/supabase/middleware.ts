@@ -33,7 +33,11 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const publicPaths = ['/login', '/registreren', '/wachtwoord-vergeten', '/api/email/sync', '/api/mollie/webhook', '/api/admin/', '/api/factuur/']
+  // LET OP: cron-/sync-endpoints MOETEN publiek zijn — anders redirect deze
+  // middleware ze naar /login (307) en draait de route nooit. Vercel Cron
+  // stuurt geen sessie-cookie mee. De handlers beschermen zichzelf met
+  // CRON_SECRET (zet die env-var in Vercel zodat alleen Vercel Cron erbij kan).
+  const publicPaths = ['/login', '/registreren', '/wachtwoord-vergeten', '/api/email/sync', '/api/mollie/webhook', '/api/admin/', '/api/factuur/', '/api/cron/', '/api/snelstart/']
   const isPublicPath = publicPaths.some((path) =>
     request.nextUrl.pathname.startsWith(path)
   ) || request.nextUrl.pathname.match(/^\/offerte\/[^/]+$/)
