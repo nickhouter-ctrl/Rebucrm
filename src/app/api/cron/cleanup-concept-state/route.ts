@@ -49,12 +49,17 @@ export async function GET(req: NextRequest) {
   const eenDagGeleden = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const { data: draftCandidates } = await sb
     .from('projecten')
-    .select('id, offertes:offertes(id)')
+    .select('id, offertes:offertes(id), taken:taken(id), notities:notities(id)')
     .eq('bron', 'wizard-draft')
     .lt('created_at', eenDagGeleden)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const draftIds = (draftCandidates || []).filter((p: any) => !p.offertes?.length).map((p: any) => p.id as string)
+  // Alleen écht lege, verlaten wizard-drafts opruimen: geen offerte, EN geen
+  // taken, EN geen notities. Zo kan een gebruiker die handmatig een taak of
+  // notitie aan zo'n project hing nooit data kwijtraken door deze cleanup.
+  type DraftRow = { id: string; offertes?: unknown[]; taken?: unknown[]; notities?: unknown[] }
+  const draftIds = ((draftCandidates || []) as DraftRow[])
+    .filter(p => !p.offertes?.length && !p.taken?.length && !p.notities?.length)
+    .map(p => p.id)
   let draftsDeleted = 0
   if (draftIds.length > 0) {
     const BATCH = 200

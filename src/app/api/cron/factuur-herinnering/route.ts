@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendEmail } from '@/lib/email'
 import { buildRebuEmailHtml } from '@/lib/email-template'
 import { ensureFactuurBetaalLink } from '@/lib/mollie'
+import { syncFactuurFromMollie } from '@/lib/mollie-sync'
 import { getAppUrl } from '@/lib/utils'
 
 // Auto-herinneringen voor openstaande facturen op:
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
 
   const { data: facturen } = await sb
     .from('facturen')
-    .select('id, factuurnummer, vervaldatum, totaal, betaald_bedrag, status, onderwerp, administratie_id, betaal_link, publiek_token, aanmaning_stap, relatie:relaties(id, contactpersoon, bedrijfsnaam, email, factuur_email)')
+    .select('id, factuurnummer, vervaldatum, totaal, betaald_bedrag, status, onderwerp, administratie_id, betaal_link, publiek_token, aanmaning_stap, mollie_payment_id, relatie:relaties(id, contactpersoon, bedrijfsnaam, email, factuur_email)')
     .in('status', ['verzonden', 'deels_betaald', 'vervallen'])
     .not('vervaldatum', 'is', null)
 
@@ -84,9 +85,36 @@ export async function GET(req: NextRequest) {
   const errors: string[] = []
   const baseUrl = getAppUrl()
 
+  let overgeslagenBetaald = 0
   for (const f of facturen) {
-    const openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
+    let openstaand = Number(f.totaal || 0) - Number(f.betaald_bedrag || 0)
     if (openstaand <= 0.01) continue
+
+    // HARDE CHECK: nooit een aanmaning sturen naar een klant die al betaald
+    // heeft. Onze factuurstatus kan achterlopen (bv. Mollie-betaling nog niet
+    // afgeboekt). Vóór elke aanmaning verifiëren we daarom live bij Mollie en
+    // boeken we meteen af. Is hij betaald → overslaan.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mollieId = (f as any).mollie_payment_id as string | null
+    if (mollieId) {
+      try {
+        const sync = await syncFactuurFromMollie(mollieId)
+        if (sync.updated || sync.status === 'betaald') {
+          // Lees de bijgewerkte stand opnieuw in
+          const { data: vers } = await sb
+            .from('facturen')
+            .select('totaal, betaald_bedrag, status')
+            .eq('id', f.id)
+            .maybeSingle()
+          if (vers) {
+            if (vers.status === 'betaald') { overgeslagenBetaald++; continue }
+            openstaand = Number(vers.totaal || 0) - Number(vers.betaald_bedrag || 0)
+            if (openstaand <= 0.01) { overgeslagenBetaald++; continue }
+          }
+        }
+      } catch { /* Mollie-check faalt → val terug op DB-status hieronder */ }
+    }
+
     const vervalDate = new Date(f.vervaldatum as string)
     const dagenOver = Math.floor((today.getTime() - vervalDate.getTime()) / (1000 * 60 * 60 * 24))
 
@@ -182,6 +210,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     checked: facturen.length,
     sent,
+    overgeslagen_betaald: overgeslagenBetaald,
     errors: errors.length ? errors : undefined,
   })
 }
