@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation'
 import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 import { type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
+import { ConversiePerMaandDialog } from '@/components/dashboard/conversie-per-maand-dialog'
 
 interface TePlannenOrder {
   id: string
@@ -346,6 +347,7 @@ function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega
 export function DashboardView({ data }: { data: DashboardData | null }) {
   const router = useRouter()
   const [planningOrder, setPlanningOrder] = useState<TePlannenOrder | null>(null)
+  const [conversieDialogOpen, setConversieDialogOpen] = useState(false)
   const [factuurLoading, setFactuurLoading] = useState<string | null>(null)
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
   const [customSplitPercentage, setCustomSplitPercentage] = useState(50)
@@ -662,8 +664,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             </div>
           </div>
         </Link>
-        {/* Conversie */}
-        <Link href="/offertes" className="block group">
+        {/* Conversie — klik opent maand-overzicht (verstuurd vs doorgegaan) */}
+        <button type="button" onClick={() => setConversieDialogOpen(true)} className="block group text-left w-full">
           <div className="relative bg-white rounded-2xl border border-gray-100 p-6 group-hover:border-gray-200 group-hover:shadow-sm transition-all overflow-hidden">
             <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-violet-500 to-fuchsia-400" />
             <div className="flex items-start justify-between gap-3">
@@ -677,7 +679,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               </div>
             </div>
           </div>
-        </Link>
+        </button>
         {/* Achterstallig */}
         <Link href="/facturatie?tab=openstaand&vervallen=1" className="block group">
           <div className={`relative bg-white rounded-2xl border p-6 group-hover:shadow-sm transition-all overflow-hidden ${achterstalligBedrag > 0 ? 'border-red-200' : 'border-gray-100 group-hover:border-gray-200'}`}>
@@ -1466,6 +1468,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       {planningOrder && (
         <DeliveryPlanningDialog open={!!planningOrder} onClose={() => setPlanningOrder(null)} order={planningOrder} />
       )}
+
+      {/* Conversie per maand (verstuurd vs doorgegaan) */}
+      <ConversiePerMaandDialog open={conversieDialogOpen} onClose={() => setConversieDialogOpen(false)} />
 
       {/* Factuur conversie dialog */}
       {factuurDialogOfferte && (
