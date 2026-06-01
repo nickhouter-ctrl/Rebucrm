@@ -10,7 +10,7 @@ import { Select } from '@/components/ui/select'
 import { type AgendaItem, type AgendaItemType, saveAfspraak, deleteAfspraak } from '@/lib/actions'
 import {
   Plus, ChevronLeft, ChevronRight, CheckSquare, Truck, Phone, CalendarDays,
-  MapPin, Trash2,
+  MapPin, Trash2, Palmtree,
 } from 'lucide-react'
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
@@ -59,6 +59,7 @@ const typeConfig: Record<AgendaItemType, { label: string; bg: string; text: stri
   levering: { label: 'Leveringen', bg: 'bg-emerald-100', text: 'text-emerald-800', dot: 'bg-emerald-500', icon: Truck },
   terugbellen: { label: 'Terugbellen', bg: 'bg-orange-100', text: 'text-orange-800', dot: 'bg-orange-500', icon: Phone },
   afspraak: { label: 'Afspraken', bg: 'bg-purple-100', text: 'text-purple-800', dot: 'bg-purple-500', icon: CalendarDays },
+  vrij: { label: 'Vrij/verlof', bg: 'bg-rose-100', text: 'text-rose-800', dot: 'bg-rose-500', icon: Palmtree },
 }
 
 export function AgendaView({
@@ -83,6 +84,7 @@ export function AgendaView({
     levering: true,
     terugbellen: true,
     afspraak: true,
+    vrij: true,
   })
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingAfspraak, setEditingAfspraak] = useState<Afspraak | null>(null)

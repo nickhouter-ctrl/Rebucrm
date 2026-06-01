@@ -745,6 +745,51 @@ export async function archiveerOfferte(offerteId: string, gearchiveerd = true) {
   return { success: true }
 }
 
+// Jaaroverzicht voor het archief: per jaar de omzet (excl. BTW), het aantal
+// facturen, het aantal offertes en de conversie. Zo houd je grip op de cijfers
+// van 2024/2025 terwijl je in de actieve lijsten met het huidige jaar werkt.
+export async function getJaarCijfers() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+
+  const [facturen, offertes] = await Promise.all([
+    fetchAllRows<{ datum: string | null; subtotaal: number | null; totaal: number | null; status: string; factuur_type: string | null }>((from, to) =>
+      supabase.from('facturen').select('datum, subtotaal, totaal, status, factuur_type').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows<{ datum: string | null; status: string }>((from, to) =>
+      supabase.from('offertes').select('datum, status').eq('administratie_id', adminId).range(from, to)),
+  ])
+
+  const perJaar = new Map<string, { jaar: string; omzet: number; aantalFacturen: number; aantalOffertes: number; geaccepteerd: number }>()
+  const zorg = (jaar: string) => {
+    let e = perJaar.get(jaar)
+    if (!e) { e = { jaar, omzet: 0, aantalFacturen: 0, aantalOffertes: 0, geaccepteerd: 0 }; perJaar.set(jaar, e) }
+    return e
+  }
+
+  for (const f of facturen) {
+    const jaar = (f.datum || '').slice(0, 4)
+    if (!jaar) continue
+    // Omzet: tel verstuurde/betaalde facturen mee; sla concept en gecrediteerd over.
+    // Credit-nota's hebben negatieve bedragen → trekken automatisch af.
+    if (f.status === 'concept' || f.status === 'gecrediteerd') continue
+    const e = zorg(jaar)
+    e.omzet += Number(f.subtotaal ?? ((f.totaal || 0) / 1.21))
+    e.aantalFacturen++
+  }
+  for (const o of offertes) {
+    const jaar = (o.datum || '').slice(0, 4)
+    if (!jaar) continue
+    const e = zorg(jaar)
+    e.aantalOffertes++
+    if (o.status === 'geaccepteerd') e.geaccepteerd++
+  }
+
+  return [...perJaar.values()]
+    .map(e => ({ ...e, omzet: Math.round(e.omzet), conversie: e.aantalOffertes > 0 ? Math.round((e.geaccepteerd / e.aantalOffertes) * 100) : 0 }))
+    .sort((a, b) => b.jaar.localeCompare(a.jaar))
+}
+
 export async function getArchiefFacturen() {
   const adminId = await getAdministratieId()
   if (!adminId) return []
@@ -1193,6 +1238,32 @@ export async function acceptOfferte(id: string) {
   if (error) return { error: error.message }
 
   await createOrderFromOfferte(id, supabase, adminId)
+
+  revalidatePath('/offertes')
+  revalidatePath('/')
+  return { success: true }
+}
+
+// Tegenhanger van acceptOfferte: de klant gaat NIET akkoord. De offerte wordt
+// afgewezen waardoor de verkoopkans (project) in de pipeline naar 'verloren'
+// schuift — oftewel: de verkoopkans is afgehandeld/klaar zonder deal. Wordt
+// o.a. gebruikt vanuit de taak-afronden-popup ("niet akkoord").
+export async function rejectOfferte(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: orig } = await supabase.from('offertes').select('offertenummer, status').eq('id', id).maybeSingle()
+  const { error } = await supabase
+    .from('offertes')
+    .update({ status: 'afgewezen' })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({ actie: 'offerte.afgewezen', entiteitType: 'offerte', entiteitId: id, details: orig || undefined })
+  } catch { /* audit niet-blokkerend */ }
 
   revalidatePath('/offertes')
   revalidatePath('/')
@@ -1932,6 +2003,7 @@ export async function saveFactuur(formData: FormData) {
   const status = (formData.get('status') as string) || 'concept'
   const datumInput = (formData.get('datum') as string) || null
   const vervaldatumInput = (formData.get('vervaldatum') as string) || null
+  const geplandeDatumInput = (formData.get('geplande_datum') as string) || null
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
@@ -1940,6 +2012,8 @@ export async function saveFactuur(formData: FormData) {
     // Concept-facturen krijgen pas een datum bij verzending (zie sendFactuurEmail).
     datum: status === 'concept' ? datumInput : (datumInput || new Date().toISOString().slice(0, 10)),
     vervaldatum: vervaldatumInput,
+    // Geplande verzenddatum (planning); alleen relevant voor concepten.
+    geplande_datum: geplandeDatumInput,
     status,
     onderwerp: formData.get('onderwerp') as string || null,
     subtotaal,
@@ -1980,6 +2054,17 @@ export async function saveFactuur(formData: FormData) {
   revalidatePath('/facturatie')
   revalidatePath('/')
   revalidatePath('/rapportages')
+  return { success: true }
+}
+
+// Zet/wist de geplande verzenddatum van een (concept-)factuur. Voor inline
+// plannen vanuit het facturen-overzicht. `datum` is 'YYYY-MM-DD' of null.
+export async function setFactuurGeplandeDatum(id: string, datum: string | null) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('facturen').update({ geplande_datum: datum }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/facturatie')
+  revalidatePath('/')
   return { success: true }
 }
 
@@ -2791,11 +2876,11 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
   const crmFacturen = await fetchAllRows<{
     id: string; factuurnummer: string; totaal: number; betaald_bedrag: number | null;
     status: string; vervaldatum: string | null; snelstart_boeking_id: string | null;
-    snelstart_openstaand: number | null;
+    snelstart_openstaand: number | null; order_id: string | null; factuur_type: string | null;
   }>((from, to) =>
     supabaseAdmin
       .from('facturen')
-      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id, snelstart_openstaand')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id, snelstart_openstaand, order_id, factuur_type')
       .eq('administratie_id', adminId)
       .not('factuurnummer', 'is', null)
       .range(from, to)
@@ -2815,6 +2900,7 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
   let updated = 0
   let betaaldNieuw = 0
   let deelsBetaaldNieuw = 0
+  let naarBestellen = 0
   let vervallenNieuw = 0
   const niet_gevonden: string[] = []
 
@@ -2915,6 +3001,24 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
       } catch (err) {
         console.warn('Betalingsbevestiging-mail na SnelStart sync mislukt:', err)
       }
+
+      // "Na betaling gelijk kunnen bestellen": zodra de aanbetaling (of een
+      // volledige factuur) betaald is, kan het materiaal bij de leverancier
+      // worden besteld. Zet de gekoppelde order op 'moet_besteld' zodat 'ie in
+      // het dashboard-blok "Moet besteld worden" verschijnt. Alleen vanuit een
+      // vroege orderstatus en alleen voor aanbetaling/volledig (niet bij een
+      // restbetaling — dan is al lang besteld).
+      if (f.order_id && (f.factuur_type === 'aanbetaling' || f.factuur_type === 'volledig' || !f.factuur_type)) {
+        try {
+          const { data: ord } = await supabaseAdmin.from('orders').select('status').eq('id', f.order_id).maybeSingle()
+          if (ord && (ord.status === 'nieuw' || ord.status === 'in_behandeling')) {
+            await supabaseAdmin.from('orders').update({ status: 'moet_besteld' }).eq('id', f.order_id)
+            naarBestellen++
+          }
+        } catch (err) {
+          console.warn('Order op moet_besteld zetten na betaling mislukt:', err)
+        }
+      }
     }
   }
 
@@ -2976,6 +3080,7 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
     betaaldGeworden: betaaldNieuw,
     deelsBetaaldGeworden: deelsBetaaldNieuw,
     vervallenGeworden: vervallenNieuw,
+    naarBestellen,
     gepushtNaarSnelstart: gepushtNieuw,
     pushErrors: pushErrors.slice(0, 20),
     nietGevonden: niet_gevonden.slice(0, 20),
@@ -3562,7 +3667,7 @@ export async function getVerkoopkansenPipeline() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('id, naam, status, created_at, updated_at, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
+      .select('id, naam, status, created_at, updated_at, verwachte_valmaand, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
       .neq('status', 'geannuleerd')
       .order('updated_at', { ascending: false })
       .range(from, to),
@@ -3596,9 +3701,141 @@ export async function getVerkoopkansenPipeline() {
       laatsteOfferteGeldigTot: laatste?.geldig_tot || null,
       offerteStatus: laatste?.status || null,
       fase,
+      verwachteValmaand: (p.verwachte_valmaand as string | null) || null,
       updatedAt: p.updated_at,
     }
   })
+}
+
+// Zet (of wist) de verwachte valmaand van een verkoopkans. `maand` is 'YYYY-MM'
+// of null. We slaan op als eerste-van-de-maand datum zodat de prognose erop
+// kan groeperen. Gebruikt vanuit de pipeline-kaart en het project-detail.
+export async function setVerkoopkansVerwachteMaand(projectId: string, maand: string | null) {
+  const supabase = await createClient()
+  const valmaand = maand ? `${maand}-01` : null
+  const { error } = await supabase.from('projecten').update({ verwachte_valmaand: valmaand }).eq('id', projectId)
+  if (error) return { error: error.message }
+  revalidatePath('/projecten/kanban')
+  revalidatePath('/rapportages')
+  return { success: true }
+}
+
+// Maand-prognose voor een jaar: zet per maand de zekere omzet (gewonnen
+// verkoopkansen met een verwachte valmaand) + de gewogen pipeline (open kansen
+// × conversie-ratio) af tegen het omzetdoel. Zo zie je of je het maanddoel
+// waarschijnlijk haalt. Conversie-ratio = win-rate over de laatste 12 maanden
+// (geaccepteerd / besliste offertes).
+export async function getMaandPrognose(jaar: number) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  // 1) Conversie-ratio over laatste 12 maanden (besliste offertes)
+  const grens = new Date()
+  grens.setMonth(grens.getMonth() - 12)
+  const grensStr = grens.toISOString().slice(0, 10)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const beslisteRaw = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('status')
+      .eq('administratie_id', adminId)
+      .in('status', ['geaccepteerd', 'afgewezen'])
+      .gte('datum', grensStr)
+      .range(from, to),
+  )
+  const aantalAkkoord = beslisteRaw.filter(o => o.status === 'geaccepteerd').length
+  const aantalBeslist = beslisteRaw.length
+  // Fallback-ratio van 30% als er nog te weinig historie is om op te sturen.
+  const conversieRatio = aantalBeslist >= 5 ? aantalAkkoord / aantalBeslist : 0.3
+  const ratioIsSchatting = aantalBeslist < 5
+
+  // 2) Omzetdoel voor het jaar (één maanddoel dat voor elke maand geldt)
+  const { data: doelRow } = await supabase
+    .from('omzetdoelen')
+    .select('maand_doel, jaar_doel')
+    .eq('administratie_id', adminId)
+    .eq('jaar', jaar)
+    .maybeSingle()
+  const maandDoel = Number(doelRow?.maand_doel || 0)
+
+  // 3) Verkoopkansen met een verwachte valmaand in dit jaar
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projecten = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('projecten')
+      .select('id, naam, status, verwachte_valmaand, relatie:relaties(bedrijfsnaam), offertes:offertes(status, subtotaal, totaal, datum, versie_nummer)')
+      .eq('administratie_id', adminId)
+      .neq('status', 'geannuleerd')
+      .not('verwachte_valmaand', 'is', null)
+      .gte('verwachte_valmaand', `${jaar}-01-01`)
+      .lte('verwachte_valmaand', `${jaar}-12-31`)
+      .range(from, to),
+  )
+
+  // Per maand (0-11) optellen: zeker (gewonnen) en bruto open pipeline.
+  const maanden = Array.from({ length: 12 }, (_, i) => ({
+    maand: i + 1,
+    zeker: 0,
+    pipelineBruto: 0,
+    aantalZeker: 0,
+    aantalOpen: 0,
+  }))
+
+  for (const p of projecten) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offs = (p.offertes || []) as any[]
+    const laatste = [...offs].sort((a, b) => {
+      const da = a.datum ? new Date(a.datum).getTime() : 0
+      const db = b.datum ? new Date(b.datum).getTime() : 0
+      if (db !== da) return db - da
+      return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+    })[0]
+    const bedrag = Number(laatste?.subtotaal || 0) || (laatste?.totaal ? Number(laatste.totaal) / 1.21 : 0)
+    const maandIdx = new Date(p.verwachte_valmaand).getMonth()
+    const bucket = maanden[maandIdx]
+    if (!bucket) continue
+    const gewonnen = p.status === 'afgerond' || laatste?.status === 'geaccepteerd'
+    const verloren = laatste?.status === 'afgewezen'
+    if (verloren) continue
+    if (gewonnen) {
+      bucket.zeker += bedrag
+      bucket.aantalZeker += 1
+    } else {
+      bucket.pipelineBruto += bedrag
+      bucket.aantalOpen += 1
+    }
+  }
+
+  const MAAND_NAMEN = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+  const regels = maanden.map(m => {
+    const gewogenPipeline = m.pipelineBruto * conversieRatio
+    const prognose = m.zeker + gewogenPipeline
+    return {
+      maand: m.maand,
+      maandNaam: MAAND_NAMEN[m.maand - 1],
+      doel: maandDoel,
+      zeker: Math.round(m.zeker),
+      pipelineBruto: Math.round(m.pipelineBruto),
+      gewogenPipeline: Math.round(gewogenPipeline),
+      prognose: Math.round(prognose),
+      gap: Math.round(maandDoel - prognose),
+      haaltDoel: maandDoel > 0 ? prognose >= maandDoel : null,
+      aantalZeker: m.aantalZeker,
+      aantalOpen: m.aantalOpen,
+    }
+  })
+
+  return {
+    jaar,
+    conversieRatio,
+    ratioIsSchatting,
+    aantalAkkoord,
+    aantalBeslist,
+    maandDoel,
+    jaarDoel: Number(doelRow?.jaar_doel || 0),
+    regels,
+  }
 }
 
 export async function getProject(id: string) {
@@ -3802,7 +4039,7 @@ export async function getTaken() {
   const taken = await fetchAllRows<any>((from, to) => {
     let query = supabase
       .from('taken')
-      .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal, subtotaal), relatie:relaties(bedrijfsnaam)')
+      .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(id, offertenummer, status, totaal, subtotaal), relatie:relaties(bedrijfsnaam)')
       .order('created_at', { ascending: true })
       .range(from, to)
     if (rol === 'medewerker') {
@@ -3811,6 +4048,37 @@ export async function getTaken() {
     return query
   })
   return { taken, rol, currentUserId: user.id }
+}
+
+// Open taken voor de ingelogde gebruiker met een deadline vandaag of eerder
+// (achterstallig). Voedt de dagelijkse herinner-popup op het dashboard zodat
+// taken die dag echt worden opgevolgd. Admins zien alle taken, medewerkers
+// alleen die van henzelf — net als getTaken.
+export async function getMijnTakenVandaag() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data: profiel } = await supabase.from('profielen').select('rol').eq('id', user.id).single()
+  const rol = profiel?.rol || 'medewerker'
+  const vandaag = new Date().toISOString().slice(0, 10)
+  let query = supabase
+    .from('taken')
+    .select('id, titel, deadline, deadline_tijd, prioriteit, relatie:relaties(bedrijfsnaam), toegewezen:profielen(naam)')
+    .neq('status', 'afgerond')
+    .not('deadline', 'is', null)
+    .lte('deadline', vandaag)
+    .order('deadline', { ascending: true })
+  if (rol === 'medewerker') query = query.eq('toegewezen_aan', user.id)
+  const { data } = await query
+  return (data || []).map(t => ({
+    id: t.id as string,
+    titel: t.titel as string,
+    deadline: t.deadline as string | null,
+    deadline_tijd: t.deadline_tijd as string | null,
+    prioriteit: t.prioriteit as string,
+    relatieNaam: (Array.isArray(t.relatie) ? t.relatie[0] : t.relatie)?.bedrijfsnaam || null,
+    toegewezenNaam: (Array.isArray(t.toegewezen) ? t.toegewezen[0] : t.toegewezen)?.naam || null,
+  }))
 }
 
 export async function getAgendaLeveringen() {
@@ -5500,6 +5768,8 @@ export async function approveTriageEmail(emailId: string) {
 
   // Create task (assigned to medewerker whose inbox received the email)
   const toegewezenMedewerker = await matchMedewerkerByEmailAddress(email.aan_email, adminId, supabaseAdmin)
+  // SLA: offerte moet binnen 20 uur terug naar de klant.
+  const slaDeadline = new Date(Date.now() + 20 * 3600 * 1000).toISOString()
   await supabaseAdmin.from('taken').insert({
     administratie_id: adminId,
     taaknummer: await getVolgendTaaknummer(supabaseAdmin),
@@ -5508,6 +5778,8 @@ export async function approveTriageEmail(emailId: string) {
     prioriteit: 'hoog',
     status: 'open',
     relatie_id: relatieId,
+    offerte_id: conceptOfferteId,
+    sla_deadline: slaDeadline,
     medewerker_id: toegewezenMedewerker?.id || null,
     toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
   })
@@ -5550,7 +5822,7 @@ export async function getAanvragen() {
   const [takenRes, emailsRes] = await Promise.all([
     supabaseAdmin
       .from('taken')
-      .select('*')
+      .select('*, toegewezen:profielen(naam)')
       .eq('administratie_id', adminId)
       .eq('titel', 'Nieuwe aanvraag - offerte nog te maken')
       .order('created_at', { ascending: false }),
@@ -5573,10 +5845,14 @@ export async function getAanvragen() {
     }
   }
 
-  // Collect all relatie_ids to fetch names
+  // Collect all relatie_ids to fetch names — uit de e-mails én rechtstreeks van
+  // de aanvraag-taken (die hebben tegenwoordig een eigen relatie_id).
   const relatieIds = new Set<string>()
   for (const email of emails) {
     if (email.relatie_id) relatieIds.add(email.relatie_id)
+  }
+  for (const taak of taken) {
+    if (taak.relatie_id) relatieIds.add(taak.relatie_id)
   }
 
   // Fetch relatie names
@@ -5593,26 +5869,31 @@ export async function getAanvragen() {
 
   // Match taak omschrijving to email onderwerp to get relatie_id + extract offerte_id
   return taken.map(taak => {
-    let relatie_id: string | null = null
+    let relatie_id: string | null = taak.relatie_id || null
     let relatie_naam: string | null = null
-    let offerte_id: string | null = null
+    // Prefereer de echte offerte_id-kolom; val terug op de [offerte:uuid]-tag
+    // voor oude aanvragen die nog geen kolomwaarde hebben.
+    let offerte_id: string | null = taak.offerte_id || null
 
     if (taak.omschrijving) {
-      // Extract offerte_id from [offerte:uuid] tag
-      const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
-      if (offerteMatch?.[1]) {
-        offerte_id = offerteMatch[1]
+      if (!offerte_id) {
+        const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
+        if (offerteMatch?.[1]) offerte_id = offerteMatch[1]
       }
-
       const match = taak.omschrijving.match(/"(.+)"/)
-      if (match?.[1]) {
+      if (match?.[1] && !relatie_id) {
         relatie_id = onderwerpRelatieMap.get(match[1]) || null
-        if (relatie_id) {
-          relatie_naam = relatieNaamMap.get(relatie_id) || null
-        }
       }
     }
-    return { ...taak, relatie_id, relatie_naam, offerte_id }
+    if (relatie_id) relatie_naam = relatieNaamMap.get(relatie_id) || null
+
+    return {
+      ...taak,
+      relatie_id,
+      relatie_naam,
+      offerte_id,
+      toegewezen_naam: (Array.isArray(taak.toegewezen) ? taak.toegewezen[0] : taak.toegewezen)?.naam || null,
+    }
   })
 }
 
@@ -5631,6 +5912,73 @@ export async function updateAanvraagStatus(taakId: string, status: string) {
   revalidatePath('/aanvragen')
   revalidatePath('/')
   return { success: true }
+}
+
+// Wijs een aanvraag toe aan een medewerker (degene die de offerte gaat maken).
+export async function wijzigAanvraagToewijzing(taakId: string, profielId: string | null) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabaseAdmin = createAdminClient()
+  const { error } = await supabaseAdmin
+    .from('taken')
+    .update({ toegewezen_aan: profielId })
+    .eq('id', taakId)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/aanvragen')
+  revalidatePath('/taken')
+  return { success: true }
+}
+
+// Verleng de SLA van een aanvraag van 20u naar 48u (grote offerte) en stuur de
+// klant automatisch een terugkoppelmail dat de offerte binnen 48 uur volgt.
+export async function verlengAanvraagSla(taakId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabaseAdmin = createAdminClient()
+
+  const { data: taak } = await supabaseAdmin
+    .from('taken')
+    .select('id, created_at, sla_verlengd, relatie_id, omschrijving, relatie:relaties(bedrijfsnaam, contactpersoon, email)')
+    .eq('id', taakId)
+    .eq('administratie_id', adminId)
+    .maybeSingle()
+  if (!taak) return { error: 'Aanvraag niet gevonden' }
+  if (taak.sla_verlengd) return { error: 'Deze aanvraag is al verlengd naar 48 uur' }
+
+  // Nieuwe deadline = aanmaak + 48 uur
+  const basis = taak.created_at ? new Date(taak.created_at).getTime() : Date.now()
+  const nieuweDeadline = new Date(basis + 48 * 3600 * 1000).toISOString()
+  const { error } = await supabaseAdmin
+    .from('taken')
+    .update({ sla_deadline: nieuweDeadline, sla_verlengd: true })
+    .eq('id', taakId)
+  if (error) return { error: error.message }
+
+  // Terugkoppelmail naar de klant (best-effort — verlenging slaagt ook zonder mail)
+  const rel = (Array.isArray(taak.relatie) ? taak.relatie[0] : taak.relatie) as
+    { bedrijfsnaam?: string; contactpersoon?: string; email?: string } | null
+  let mailVerstuurd = false
+  if (rel?.email) {
+    try {
+      const aanhef = rel.contactpersoon || rel.bedrijfsnaam || 'beste klant'
+      const { sendEmail } = await import('@/lib/email')
+      await sendEmail({
+        to: rel.email,
+        subject: 'Uw offerte-aanvraag bij Rebu Kozijnen',
+        html: `<p>Beste ${aanhef},</p>
+<p>Bedankt voor uw aanvraag. Om u een zorgvuldige en complete offerte te kunnen sturen hebben wij iets meer tijd nodig.</p>
+<p>Wij streven ernaar uw offerte <strong>binnen 48 uur</strong> naar u toe te sturen.</p>
+<p>Met vriendelijke groet,<br/>Rebu Kozijnen</p>`,
+      })
+      mailVerstuurd = true
+    } catch (err) {
+      console.error('Terugkoppelmail 48u mislukt:', err)
+    }
+  }
+
+  revalidatePath('/aanvragen')
+  return { success: true, mailVerstuurd, geenEmail: !rel?.email }
 }
 
 export async function reclassifyExistingEmails() {
@@ -6465,6 +6813,18 @@ export async function sendOfferteEmail(offerteId: string, options: {
 
   // Update status naar verzonden
   await supabase.from('offertes').update({ status: 'verzonden' }).eq('id', offerteId)
+
+  // SLA: de offerte is nu terug naar de klant. Stempel de gekoppelde
+  // aanvraag-taak als 'teruggestuurd' zodat het SLA-dashboard weet of het
+  // binnen 20/48 uur is gelukt. Alleen de eerste keer (teruggestuurd_op leeg).
+  try {
+    await supabase
+      .from('taken')
+      .update({ teruggestuurd_op: new Date().toISOString() })
+      .eq('offerte_id', offerteId)
+      .is('teruggestuurd_op', null)
+      .not('sla_deadline', 'is', null)
+  } catch { /* SLA-stempel is niet-blokkerend */ }
 
   // Log email in email_log
   const { data: { user } } = await supabase.auth.getUser()
@@ -9084,7 +9444,7 @@ export async function deleteAfspraak(id: string) {
   return { success: true }
 }
 
-export type AgendaItemType = 'taak' | 'levering' | 'terugbellen' | 'afspraak'
+export type AgendaItemType = 'taak' | 'levering' | 'terugbellen' | 'afspraak' | 'vrij'
 
 export interface AgendaItem {
   id: string
@@ -9098,7 +9458,7 @@ export interface AgendaItem {
 export async function getAgendaItems(): Promise<AgendaItem[]> {
   const supabase = await createClient()
 
-  const [takenRes, leveringenRes, leadsRes, afsprakenRes] = await Promise.all([
+  const [takenRes, leveringenRes, leadsRes, afsprakenRes, vrijRes] = await Promise.all([
     supabase
       .from('taken')
       .select('id, titel, deadline, status, prioriteit, project:projecten(naam)')
@@ -9115,6 +9475,11 @@ export async function getAgendaItems(): Promise<AgendaItem[]> {
     supabase
       .from('afspraken')
       .select('id, titel, start_datum, locatie, hele_dag, relatie:relaties(bedrijfsnaam), lead:leads(bedrijfsnaam)'),
+    // Alleen goedgekeurde vrije dagen tonen in de agenda.
+    supabase
+      .from('vrije_dagen')
+      .select('id, start_datum, eind_datum, type, status, medewerker:medewerkers(naam)')
+      .eq('status', 'goedgekeurd'),
   ])
 
   const items: AgendaItem[] = []
@@ -9165,6 +9530,26 @@ export async function getAgendaItems(): Promise<AgendaItem[]> {
     })
   }
 
+  // Goedgekeurde vrije dagen: één agenda-item per dag in de periode zodat ze
+  // op elke betreffende dag zichtbaar zijn (gecapped op 92 dagen per periode).
+  const VRIJ_LABELS: Record<string, string> = { vakantie: 'Vakantie', verlof: 'Verlof', ziek: 'Ziek', bijzonder: 'Bijzonder verlof' }
+  for (const v of vrijRes.data || []) {
+    const naam = (Array.isArray(v.medewerker) ? v.medewerker[0] : v.medewerker)?.naam || 'Medewerker'
+    const label = VRIJ_LABELS[v.type as string] || 'Vrij'
+    const start = new Date(v.start_datum as string)
+    const eind = new Date((v.eind_datum as string) || (v.start_datum as string))
+    let dag = 0
+    for (let d = new Date(start); d <= eind && dag < 92; d.setDate(d.getDate() + 1), dag++) {
+      const dStr = d.toISOString().slice(0, 10)
+      items.push({
+        id: `${v.id}-${dStr}`,
+        type: 'vrij',
+        titel: `${naam} — ${label}`,
+        datum: dStr,
+      })
+    }
+  }
+
   return items
 }
 
@@ -9176,6 +9561,212 @@ export async function getMedewerkers() {
   if (adminId) query = query.eq('administratie_id', adminId)
   const { data } = await query.order('naam')
   return data || []
+}
+
+// === VRIJE DAGEN ===
+// Bepaalt rol + de medewerker die aan het ingelogde profiel hangt, zodat een
+// medewerker alleen eigen vrije dagen ziet/aanvraagt en de admin alles ziet.
+async function getRolEnEigenMedewerker(supabase: Awaited<ReturnType<typeof createClient>>, adminId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profiel } = await supabase.from('profielen').select('rol').eq('id', user?.id || '').maybeSingle()
+  const rol = (profiel?.rol as string) || 'medewerker'
+  const { data: eigenMw } = await supabase
+    .from('medewerkers').select('id')
+    .eq('administratie_id', adminId).eq('profiel_id', user?.id || '').maybeSingle()
+  return { userId: user?.id || null, rol, eigenMedewerkerId: (eigenMw?.id as string) || null }
+}
+
+export async function getVrijeDagen() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { items: [], rol: 'medewerker', eigenMedewerkerId: null }
+  const { rol, eigenMedewerkerId } = await getRolEnEigenMedewerker(supabase, adminId)
+
+  let query = supabase
+    .from('vrije_dagen')
+    .select('*, medewerker:medewerkers(naam, kleur, email)')
+    .eq('administratie_id', adminId)
+    .order('start_datum', { ascending: false })
+  if (rol === 'medewerker') {
+    if (!eigenMedewerkerId) return { items: [], rol, eigenMedewerkerId }
+    query = query.eq('medewerker_id', eigenMedewerkerId)
+  }
+  const { data } = await query
+  const items = (data || []).map(v => ({
+    ...v,
+    medewerker_naam: (Array.isArray(v.medewerker) ? v.medewerker[0] : v.medewerker)?.naam || null,
+  }))
+  return { items, rol, eigenMedewerkerId }
+}
+
+export async function saveVrijeDag(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { rol, eigenMedewerkerId } = await getRolEnEigenMedewerker(supabase, adminId)
+
+  const id = formData.get('id') as string
+  // Medewerkers mogen alleen voor zichzelf aanvragen; admin kiest de medewerker.
+  let medewerkerId = (formData.get('medewerker_id') as string) || null
+  if (rol === 'medewerker') {
+    if (!eigenMedewerkerId) return { error: 'Geen medewerker-profiel aan je account gekoppeld' }
+    medewerkerId = eigenMedewerkerId
+  }
+  if (!medewerkerId) return { error: 'Kies een medewerker' }
+
+  const start = formData.get('start_datum') as string
+  if (!start) return { error: 'Startdatum is verplicht' }
+  const eind = (formData.get('eind_datum') as string) || start
+  const urenRaw = formData.get('aantal_uren') as string
+  // Admin mag direct goedkeuren; een medewerker-aanvraag start op 'aangevraagd'.
+  const directGoedkeuren = rol !== 'medewerker' && formData.get('direct_goedkeuren') === 'true'
+  const record = {
+    administratie_id: adminId,
+    medewerker_id: medewerkerId,
+    start_datum: start,
+    eind_datum: eind,
+    aantal_uren: urenRaw ? parseFloat(urenRaw) : null,
+    type: (formData.get('type') as string) || 'vakantie',
+    reden: (formData.get('reden') as string) || null,
+    status: directGoedkeuren ? 'goedgekeurd' : 'aangevraagd',
+  }
+
+  if (id) {
+    const { error } = await supabase.from('vrije_dagen').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('vrije_dagen').insert(record)
+    if (error) return { error: error.message }
+  }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export async function beoordeelVrijeDag(id: string, status: 'goedgekeurd' | 'afgewezen') {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { userId, rol } = await getRolEnEigenMedewerker(supabase, adminId)
+  if (rol === 'medewerker') return { error: 'Alleen een beheerder kan goedkeuren' }
+  const { error } = await supabase
+    .from('vrije_dagen')
+    .update({ status, beoordeeld_op: new Date().toISOString(), beoordeeld_door: userId })
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export async function deleteVrijeDag(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { error } = await supabase.from('vrije_dagen').delete().eq('id', id).eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+// Markeer een relatie als 'vaste klant' (of niet). Alleen vaste klanten krijgen
+// een vakantie-vooraankondiging.
+export async function toggleVasteKlant(relatieId: string, vast: boolean) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { error } = await supabase.from('relaties').update({ vaste_klant: vast }).eq('id', relatieId).eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/relatiebeheer')
+  revalidatePath(`/relatiebeheer/${relatieId}`)
+  return { success: true }
+}
+
+// Preview voor de vakantie-vooraankondiging: hoeveel vaste klanten met e-mail
+// worden gemaild, en of er al een vooraankondiging voor deze periode is gestuurd.
+export async function getVakantieVooraankondiging(vrijeDagId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+  const { data: vd } = await supabase
+    .from('vrije_dagen')
+    .select('id, start_datum, eind_datum, type, status, vooraankondiging_verstuurd_op, medewerker:medewerkers(naam)')
+    .eq('id', vrijeDagId).eq('administratie_id', adminId).maybeSingle()
+  if (!vd) return null
+  const { data: klanten, count } = await supabase
+    .from('relaties')
+    .select('id, bedrijfsnaam, email', { count: 'exact' })
+    .eq('administratie_id', adminId)
+    .eq('vaste_klant', true)
+    .not('email', 'is', null)
+  return {
+    id: vd.id as string,
+    startDatum: vd.start_datum as string,
+    eindDatum: vd.eind_datum as string,
+    type: vd.type as string,
+    medewerkerNaam: (Array.isArray(vd.medewerker) ? vd.medewerker[0] : vd.medewerker)?.naam || null,
+    alVerstuurdOp: (vd.vooraankondiging_verstuurd_op as string | null) || null,
+    aantalKlanten: count || 0,
+    voorbeeldKlanten: (klanten || []).slice(0, 5).map(k => k.bedrijfsnaam as string),
+  }
+}
+
+// Verstuur de vakantie-vooraankondiging naar alle vaste klanten met een e-mail.
+// Handmatig getriggerd vanuit de UI ná bevestiging — nooit automatisch.
+export async function stuurVakantieVooraankondiging(vrijeDagId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { rol } = await getRolEnEigenMedewerker(supabase, adminId)
+  if (rol === 'medewerker') return { error: 'Alleen een beheerder kan klanten informeren' }
+
+  const { data: vd } = await supabase
+    .from('vrije_dagen')
+    .select('id, start_datum, eind_datum, vooraankondiging_verstuurd_op')
+    .eq('id', vrijeDagId).eq('administratie_id', adminId).maybeSingle()
+  if (!vd) return { error: 'Periode niet gevonden' }
+
+  const { data: klanten } = await supabase
+    .from('relaties')
+    .select('id, bedrijfsnaam, contactpersoon, email')
+    .eq('administratie_id', adminId)
+    .eq('vaste_klant', true)
+    .not('email', 'is', null)
+  if (!klanten || klanten.length === 0) return { error: 'Geen vaste klanten met e-mailadres gemarkeerd' }
+
+  // Info-adres voor sneller contact tijdens vakantie.
+  const { data: admin } = await supabase.from('administraties').select('email').eq('id', adminId).maybeSingle()
+  const infoMail = admin?.email || process.env.SMTP_FROM || 'info@rebukozijnen.nl'
+
+  const fmt = (d: string) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })
+  const periode = vd.start_datum === vd.eind_datum ? `op ${fmt(vd.start_datum)}` : `van ${fmt(vd.start_datum)} t/m ${fmt(vd.eind_datum)}`
+
+  const { sendEmail } = await import('@/lib/email')
+  let verstuurd = 0
+  const fouten: string[] = []
+  for (const k of klanten) {
+    const aanhef = (k.contactpersoon as string) || (k.bedrijfsnaam as string) || 'beste klant'
+    try {
+      await sendEmail({
+        to: k.email as string,
+        subject: 'Even wat minder snel bereikbaar — Rebu Kozijnen',
+        html: `<p>Beste ${aanhef},</p>
+<p>In verband met vakantie zijn wij ${periode} wat minder snel bereikbaar. Reacties kunnen iets langer duren dan u van ons gewend bent.</p>
+<p>Heeft u met spoed iets nodig? Mail dan naar <a href="mailto:${infoMail}">${infoMail}</a> — die berichten worden doorgaans sneller opgepakt.</p>
+<p>Bedankt voor uw begrip.</p>
+<p>Met vriendelijke groet,<br/>Rebu Kozijnen</p>`,
+      })
+      verstuurd++
+    } catch (err) {
+      fouten.push(`${k.bedrijfsnaam}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  await supabase.from('vrije_dagen').update({ vooraankondiging_verstuurd_op: new Date().toISOString() }).eq('id', vrijeDagId)
+  revalidatePath('/vrije-dagen')
+  return { success: true, verstuurd, fouten: fouten.slice(0, 10) }
 }
 
 export async function getMedewerker(id: string) {

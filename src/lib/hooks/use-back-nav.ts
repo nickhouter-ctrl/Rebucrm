@@ -18,6 +18,7 @@ export function useBackNav(_key: string) {
   function navigateBack(fallback: string) {
     const fromHistory = nav.getBackUrl()
     if (fromHistory) {
+      nav.markScrollRestore(fromHistory)
       router.push(fromHistory)
       return
     }
@@ -30,6 +31,7 @@ export function useBackNav(_key: string) {
           const current = window.location.pathname + window.location.search
           const refPath = url.pathname + url.search
           if (url.origin === window.location.origin && refPath !== current && !url.pathname.endsWith('/nieuw')) {
+            nav.markScrollRestore(refPath)
             router.push(refPath)
             return
           }

@@ -7,8 +7,10 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Archive, FileText, Receipt, FolderKanban } from 'lucide-react'
+import { Archive, FileText, Receipt, FolderKanban, BarChart3 } from 'lucide-react'
 import { archiveerOfferte, setProjectStatus } from '@/lib/actions'
+
+type JaarCijfer = { jaar: string; omzet: number; aantalFacturen: number; aantalOffertes: number; geaccepteerd: number; conversie: number }
 
 type Offerte = {
   id: string
@@ -40,7 +42,7 @@ type Verkoopkans = {
   totaalBetaald: number
 }
 
-export function ArchiefView({ offertes, facturen, verkoopkansen = [] }: { offertes: Offerte[]; facturen: Factuur[]; verkoopkansen?: Verkoopkans[] }) {
+export function ArchiefView({ offertes, facturen, verkoopkansen = [], jaarCijfers = [] }: { offertes: Offerte[]; facturen: Factuur[]; verkoopkansen?: Verkoopkans[]; jaarCijfers?: JaarCijfer[] }) {
   const router = useRouter()
   const [tab, setTab] = useState<'verkoopkansen' | 'offertes' | 'facturen'>('verkoopkansen')
   const [loading, setLoading] = useState('')
@@ -114,8 +116,44 @@ export function ArchiefView({ offertes, facturen, verkoopkansen = [] }: { offert
     <div>
       <PageHeader
         title="Archief"
-        description="Alle afgehandelde of gecrediteerde items"
+        description="Jaaroverzicht en alle afgehandelde of gecrediteerde items"
       />
+
+      {/* Jaaroverzicht — cijfers per jaar zodat je 2024/2025 in beeld houdt */}
+      {jaarCijfers.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <BarChart3 className="h-4 w-4 text-primary" />
+            <h3 className="text-sm font-semibold text-gray-900">Jaaroverzicht</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                  <th className="text-left py-2 font-medium">Jaar</th>
+                  <th className="text-right py-2 font-medium">Omzet (excl.)</th>
+                  <th className="text-right py-2 font-medium">Facturen</th>
+                  <th className="text-right py-2 font-medium">Offertes</th>
+                  <th className="text-right py-2 font-medium">Geaccepteerd</th>
+                  <th className="text-right py-2 font-medium">Conversie</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jaarCijfers.map(j => (
+                  <tr key={j.jaar} className="border-b border-gray-100">
+                    <td className="py-2 font-medium text-gray-900">{j.jaar}</td>
+                    <td className="py-2 text-right font-semibold text-gray-900">{formatCurrency(j.omzet)}</td>
+                    <td className="py-2 text-right text-gray-600">{j.aantalFacturen}</td>
+                    <td className="py-2 text-right text-gray-600">{j.aantalOffertes}</td>
+                    <td className="py-2 text-right text-gray-600">{j.geaccepteerd}</td>
+                    <td className="py-2 text-right text-gray-600">{j.conversie}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="mb-4 flex gap-2 border-b border-gray-200">
         <button

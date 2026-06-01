@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw, Download, Send, Loader2 } from 'lucide-react'
-import { syncSnelstartBetalingen, verstuurFactuurSnel } from '@/lib/actions'
+import { syncSnelstartBetalingen, verstuurFactuurSnel, setFactuurGeplandeDatum } from '@/lib/actions'
 import Link from 'next/link'
 import { showToast } from '@/components/ui/toast'
 
@@ -20,6 +20,7 @@ interface Factuur {
   factuurnummer: string
   datum: string | null
   vervaldatum: string | null
+  geplande_datum: string | null
   status: string
   totaal: number
   subtotaal: number | null
@@ -95,6 +96,7 @@ function buildColumns(
   versturenLoading: string | null,
   versturenStatus: Record<string, 'ok' | 'error'>,
   onVerstuur: (e: React.MouseEvent, id: string) => void,
+  onPlanChange: (id: string, datum: string | null) => void,
 ): ColumnDef<Factuur, unknown>[] {
   const vandaag = new Date().toISOString().slice(0, 10)
   return [
@@ -170,7 +172,34 @@ function buildColumns(
       )
     },
   },
-  // 5) Vervaldatum (met visuele waarschuwing bij vervallen)
+  // 5) Gepland — verzenddatum-planning voor concepten (inline bewerkbaar).
+  // 'Klaar om te versturen' als de geplande datum is bereikt.
+  {
+    id: 'gepland',
+    header: 'Gepland',
+    cell: ({ row }) => {
+      const f = row.original
+      if (f.status !== 'concept') {
+        return <span className="text-gray-300">-</span>
+      }
+      const gepland = f.geplande_datum
+      const klaar = gepland && gepland <= vandaag
+      return (
+        <span className="relative inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="date"
+            value={gepland ? gepland.slice(0, 10) : ''}
+            onChange={(e) => onPlanChange(f.id, e.target.value || null)}
+            title="Geplande verzenddatum"
+            className={`bg-transparent border-0 p-0 text-sm focus:outline-none focus:ring-1 focus:ring-[#00a66e] rounded cursor-pointer ${klaar ? 'text-emerald-600 font-medium' : gepland ? 'text-gray-600' : 'text-gray-400'}`}
+            style={{ minWidth: '110px' }}
+          />
+          {klaar && <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">klaar</span>}
+        </span>
+      )
+    },
+  },
+  // 6) Vervaldatum (met visuele waarschuwing bij vervallen)
   {
     accessorKey: 'vervaldatum',
     header: 'Vervaldatum',
@@ -231,6 +260,10 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const [syncing, setSyncing] = useState(false)
   const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
   const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
+  // Jaar-filter voor het 'Alle facturen'-tabblad: standaard het huidige jaar
+  // zodat 2024/2025 het overzicht niet vervuilen. Niet-destructief — de cijfers
+  // blijven in Rapportages/Archief staan.
+  const [jaarFilter, setJaarFilter] = useState<string>(String(new Date().getFullYear()))
 
   async function handleSnelVersturen(e: React.MouseEvent, factuurId: string) {
     e.preventDefault()
@@ -252,7 +285,17 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     }
   }
 
-  const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
+  async function handlePlanChange(id: string, datum: string | null) {
+    const res = await setFactuurGeplandeDatum(id, datum)
+    if (res && 'error' in res && res.error) {
+      showToast(`Plannen mislukt: ${res.error}`, 'error')
+    } else {
+      showToast(datum ? 'Verzenddatum gepland' : 'Planning gewist', 'success')
+      router.refresh()
+    }
+  }
+
+  const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen, handlePlanChange)
 
   // Sorteer op datum aflopend (nieuwste factuur bovenaan). Factuurnummer als
   // tiebreaker zodat de volgorde deterministisch is bij meerdere facturen op
@@ -264,6 +307,13 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     return (b.factuurnummer || '').localeCompare(a.factuurnummer || '')
   })
   const vandaagStr = new Date().toISOString().slice(0, 10)
+  // Beschikbare jaren (uit factuurdatums) voor het jaar-filter.
+  const beschikbareJaren = Array.from(new Set(facturen.map(f => (f.datum || '').slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a))
+  // 'Alle facturen'-tab filtert op het gekozen jaar; concepten (nog geen datum)
+  // tonen we altijd zodat ze niet wegvallen.
+  const sortedAlle = jaarFilter === 'alle'
+    ? sorted
+    : sorted.filter(f => (f.datum || '').slice(0, 4) === jaarFilter || f.status === 'concept')
   // Openstaand = niet betaald, niet geannuleerd, niet gecrediteerd (en geen
   // credit-nota). Gecrediteerde facturen krijgen een eigen tab.
   const openstaandFacturenAll = sorted.filter(f =>
@@ -281,6 +331,20 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const openstaandFacturen = sorteerOudNaarNieuw(vervallenOnly
     ? openstaandFacturenAll.filter(f => f.vervaldatum && f.vervaldatum < vandaagStr)
     : openstaandFacturenAll)
+  // Split het openstaand-tabblad in twee secties: concepten (nog te versturen)
+  // en verstuurde facturen die nog op betaling wachten.
+  // Concepten hebben nog geen factuurdatum; sorteer ze op GEPLANDE verzenddatum
+  // (vroegst eerst, ongeplande achteraan) zodat 'klaar om te versturen' bovenaan
+  // staat. De te-betalen-sectie houdt oud→nieuw aan.
+  const openstaandConcept = openstaandFacturen
+    .filter(f => f.status === 'concept')
+    .sort((a, b) => {
+      const ga = a.geplande_datum || '9999-12-31'
+      const gb = b.geplande_datum || '9999-12-31'
+      if (ga !== gb) return ga.localeCompare(gb)
+      return (a.factuurnummer || '').localeCompare(b.factuurnummer || '')
+    })
+  const openstaandTeBetalen = openstaandFacturen.filter(f => f.status !== 'concept')
   const gecrediteerdeFacturen = sorted.filter(f => f.status === 'gecrediteerd' || f.factuur_type === 'credit')
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
   const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
@@ -322,7 +386,8 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         showToast(res.error, 'error')
       } else if (res && 'success' in res && res.success) {
         const pushMsg = res.gepushtNaarSnelstart && res.gepushtNaarSnelstart > 0 ? `, ${res.gepushtNaarSnelstart} naar SnelStart gepusht` : ''
-        showToast(`SnelStart sync klaar: ${res.bijgewerkt} bijgewerkt (${res.betaaldGeworden} betaald)${pushMsg}`, 'success')
+        const bestelMsg = res.naarBestellen && res.naarBestellen > 0 ? `, ${res.naarBestellen} klaar om te bestellen` : ''
+        showToast(`SnelStart sync klaar: ${res.bijgewerkt} bijgewerkt (${res.betaaldGeworden} betaald)${bestelMsg}${pushMsg}`, 'success')
         router.refresh()
       }
     } catch (err) {
@@ -345,7 +410,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     const data = tab === 'openstaand' ? openstaandFacturen
       : tab === 'aanbetaling' ? aanbetalingFacturen
       : tab === 'restbetaling' ? restbetalingFacturen
-      : sorted
+      : sortedAlle
     if (data.length === 0) return
     const rows = data.map(f => ({
       Factuurnummer: f.factuurnummer,
@@ -440,13 +505,29 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         ))}
       </div>
 
+      {/* Jaar-filter (alleen op het 'Alle facturen'-tabblad) */}
+      {tab === 'alle' && beschikbareJaren.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-gray-500">Jaar:</span>
+          <select
+            value={jaarFilter}
+            onChange={(e) => setJaarFilter(e.target.value)}
+            className="px-2.5 py-1 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#00a66e]"
+          >
+            {beschikbareJaren.map(j => <option key={j} value={j}>{j}</option>)}
+            <option value="alle">Alle jaren</option>
+          </select>
+          {jaarFilter !== 'alle' && <span className="text-xs text-gray-400">2024/2025 verborgen — kies &apos;Alle jaren&apos; voor de historie</span>}
+        </div>
+      )}
+
       {/* Tab content */}
       {tab === 'alle' && (
-        sorted.length === 0 ? (
+        sortedAlle.length === 0 ? (
           <EmptyState
             icon={Receipt}
             title="Geen facturen"
-            description="U heeft nog geen facturen aangemaakt."
+            description={jaarFilter === 'alle' ? 'U heeft nog geen facturen aangemaakt.' : `Geen facturen in ${jaarFilter}.`}
             action={
               <Button onClick={() => router.push('/facturatie/nieuw')}>
                 <Plus className="h-4 w-4" />
@@ -456,10 +537,10 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
           />
         ) : (
           <>
-            <StatsBar stats={berekenStats(sorted)} />
+            <StatsBar stats={berekenStats(sortedAlle)} />
             <DataTable
               columns={columns}
-              data={sorted}
+              data={sortedAlle}
               searchPlaceholder="Zoek factuur..."
               onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
               mobileCard={(f) => ({
@@ -487,15 +568,14 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             description="Er zijn geen openstaande facturen."
           />
         ) : (
-          <>
-            <StatsBar stats={berekenStats(openstaandFacturen)} />
-            <DataTable
-              columns={columns}
-              data={openstaandFacturen}
-              searchPlaceholder="Zoek factuur..."
-              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
-            />
-          </>
+          <RestbetalingView
+            concept={openstaandConcept}
+            openstaand={openstaandTeBetalen}
+            betaald={[]}
+            columns={columns}
+            berekenStats={berekenStats}
+            router={router}
+          />
         )
       )}
 

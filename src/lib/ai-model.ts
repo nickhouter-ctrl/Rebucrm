@@ -19,3 +19,13 @@ export function aiModel(slug: string) {
   const modelId = slug.replace(/^anthropic\//, '')
   return anthropic(modelId)
 }
+
+// Centrale, configureerbare modelkeuze per taak. Defaults = de huidige modellen
+// (gedrag blijft identiek). Via env kun je veilig een nieuwer model proberen —
+// bv. AI_MODEL_VISION='anthropic/claude-sonnet-4-6' — en bij problemen direct
+// terugzetten zonder code te wijzigen.
+export const AI_MODELS = {
+  detect: process.env.AI_MODEL_DETECT || 'anthropic/claude-haiku-4-5',
+  extract: process.env.AI_MODEL_EXTRACT || 'anthropic/claude-sonnet-4-5',
+  vision: process.env.AI_MODEL_VISION || 'anthropic/claude-sonnet-4-5',
+}

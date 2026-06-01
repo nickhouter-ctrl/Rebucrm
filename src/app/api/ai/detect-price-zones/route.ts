@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { aiModel } from '@/lib/ai-model'
 import { z } from 'zod'
 
 // Detecteert welke text-items op een leverancier-tekeningpagina leveranciersprijzen
@@ -16,8 +16,8 @@ const schema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ hide: [], error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ hide: [], error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }
 
   const { items, pageW, pageH, supplier } = (await req.json()) as {
@@ -64,7 +64,7 @@ Welke indices bevatten leveranciersprijs-informatie die we MOETEN verbergen?`
 
   try {
     const { object } = await generateObject({
-      model: anthropic('claude-sonnet-4-5'),
+      model: aiModel('anthropic/claude-sonnet-4-5'),
       system,
       prompt,
       schema,

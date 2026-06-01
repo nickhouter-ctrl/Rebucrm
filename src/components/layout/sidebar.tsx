@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { GripVertical, Settings2, RotateCcw, X } from 'lucide-react'
 
 const SIDEBAR_ORDER_KEY = 'rebu-sidebar-order'
-const medewerkerNavHrefs = ['/', '/agenda', '/taken', '/uren']
+const medewerkerNavHrefs = ['/', '/agenda', '/taken', '/uren', '/vrije-dagen']
 
 export function Sidebar({ rol, mobileOpen, onMobileClose }: { rol?: string; mobileOpen?: boolean; onMobileClose?: () => void }) {
   const pathname = usePathname()

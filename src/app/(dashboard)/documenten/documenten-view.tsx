@@ -42,25 +42,44 @@ export function DocumentenView({ documenten }: { documenten: Document[] }) {
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
+    // Reset de input zodat hetzelfde bestand na een fout direct opnieuw kan.
+    e.target.value = ''
     if (!file) return
     setUploading(true)
-
-    const path = `uploads/${Date.now()}_${file.name}`
-    const { error: uploadError } = await supabase.storage.from('documenten').upload(path, file)
-
-    if (!uploadError) {
-      await supabase.from('documenten').insert({
+    const { showToast } = await import('@/components/ui/toast')
+    try {
+      // Storage-keys staan geen spaties/accenten/rare tekens toe; saneer de naam
+      // anders faalt de upload stil. De originele naam bewaren we in de DB-rij.
+      const veiligeNaam = file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '_')
+      const path = `uploads/${Date.now()}_${veiligeNaam}`
+      const { error: uploadError } = await supabase.storage.from('documenten').upload(path, file)
+      if (uploadError) {
+        showToast('Upload mislukt: ' + uploadError.message, 'error')
+        return
+      }
+      const { data: profiel } = await supabase.from('profielen').select('administratie_id').single()
+      const { error: insertError } = await supabase.from('documenten').insert({
         naam: file.name,
         bestandsnaam: file.name,
-        bestandstype: file.type,
+        bestandstype: file.type || null,
         bestandsgrootte: file.size,
         storage_path: path,
-        administratie_id: (await supabase.from('profielen').select('administratie_id').single()).data?.administratie_id,
+        administratie_id: profiel?.administratie_id,
       })
+      if (insertError) {
+        // Rij kon niet worden aangemaakt → opgeslagen bestand opruimen zodat er
+        // geen wees-bestand in storage achterblijft.
+        await supabase.storage.from('documenten').remove([path])
+        showToast('Opslaan mislukt: ' + insertError.message, 'error')
+        return
+      }
+      showToast('Document geüpload', 'success')
       window.location.reload()
+    } catch (err) {
+      showToast('Upload mislukt: ' + (err instanceof Error ? err.message : String(err)), 'error')
+    } finally {
+      setUploading(false)
     }
-
-    setUploading(false)
   }
 
   async function handleDownload(doc: Document) {
