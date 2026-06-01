@@ -9399,7 +9399,7 @@ export async function deleteAfspraak(id: string) {
   return { success: true }
 }
 
-export type AgendaItemType = 'taak' | 'levering' | 'terugbellen' | 'afspraak'
+export type AgendaItemType = 'taak' | 'levering' | 'terugbellen' | 'afspraak' | 'vrij'
 
 export interface AgendaItem {
   id: string
@@ -9413,7 +9413,7 @@ export interface AgendaItem {
 export async function getAgendaItems(): Promise<AgendaItem[]> {
   const supabase = await createClient()
 
-  const [takenRes, leveringenRes, leadsRes, afsprakenRes] = await Promise.all([
+  const [takenRes, leveringenRes, leadsRes, afsprakenRes, vrijRes] = await Promise.all([
     supabase
       .from('taken')
       .select('id, titel, deadline, status, prioriteit, project:projecten(naam)')
@@ -9430,6 +9430,11 @@ export async function getAgendaItems(): Promise<AgendaItem[]> {
     supabase
       .from('afspraken')
       .select('id, titel, start_datum, locatie, hele_dag, relatie:relaties(bedrijfsnaam), lead:leads(bedrijfsnaam)'),
+    // Alleen goedgekeurde vrije dagen tonen in de agenda.
+    supabase
+      .from('vrije_dagen')
+      .select('id, start_datum, eind_datum, type, status, medewerker:medewerkers(naam)')
+      .eq('status', 'goedgekeurd'),
   ])
 
   const items: AgendaItem[] = []
@@ -9480,6 +9485,26 @@ export async function getAgendaItems(): Promise<AgendaItem[]> {
     })
   }
 
+  // Goedgekeurde vrije dagen: één agenda-item per dag in de periode zodat ze
+  // op elke betreffende dag zichtbaar zijn (gecapped op 92 dagen per periode).
+  const VRIJ_LABELS: Record<string, string> = { vakantie: 'Vakantie', verlof: 'Verlof', ziek: 'Ziek', bijzonder: 'Bijzonder verlof' }
+  for (const v of vrijRes.data || []) {
+    const naam = (Array.isArray(v.medewerker) ? v.medewerker[0] : v.medewerker)?.naam || 'Medewerker'
+    const label = VRIJ_LABELS[v.type as string] || 'Vrij'
+    const start = new Date(v.start_datum as string)
+    const eind = new Date((v.eind_datum as string) || (v.start_datum as string))
+    let dag = 0
+    for (let d = new Date(start); d <= eind && dag < 92; d.setDate(d.getDate() + 1), dag++) {
+      const dStr = d.toISOString().slice(0, 10)
+      items.push({
+        id: `${v.id}-${dStr}`,
+        type: 'vrij',
+        titel: `${naam} — ${label}`,
+        datum: dStr,
+      })
+    }
+  }
+
   return items
 }
 
@@ -9491,6 +9516,114 @@ export async function getMedewerkers() {
   if (adminId) query = query.eq('administratie_id', adminId)
   const { data } = await query.order('naam')
   return data || []
+}
+
+// === VRIJE DAGEN ===
+// Bepaalt rol + de medewerker die aan het ingelogde profiel hangt, zodat een
+// medewerker alleen eigen vrije dagen ziet/aanvraagt en de admin alles ziet.
+async function getRolEnEigenMedewerker(supabase: Awaited<ReturnType<typeof createClient>>, adminId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profiel } = await supabase.from('profielen').select('rol').eq('id', user?.id || '').maybeSingle()
+  const rol = (profiel?.rol as string) || 'medewerker'
+  const { data: eigenMw } = await supabase
+    .from('medewerkers').select('id')
+    .eq('administratie_id', adminId).eq('profiel_id', user?.id || '').maybeSingle()
+  return { userId: user?.id || null, rol, eigenMedewerkerId: (eigenMw?.id as string) || null }
+}
+
+export async function getVrijeDagen() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { items: [], rol: 'medewerker', eigenMedewerkerId: null }
+  const { rol, eigenMedewerkerId } = await getRolEnEigenMedewerker(supabase, adminId)
+
+  let query = supabase
+    .from('vrije_dagen')
+    .select('*, medewerker:medewerkers(naam, kleur, email)')
+    .eq('administratie_id', adminId)
+    .order('start_datum', { ascending: false })
+  if (rol === 'medewerker') {
+    if (!eigenMedewerkerId) return { items: [], rol, eigenMedewerkerId }
+    query = query.eq('medewerker_id', eigenMedewerkerId)
+  }
+  const { data } = await query
+  const items = (data || []).map(v => ({
+    ...v,
+    medewerker_naam: (Array.isArray(v.medewerker) ? v.medewerker[0] : v.medewerker)?.naam || null,
+  }))
+  return { items, rol, eigenMedewerkerId }
+}
+
+export async function saveVrijeDag(formData: FormData) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { rol, eigenMedewerkerId } = await getRolEnEigenMedewerker(supabase, adminId)
+
+  const id = formData.get('id') as string
+  // Medewerkers mogen alleen voor zichzelf aanvragen; admin kiest de medewerker.
+  let medewerkerId = (formData.get('medewerker_id') as string) || null
+  if (rol === 'medewerker') {
+    if (!eigenMedewerkerId) return { error: 'Geen medewerker-profiel aan je account gekoppeld' }
+    medewerkerId = eigenMedewerkerId
+  }
+  if (!medewerkerId) return { error: 'Kies een medewerker' }
+
+  const start = formData.get('start_datum') as string
+  if (!start) return { error: 'Startdatum is verplicht' }
+  const eind = (formData.get('eind_datum') as string) || start
+  const urenRaw = formData.get('aantal_uren') as string
+  // Admin mag direct goedkeuren; een medewerker-aanvraag start op 'aangevraagd'.
+  const directGoedkeuren = rol !== 'medewerker' && formData.get('direct_goedkeuren') === 'true'
+  const record = {
+    administratie_id: adminId,
+    medewerker_id: medewerkerId,
+    start_datum: start,
+    eind_datum: eind,
+    aantal_uren: urenRaw ? parseFloat(urenRaw) : null,
+    type: (formData.get('type') as string) || 'vakantie',
+    reden: (formData.get('reden') as string) || null,
+    status: directGoedkeuren ? 'goedgekeurd' : 'aangevraagd',
+  }
+
+  if (id) {
+    const { error } = await supabase.from('vrije_dagen').update(record).eq('id', id)
+    if (error) return { error: error.message }
+  } else {
+    const { error } = await supabase.from('vrije_dagen').insert(record)
+    if (error) return { error: error.message }
+  }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export async function beoordeelVrijeDag(id: string, status: 'goedgekeurd' | 'afgewezen') {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { userId, rol } = await getRolEnEigenMedewerker(supabase, adminId)
+  if (rol === 'medewerker') return { error: 'Alleen een beheerder kan goedkeuren' }
+  const { error } = await supabase
+    .from('vrije_dagen')
+    .update({ status, beoordeeld_op: new Date().toISOString(), beoordeeld_door: userId })
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
+}
+
+export async function deleteVrijeDag(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { error } = await supabase.from('vrije_dagen').delete().eq('id', id).eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/vrije-dagen')
+  revalidatePath('/agenda')
+  return { success: true }
 }
 
 export async function getMedewerker(id: string) {

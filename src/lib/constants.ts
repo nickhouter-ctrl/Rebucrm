@@ -17,6 +17,7 @@ import {
   HardHat,
   AlertTriangle,
   Archive,
+  Palmtree,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -37,6 +38,7 @@ export const navigationItems: NavItem[] = [
   { label: 'Verkoopkansen', href: '/projecten', icon: FolderKanban },
   { label: 'Urenregistratie', href: '/uren', icon: Clock },
   { label: 'Medewerkers', href: '/medewerkers', icon: HardHat },
+  { label: 'Vrije dagen', href: '/vrije-dagen', icon: Palmtree },
   { label: 'Agenda', href: '/agenda', icon: Calendar },
   { label: 'Taken', href: '/taken', icon: CheckSquare },
   { label: 'Aanvragen', href: '/aanvragen', icon: Inbox },
