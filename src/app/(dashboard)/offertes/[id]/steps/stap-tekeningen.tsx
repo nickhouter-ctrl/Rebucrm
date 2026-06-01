@@ -14,6 +14,7 @@ interface DetectieResultaat {
   confidence: number
   reden: string
   regex_hint?: string | null
+  auto_added?: boolean
 }
 
 interface BekendeLeverancier {
@@ -243,7 +244,11 @@ export function StapTekeningen({
         return
       }
 
-      // Hoge confidence → meteen door
+      // Hoge confidence → meteen door. Nieuw auto-toegevoegde leverancier melden.
+      if (detectie.auto_added) {
+        const { showToast } = await import('@/components/ui/toast')
+        showToast(`Nieuwe leverancier toegevoegd: ${detectie.display_naam}`, 'success')
+      }
       onLeverancierDetected(detectie)
       await runScanFase(file, fullText, pdf, totalPages, detectie.leverancier as LeverancierKey, detectie.display_naam || detectie.leverancier)
     } catch (err) {

@@ -124,13 +124,44 @@ ${text.slice(0, 5000)}
       }
     }
 
-    // Bump detect_count voor bekende leveranciers
-    if (object.leverancier_slug !== 'onbekend') {
+    // Auto-registratie van een NIEUWE leverancier. Als de AI 'onbekend' zegt maar
+    // wél een duidelijke naam herkent met genoeg zekerheid, voegen we die meteen
+    // toe aan de registry (parser_key 'default' — de vision-extractie heeft geen
+    // leverancier-specifieke parser nodig). Zo hoeft de gebruiker geen modal meer
+    // in te vullen en is de leverancier de volgende keer bekend.
+    let effectiveSlug = object.leverancier_slug
+    let autoAdded = false
+    if (object.leverancier_slug === 'onbekend' && object.display_naam?.trim().length >= 2 && finalConfidence >= 0.7) {
+      const newSlug = object.display_naam.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      if (newSlug) {
+        try {
+          const { data: bestaand } = await sb.from('bekende_leveranciers').select('naam').eq('naam', newSlug).maybeSingle()
+          if (!bestaand) {
+            await sb.from('bekende_leveranciers').insert({
+              naam: newSlug,
+              display_naam: object.display_naam.trim(),
+              profielen: object.profiel ? [object.profiel.trim()] : [],
+              parser_key: 'default',
+              added_by_user: false,
+              detect_count: 1,
+            })
+            autoAdded = true
+          }
+          effectiveSlug = newSlug
+        } catch (addErr) {
+          console.warn('Auto-toevoegen nieuwe leverancier mislukt:', addErr)
+        }
+      }
+    }
+
+    // Bump detect_count voor reeds bekende leveranciers (auto-toegevoegde
+    // starten al op 1, dus die slaan we over).
+    if (effectiveSlug !== 'onbekend' && !autoAdded) {
       try {
-        await sb.rpc('increment_leverancier_detect', { lev_naam: object.leverancier_slug })
+        await sb.rpc('increment_leverancier_detect', { lev_naam: effectiveSlug })
       } catch {
         // RPC bestaat misschien nog niet — fallback: directe update
-        const { data: lev } = await sb.from('bekende_leveranciers').select('id, detect_count').eq('naam', object.leverancier_slug).maybeSingle()
+        const { data: lev } = await sb.from('bekende_leveranciers').select('id, detect_count').eq('naam', effectiveSlug).maybeSingle()
         if (lev) {
           await sb.from('bekende_leveranciers').update({ detect_count: (lev.detect_count || 0) + 1, updated_at: new Date().toISOString() }).eq('id', lev.id)
         }
@@ -138,12 +169,13 @@ ${text.slice(0, 5000)}
     }
 
     return NextResponse.json({
-      leverancier: object.leverancier_slug,
+      leverancier: effectiveSlug,
       display_naam: object.display_naam,
       profiel: object.profiel,
       confidence: finalConfidence,
       reden: object.reden,
       regex_hint: regexHint,
+      auto_added: autoAdded,
     })
   } catch (e) {
     return NextResponse.json({
