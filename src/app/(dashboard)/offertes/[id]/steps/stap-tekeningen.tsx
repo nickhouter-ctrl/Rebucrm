@@ -51,6 +51,32 @@ export interface WipedRegion {
   reden?: 'regex' | 'ai' | 'header'
 }
 
+// Rendert de eerste N pagina's als JPEG-base64 voor de vision-extractie. Vision
+// leest de tekening/tabel direct uit het beeld i.p.v. uit platte tekst.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function renderPagesToImages(pdf: any, totalPages: number, max = 12): Promise<string[]> {
+  const images: string[] = []
+  const n = Math.min(totalPages, max)
+  for (let pageNum = 1; pageNum <= n; pageNum++) {
+    try {
+      const page = await pdf.getPage(pageNum)
+      const viewport = page.getViewport({ scale: 1.6 })
+      const canvas = document.createElement('canvas')
+      canvas.width = viewport.width
+      canvas.height = viewport.height
+      const ctx = canvas.getContext('2d')!
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await page.render({ canvasContext: ctx, viewport, canvas } as any).promise
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.78)
+      canvas.remove()
+      images.push(dataUrl.replace(/^data:image\/jpeg;base64,/, ''))
+    } catch (e) {
+      console.warn('Pagina renderen voor vision mislukt', pageNum, e)
+    }
+  }
+  return images
+}
+
 export function StapTekeningen({
   pendingPdfFile,
   parsedPdfResult,
@@ -236,28 +262,54 @@ export function StapTekeningen({
       // Step 3: Parse leverancier text met hint (deterministisch)
       const { totaal, elementen } = parseLeverancierPdfText(fullText, leverancierKey)
 
-      // Step 3b: AI validatie — Claude controleert de lijst, corrigeert fouten,
-      // voegt gemiste elementen toe (Deur 008/010) en filtert ghost-referenties.
-      setProgress('AI controleert element-lijst...')
+      // Step 3b: AI-extractie. Vision-first — Claude leest de gerenderde
+      // pagina-afbeeldingen direct (beter bij tekeningen/aluminium die als beeld
+      // in de PDF staan). Lukt vision niet, dan terugvallen op de tekst-route.
+      // De regex-lijst gaat als kruiscontrole mee.
+      type AiExtractie = { elementen?: Array<{ naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type?: string; prijs: number; glasType?: string; beslag?: string; uwWaarde?: string; drapirichting?: string; dorpel?: string; sluiting?: string; scharnieren?: string; gewicht?: string; omtrek?: string; confidence?: number; confidence_reden?: string }>; totaal?: number }
       let finaleElementen = elementen
       let finaalTotaal = totaal
+      const regexResult = {
+        totaal,
+        elementen: elementen.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
+      }
       try {
-        const aiRes = await fetch('/api/ai/extract-offerte', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text: fullText,
-            leverancier: leverancierDisplay,
-            profiel: undefined,
-            regexResult: {
-              totaal,
-              elementen: elementen.map(e => ({ naam: e.naam, prijs: e.prijs, hoeveelheid: e.hoeveelheid })),
-            },
-          }),
-        })
-        if (aiRes.ok) {
-          const ai = await aiRes.json() as { elementen?: Array<{ naam: string; hoeveelheid: number; systeem: string; kleur: string; afmetingen: string; type?: string; prijs: number; glasType?: string; beslag?: string; uwWaarde?: string; drapirichting?: string; dorpel?: string; sluiting?: string; scharnieren?: string; gewicht?: string; omtrek?: string; confidence?: number; confidence_reden?: string }>; totaal?: number }
-          if (ai.elementen && ai.elementen.length > 0) {
+        let ai: AiExtractie | null = null
+
+        // Vision-route
+        try {
+          setProgress('AI leest de tekeningen (beeld)...')
+          const images = await renderPagesToImages(pdf, totalPages, 12)
+          if (images.length > 0) {
+            const vRes = await fetch('/api/ai/extract-offerte-vision', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ images, leverancier: leverancierDisplay, regexResult }),
+            })
+            if (vRes.ok) {
+              const v = await vRes.json() as AiExtractie
+              if (v.elementen && v.elementen.length > 0) ai = v
+            }
+          }
+        } catch (visErr) {
+          console.warn('Vision-extractie mislukt, val terug op tekst:', visErr)
+        }
+
+        // Tekst-route als fallback (of als vision niets vond)
+        if (!ai) {
+          setProgress('AI controleert element-lijst...')
+          const aiRes = await fetch('/api/ai/extract-offerte', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: fullText, leverancier: leverancierDisplay, profiel: undefined, regexResult }),
+          })
+          if (aiRes.ok) {
+            const t = await aiRes.json() as AiExtractie
+            if (t.elementen && t.elementen.length > 0) ai = t
+          }
+        }
+
+        if (ai && ai.elementen && ai.elementen.length > 0) {
             // Merge AI per naam met regex (regex heeft meer spec-velden)
             const regexByNaam = new Map(elementen.map(e => [e.naam, e]))
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -284,7 +336,6 @@ export function StapTekeningen({
                   } as typeof r extends undefined ? never : NonNullable<typeof r>
             }) as typeof finaleElementen
             finaalTotaal = ai.totaal ?? finaleElementen.reduce((s, e) => s + e.prijs * e.hoeveelheid, 0)
-          }
         }
       } catch {
         // Bij AI-fout: regex resultaat als fallback

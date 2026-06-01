@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, handleNumberPaste } from '@/lib/utils'
-import { Plus, X, Save, Trash2, ArrowLeft, FolderKanban, FileText, Upload, Loader2, CheckCircle, ChevronUp, ChevronDown } from 'lucide-react'
+import { Plus, X, Save, Trash2, ArrowLeft, FolderKanban, FileText, Upload, Loader2, CheckCircle, ChevronUp, ChevronDown, AlertTriangle } from 'lucide-react'
 import type { ParsedPdfResult, RenderedTekening } from './stap-tekeningen'
 
 interface Regel {
@@ -699,6 +699,18 @@ export function StapControleren({
       </div>
 
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
+
+      {/* Marge-waarschuwing: zonder marge staan de prijzen op leverancier-inkoop.
+          Voorkomt dat een offerte per ongeluk op kostprijs de deur uit gaat. */}
+      {(!margePercentage || margePercentage <= 0) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+          <span className="text-sm text-amber-800">
+            <strong>Let op: geen marge ingesteld.</strong> De getoonde prijzen zijn de leverancier-inkoopprijzen
+            zónder jullie eigen marge. Stel een marge in (stap Marge) of pas de prijzen per regel aan vóór je verstuurt.
+          </span>
+        </div>
+      )}
 
       {/* Project info banner */}
       {isNew && projectName && (
