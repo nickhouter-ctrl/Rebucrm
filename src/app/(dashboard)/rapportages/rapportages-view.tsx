@@ -1,12 +1,37 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatCurrency } from '@/lib/utils'
-import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight, Target, Loader2 } from 'lucide-react'
 import { OmzetChart } from '@/components/dashboard/omzet-chart'
 import { ConversieFunnelDashboard, type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
+import { getMaandPrognose } from '@/lib/actions'
+
+interface PrognoseRegel {
+  maand: number
+  maandNaam: string
+  doel: number
+  zeker: number
+  pipelineBruto: number
+  gewogenPipeline: number
+  prognose: number
+  gap: number
+  haaltDoel: boolean | null
+  aantalZeker: number
+  aantalOpen: number
+}
+interface PrognoseData {
+  jaar: number
+  conversieRatio: number
+  ratioIsSchatting: boolean
+  aantalAkkoord: number
+  aantalBeslist: number
+  maandDoel: number
+  jaarDoel: number
+  regels: PrognoseRegel[]
+}
 
 interface Factuur {
   id: string
@@ -49,7 +74,12 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
   uren: Uur[]
   funnel: FunnelData | null
 }) {
-  const [tab, setTab] = useState<'omzet' | 'klanten' | 'btw' | 'uren'>('omzet')
+  const [tab, setTab] = useState<'omzet' | 'prognose' | 'klanten' | 'btw' | 'uren'>('omzet')
+
+  // Prognose wordt server-side per jaar berekend; client-side ophalen zodra de
+  // tab actief is of het jaar wijzigt, zodat 'ie de jaar-selector volgt.
+  const [prognose, setPrognose] = useState<PrognoseData | null>(null)
+  const [prognoseLoading, setPrognoseLoading] = useState(false)
 
   // Bepaal beschikbare jaren
   const beschikbareJaren = useMemo(() => {
@@ -61,6 +91,16 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
   }, [facturen])
 
   const [jaar, setJaar] = useState<number>(new Date().getFullYear())
+
+  useEffect(() => {
+    if (tab !== 'prognose') return
+    let actief = true
+    setPrognoseLoading(true)
+    getMaandPrognose(jaar)
+      .then(d => { if (actief) setPrognose(d as PrognoseData | null) })
+      .finally(() => { if (actief) setPrognoseLoading(false) })
+    return () => { actief = false }
+  }, [tab, jaar])
 
   // Filter facturen op geselecteerd jaar — sluit concept én status 'gecrediteerd' uit.
   // Credit-nota's (factuur_type='credit') tellen WEL mee: hun subtotaal/totaal
@@ -246,13 +286,13 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
       {/* Jaar selector + tabs */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <div className="flex gap-2">
-          {(['omzet', 'klanten', 'btw', 'uren'] as const).map((t) => (
+          {(['omzet', 'prognose', 'klanten', 'btw', 'uren'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm rounded-md transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
             >
-              {t === 'omzet' ? 'Omzet' : t === 'klanten' ? 'Top klanten' : t === 'btw' ? 'BTW' : 'Uren'}
+              {t === 'omzet' ? 'Omzet' : t === 'prognose' ? 'Prognose' : t === 'klanten' ? 'Top klanten' : t === 'btw' ? 'BTW' : 'Uren'}
             </button>
           ))}
         </div>
@@ -441,6 +481,113 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
               </div>
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {/* === PROGNOSE TAB === */}
+      {tab === 'prognose' && (
+        <div className="space-y-6">
+          {prognoseLoading ? (
+            <div className="flex items-center justify-center py-16 text-gray-400">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Prognose berekenen…
+            </div>
+          ) : !prognose ? (
+            <Card><CardContent><p className="text-sm text-gray-500 py-8 text-center">Geen prognose beschikbaar.</p></CardContent></Card>
+          ) : (
+            <>
+              {/* KPI's */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card><CardContent>
+                  <p className="text-xs text-gray-500 mb-1">Conversie (12 mnd)</p>
+                  <p className="text-2xl font-semibold text-gray-900">{Math.round(prognose.conversieRatio * 100)}%</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {prognose.ratioIsSchatting ? 'schatting — te weinig historie' : `${prognose.aantalAkkoord}/${prognose.aantalBeslist} offertes akkoord`}
+                  </p>
+                </CardContent></Card>
+                <Card><CardContent>
+                  <p className="text-xs text-gray-500 mb-1">Maanddoel</p>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(prognose.maandDoel)}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{prognose.maandDoel > 0 ? 'per maand' : 'nog niet ingesteld'}</p>
+                </CardContent></Card>
+                <Card><CardContent>
+                  <p className="text-xs text-gray-500 mb-1">Verwachte jaaromzet</p>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(prognose.regels.reduce((s, r) => s + r.prognose, 0))}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">zeker + gewogen pipeline</p>
+                </CardContent></Card>
+                <Card><CardContent>
+                  <p className="text-xs text-gray-500 mb-1">Jaardoel</p>
+                  <p className="text-2xl font-semibold text-gray-900">{formatCurrency(prognose.jaarDoel)}</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">{prognose.jaarDoel > 0 ? 'doel ' + jaar : 'nog niet ingesteld'}</p>
+                </CardContent></Card>
+              </div>
+
+              <Card>
+                <CardContent>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Target className="h-4 w-4 text-primary" />
+                    <h3 className="font-semibold text-gray-900">Maandprognose {jaar}</h3>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-4">
+                    <strong>Zeker</strong> = gewonnen verkoopkansen (offerte akkoord). <strong>Gewogen pipeline</strong> = open
+                    kansen met deze valmaand × conversie ({Math.round(prognose.conversieRatio * 100)}%).
+                    <strong> Prognose</strong> = zeker + gewogen. Zet verkoopkansen op een verwachte valmaand in de pipeline
+                    om ze hier mee te tellen.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-gray-500 text-xs">
+                          <th className="text-left py-2 font-medium">Maand</th>
+                          <th className="text-right py-2 font-medium">Doel</th>
+                          <th className="text-right py-2 font-medium">Zeker</th>
+                          <th className="text-right py-2 font-medium">Pipeline</th>
+                          <th className="text-right py-2 font-medium">Gewogen</th>
+                          <th className="text-right py-2 font-medium">Prognose</th>
+                          <th className="text-right py-2 font-medium">Tekort/over</th>
+                          <th className="text-center py-2 font-medium">Doel</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {prognose.regels.map(r => {
+                          const leeg = r.zeker === 0 && r.pipelineBruto === 0 && r.doel === 0
+                          return (
+                            <tr key={r.maand} className={`border-b border-gray-100 ${leeg ? 'text-gray-300' : ''}`}>
+                              <td className="py-2 font-medium capitalize">{r.maandNaam}</td>
+                              <td className="py-2 text-right text-gray-600">{r.doel > 0 ? formatCurrency(r.doel) : '—'}</td>
+                              <td className="py-2 text-right text-gray-900">{r.zeker > 0 ? formatCurrency(r.zeker) : '—'}</td>
+                              <td className="py-2 text-right text-gray-500">{r.pipelineBruto > 0 ? formatCurrency(r.pipelineBruto) : '—'}</td>
+                              <td className="py-2 text-right text-gray-500">{r.gewogenPipeline > 0 ? formatCurrency(r.gewogenPipeline) : '—'}</td>
+                              <td className="py-2 text-right font-semibold text-gray-900">{r.prognose > 0 ? formatCurrency(r.prognose) : '—'}</td>
+                              <td className={`py-2 text-right ${r.doel === 0 ? 'text-gray-300' : r.gap > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                {r.doel === 0 ? '—' : r.gap > 0 ? `-${formatCurrency(r.gap)}` : `+${formatCurrency(-r.gap)}`}
+                              </td>
+                              <td className="py-2 text-center">
+                                {r.haaltDoel === null ? <span className="text-gray-300">—</span>
+                                  : r.haaltDoel ? <TrendingUp className="h-4 w-4 text-green-600 inline" />
+                                  : <TrendingDown className="h-4 w-4 text-red-500 inline" />}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-gray-200 font-semibold text-gray-900">
+                          <td className="py-2">Totaal</td>
+                          <td className="py-2 text-right">{formatCurrency(prognose.regels.reduce((s, r) => s + r.doel, 0))}</td>
+                          <td className="py-2 text-right">{formatCurrency(prognose.regels.reduce((s, r) => s + r.zeker, 0))}</td>
+                          <td className="py-2 text-right">{formatCurrency(prognose.regels.reduce((s, r) => s + r.pipelineBruto, 0))}</td>
+                          <td className="py-2 text-right">{formatCurrency(prognose.regels.reduce((s, r) => s + r.gewogenPipeline, 0))}</td>
+                          <td className="py-2 text-right">{formatCurrency(prognose.regels.reduce((s, r) => s + r.prognose, 0))}</td>
+                          <td className="py-2"></td>
+                          <td className="py-2"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </div>
       )}
 

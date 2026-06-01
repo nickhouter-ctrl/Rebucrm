@@ -3588,7 +3588,7 @@ export async function getVerkoopkansenPipeline() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('id, naam, status, created_at, updated_at, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
+      .select('id, naam, status, created_at, updated_at, verwachte_valmaand, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
       .neq('status', 'geannuleerd')
       .order('updated_at', { ascending: false })
       .range(from, to),
@@ -3622,9 +3622,141 @@ export async function getVerkoopkansenPipeline() {
       laatsteOfferteGeldigTot: laatste?.geldig_tot || null,
       offerteStatus: laatste?.status || null,
       fase,
+      verwachteValmaand: (p.verwachte_valmaand as string | null) || null,
       updatedAt: p.updated_at,
     }
   })
+}
+
+// Zet (of wist) de verwachte valmaand van een verkoopkans. `maand` is 'YYYY-MM'
+// of null. We slaan op als eerste-van-de-maand datum zodat de prognose erop
+// kan groeperen. Gebruikt vanuit de pipeline-kaart en het project-detail.
+export async function setVerkoopkansVerwachteMaand(projectId: string, maand: string | null) {
+  const supabase = await createClient()
+  const valmaand = maand ? `${maand}-01` : null
+  const { error } = await supabase.from('projecten').update({ verwachte_valmaand: valmaand }).eq('id', projectId)
+  if (error) return { error: error.message }
+  revalidatePath('/projecten/kanban')
+  revalidatePath('/rapportages')
+  return { success: true }
+}
+
+// Maand-prognose voor een jaar: zet per maand de zekere omzet (gewonnen
+// verkoopkansen met een verwachte valmaand) + de gewogen pipeline (open kansen
+// × conversie-ratio) af tegen het omzetdoel. Zo zie je of je het maanddoel
+// waarschijnlijk haalt. Conversie-ratio = win-rate over de laatste 12 maanden
+// (geaccepteerd / besliste offertes).
+export async function getMaandPrognose(jaar: number) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  // 1) Conversie-ratio over laatste 12 maanden (besliste offertes)
+  const grens = new Date()
+  grens.setMonth(grens.getMonth() - 12)
+  const grensStr = grens.toISOString().slice(0, 10)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const beslisteRaw = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('status')
+      .eq('administratie_id', adminId)
+      .in('status', ['geaccepteerd', 'afgewezen'])
+      .gte('datum', grensStr)
+      .range(from, to),
+  )
+  const aantalAkkoord = beslisteRaw.filter(o => o.status === 'geaccepteerd').length
+  const aantalBeslist = beslisteRaw.length
+  // Fallback-ratio van 30% als er nog te weinig historie is om op te sturen.
+  const conversieRatio = aantalBeslist >= 5 ? aantalAkkoord / aantalBeslist : 0.3
+  const ratioIsSchatting = aantalBeslist < 5
+
+  // 2) Omzetdoel voor het jaar (één maanddoel dat voor elke maand geldt)
+  const { data: doelRow } = await supabase
+    .from('omzetdoelen')
+    .select('maand_doel, jaar_doel')
+    .eq('administratie_id', adminId)
+    .eq('jaar', jaar)
+    .maybeSingle()
+  const maandDoel = Number(doelRow?.maand_doel || 0)
+
+  // 3) Verkoopkansen met een verwachte valmaand in dit jaar
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const projecten = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('projecten')
+      .select('id, naam, status, verwachte_valmaand, relatie:relaties(bedrijfsnaam), offertes:offertes(status, subtotaal, totaal, datum, versie_nummer)')
+      .eq('administratie_id', adminId)
+      .neq('status', 'geannuleerd')
+      .not('verwachte_valmaand', 'is', null)
+      .gte('verwachte_valmaand', `${jaar}-01-01`)
+      .lte('verwachte_valmaand', `${jaar}-12-31`)
+      .range(from, to),
+  )
+
+  // Per maand (0-11) optellen: zeker (gewonnen) en bruto open pipeline.
+  const maanden = Array.from({ length: 12 }, (_, i) => ({
+    maand: i + 1,
+    zeker: 0,
+    pipelineBruto: 0,
+    aantalZeker: 0,
+    aantalOpen: 0,
+  }))
+
+  for (const p of projecten) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offs = (p.offertes || []) as any[]
+    const laatste = [...offs].sort((a, b) => {
+      const da = a.datum ? new Date(a.datum).getTime() : 0
+      const db = b.datum ? new Date(b.datum).getTime() : 0
+      if (db !== da) return db - da
+      return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+    })[0]
+    const bedrag = Number(laatste?.subtotaal || 0) || (laatste?.totaal ? Number(laatste.totaal) / 1.21 : 0)
+    const maandIdx = new Date(p.verwachte_valmaand).getMonth()
+    const bucket = maanden[maandIdx]
+    if (!bucket) continue
+    const gewonnen = p.status === 'afgerond' || laatste?.status === 'geaccepteerd'
+    const verloren = laatste?.status === 'afgewezen'
+    if (verloren) continue
+    if (gewonnen) {
+      bucket.zeker += bedrag
+      bucket.aantalZeker += 1
+    } else {
+      bucket.pipelineBruto += bedrag
+      bucket.aantalOpen += 1
+    }
+  }
+
+  const MAAND_NAMEN = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+  const regels = maanden.map(m => {
+    const gewogenPipeline = m.pipelineBruto * conversieRatio
+    const prognose = m.zeker + gewogenPipeline
+    return {
+      maand: m.maand,
+      maandNaam: MAAND_NAMEN[m.maand - 1],
+      doel: maandDoel,
+      zeker: Math.round(m.zeker),
+      pipelineBruto: Math.round(m.pipelineBruto),
+      gewogenPipeline: Math.round(gewogenPipeline),
+      prognose: Math.round(prognose),
+      gap: Math.round(maandDoel - prognose),
+      haaltDoel: maandDoel > 0 ? prognose >= maandDoel : null,
+      aantalZeker: m.aantalZeker,
+      aantalOpen: m.aantalOpen,
+    }
+  })
+
+  return {
+    jaar,
+    conversieRatio,
+    ratioIsSchatting,
+    aantalAkkoord,
+    aantalBeslist,
+    maandDoel,
+    jaarDoel: Number(doelRow?.jaar_doel || 0),
+    regels,
+  }
 }
 
 export async function getProject(id: string) {

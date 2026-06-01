@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
-import { LayoutGrid, List, FolderKanban, Building2 } from 'lucide-react'
+import { LayoutGrid, List, FolderKanban, Building2, CalendarClock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import type { PipelineFase } from '@/lib/actions'
+import { setVerkoopkansVerwachteMaand, type PipelineFase } from '@/lib/actions'
+import { showToast } from '@/components/ui/toast'
 
 interface Item {
   id: string
@@ -20,6 +22,7 @@ interface Item {
   laatsteOfferteGeldigTot: string | null
   offerteStatus: string | null
   fase: PipelineFase
+  verwachteValmaand: string | null
   updatedAt: string
 }
 
@@ -36,6 +39,18 @@ const FASES: { key: PipelineFase; label: string; kleur: string; icoonkleur: stri
 // vereisen op offerte/project status); voor nu: leesbaar overzicht met
 // totaal-bedrag per kolom + klikbare cards naar het project.
 export function PipelineKanban({ items }: { items: Item[] }) {
+  const router = useRouter()
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  async function handleMaand(id: string, maand: string) {
+    setSavingId(id)
+    const res = await setVerkoopkansVerwachteMaand(id, maand || null)
+    setSavingId(null)
+    if (res?.error) { showToast(res.error, 'error'); return }
+    showToast(maand ? 'Verwachte valmaand opgeslagen' : 'Valmaand gewist', 'success')
+    router.refresh()
+  }
+
   const grouped = useMemo(() => {
     const m = new Map<PipelineFase, Item[]>()
     for (const f of FASES) m.set(f.key, [])
@@ -91,25 +106,42 @@ export function PipelineKanban({ items }: { items: Item[] }) {
                 {cards.length === 0 ? (
                   <div className="text-[11px] text-gray-400 text-center py-4 italic">geen items</div>
                 ) : (
-                  cards.map(c => (
-                    <Link
+                  cards.map(c => {
+                    // Geen valmaand-kiezer voor afgehandelde fases (afgerond/verloren).
+                    const toonMaand = f.key !== 'afgerond' && f.key !== 'verloren'
+                    return (
+                    <div
                       key={c.id}
-                      href={`/projecten/${c.id}`}
-                      className="block bg-white border border-gray-200 rounded p-2 hover:shadow-sm transition-shadow"
+                      className="bg-white border border-gray-200 rounded hover:shadow-sm transition-shadow"
                     >
-                      <div className="font-medium text-xs text-gray-900 truncate">{c.naam}</div>
-                      {c.relatieNaam && (
-                        <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1 truncate">
-                          <Building2 className="h-2.5 w-2.5 flex-shrink-0" />
-                          {c.relatieNaam}
+                      <Link href={`/projecten/${c.id}`} className="block p-2">
+                        <div className="font-medium text-xs text-gray-900 truncate">{c.naam}</div>
+                        {c.relatieNaam && (
+                          <div className="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1 truncate">
+                            <Building2 className="h-2.5 w-2.5 flex-shrink-0" />
+                            {c.relatieNaam}
+                          </div>
+                        )}
+                        <div className="mt-1.5 flex items-center justify-between">
+                          <span className="text-[10px] text-gray-400">{c.laatsteOfferteNummer || '—'}</span>
+                          <span className="text-xs font-medium text-gray-900">{c.bedrag > 0 ? formatCurrency(c.bedrag) : '—'}</span>
+                        </div>
+                      </Link>
+                      {toonMaand && (
+                        <div className="px-2 pb-1.5 -mt-0.5 flex items-center gap-1" title="Verwachte valmaand — voedt de prognose">
+                          <CalendarClock className="h-2.5 w-2.5 text-gray-400 flex-shrink-0" />
+                          <input
+                            type="month"
+                            value={c.verwachteValmaand ? c.verwachteValmaand.slice(0, 7) : ''}
+                            disabled={savingId === c.id}
+                            onChange={(e) => handleMaand(c.id, e.target.value)}
+                            className={`w-full bg-transparent border-0 p-0 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#00a66e] rounded cursor-pointer ${c.verwachteValmaand ? 'text-gray-600' : 'text-gray-400'}`}
+                          />
                         </div>
                       )}
-                      <div className="mt-1.5 flex items-center justify-between">
-                        <span className="text-[10px] text-gray-400">{c.laatsteOfferteNummer || '—'}</span>
-                        <span className="text-xs font-medium text-gray-900">{c.bedrag > 0 ? formatCurrency(c.bedrag) : '—'}</span>
-                      </div>
-                    </Link>
-                  ))
+                    </div>
+                    )
+                  })
                 )}
               </div>
             </div>
