@@ -16,10 +16,34 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 15000,     // 15s voor data-transfer
 })
 
+// Genereert een leesbare platte-tekst-variant uit HTML. HTML-only mail telt
+// mee als spamsignaal; een multipart-bericht met text-alternatief scoort beter
+// bij spamfilters (en is leesbaar in clients die geen HTML tonen).
+function htmlNaarTekst(html: string): string {
+  return html
+    .replace(/<head[\s\S]*?<\/head>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<(br|\/p|\/div|\/tr|\/h[1-6]|\/li)[^>]*>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<a[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi, '$2 ($1)')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n').map(l => l.trim()).join('\n')
+    .trim()
+}
+
 export async function sendEmail(options: {
   to: string
   subject: string
   html: string
+  text?: string
   bcc?: string[]
   attachments?: { filename: string; content: Buffer | string; encoding?: string }[]
   replyTo?: string
@@ -42,6 +66,8 @@ export async function sendEmail(options: {
     to: options.to,
     subject: options.subject,
     html: options.html,
+    // Platte-tekst-alternatief: meegeleverd of automatisch uit de HTML afgeleid.
+    text: options.text || htmlNaarTekst(options.html),
     bcc: options.bcc,
     // Default replyTo = de afzender (zodat reactie bij medewerker terechtkomt)
     replyTo: options.replyTo || (options.fromEmail || undefined),

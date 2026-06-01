@@ -281,6 +281,11 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const openstaandFacturen = sorteerOudNaarNieuw(vervallenOnly
     ? openstaandFacturenAll.filter(f => f.vervaldatum && f.vervaldatum < vandaagStr)
     : openstaandFacturenAll)
+  // Split het openstaand-tabblad in twee secties: concepten (nog te versturen,
+  // oud→nieuw) en verstuurde facturen die nog op betaling wachten. Beide al
+  // oud→nieuw gesorteerd via openstaandFacturen, dus filter behoudt volgorde.
+  const openstaandConcept = openstaandFacturen.filter(f => f.status === 'concept')
+  const openstaandTeBetalen = openstaandFacturen.filter(f => f.status !== 'concept')
   const gecrediteerdeFacturen = sorted.filter(f => f.status === 'gecrediteerd' || f.factuur_type === 'credit')
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')
   const restbetalingFacturen = sorted.filter(f => f.factuur_type === 'restbetaling')
@@ -487,15 +492,14 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
             description="Er zijn geen openstaande facturen."
           />
         ) : (
-          <>
-            <StatsBar stats={berekenStats(openstaandFacturen)} />
-            <DataTable
-              columns={columns}
-              data={openstaandFacturen}
-              searchPlaceholder="Zoek factuur..."
-              onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
-            />
-          </>
+          <RestbetalingView
+            concept={openstaandConcept}
+            openstaand={openstaandTeBetalen}
+            betaald={[]}
+            columns={columns}
+            berekenStats={berekenStats}
+            router={router}
+          />
         )
       )}
 

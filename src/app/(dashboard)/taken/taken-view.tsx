@@ -10,8 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
-import { completeTaak, uncompleteTaak, updateTaakDeadline } from '@/lib/actions'
-import { Plus, CheckSquare, X, Phone, FileText, ListTodo } from 'lucide-react'
+import { completeTaak, uncompleteTaak, updateTaakDeadline, acceptOfferte, rejectOfferte } from '@/lib/actions'
+import { Dialog } from '@/components/ui/dialog'
+import { showToast } from '@/components/ui/toast'
+import { Plus, CheckSquare, X, Phone, FileText, ListTodo, ThumbsUp, ThumbsDown, Loader2, ArrowRight } from 'lucide-react'
 
 interface Taak {
   id: string
@@ -27,7 +29,7 @@ interface Taak {
   project: { naam: string } | null
   toegewezen: { naam: string } | null
   medewerker: { naam: string } | null
-  offerte: { totaal: number; subtotaal: number | null } | null
+  offerte: { id?: string; offertenummer?: string | null; status?: string; totaal: number; subtotaal: number | null } | null
   relatie: { bedrijfsnaam: string } | null
 }
 
@@ -250,17 +252,60 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     filterCategorie === 'bellen' ? 'Bellen' : filterCategorie === 'uitwerken' ? 'Uitwerken' : null,
   ].filter(Boolean).join(' — ')
 
+  // Taak met een nog-niet-besliste offerte: bij afronden vragen we of de klant
+  // akkoord ging. De beslissing duwt de verkoopkans door naar de factuurfase of
+  // markeert 'm als verloren — zo weten we precies wat er doorgaat.
+  const [beslisTaak, setBeslisTaak] = useState<Taak | null>(null)
+  const [beslisBezig, setBeslisBezig] = useState(false)
+
   async function handleToggle(id: string, currentStatus: string) {
-    // Rij meteen uit de huidige view halen: na afvinken hoort de taak in
-    // 'Afgerond' (en bij heropenen verlaat 'ie 'Afgerond'). Server bijwerken
-    // gebeurt direct erna; router.refresh houdt de tellers consistent.
-    setTakenLijst(prev => prev.filter(t => t.id !== id))
+    // Heropenen kan altijd direct, geen popup.
     if (currentStatus === 'afgerond') {
+      setTakenLijst(prev => prev.filter(t => t.id !== id))
       await uncompleteTaak(id)
-    } else {
-      await completeTaak(id)
+      router.refresh()
+      return
     }
+    // Hangt aan deze taak een verstuurde offerte die nog op een beslissing
+    // wacht? Dan eerst de akkoord/niet-akkoord-popup tonen i.p.v. stil afvinken.
+    const taak = takenLijst.find(t => t.id === id) || taken.find(t => t.id === id)
+    if (taak?.offerte?.id && taak.offerte.status === 'verzonden') {
+      setBeslisTaak(taak)
+      return
+    }
+    setTakenLijst(prev => prev.filter(t => t.id !== id))
+    await completeTaak(id)
     router.refresh()
+  }
+
+  // Afhandeling vanuit de beslis-popup. uitkomst bepaalt wat er met de offerte
+  // gebeurt; de taak wordt in alle gevallen afgerond.
+  async function handleBeslis(uitkomst: 'akkoord' | 'niet_akkoord' | 'alleen_taak') {
+    const taak = beslisTaak
+    if (!taak || beslisBezig) return
+    setBeslisBezig(true)
+    try {
+      await completeTaak(taak.id)
+      const offerteId = taak.offerte?.id
+      if (uitkomst === 'akkoord' && offerteId) {
+        const res = await acceptOfferte(offerteId)
+        if (res?.error) { showToast(res.error, 'error'); return }
+        showToast('Offerte akkoord — doorgezet naar factuurfase', 'success')
+      } else if (uitkomst === 'niet_akkoord' && offerteId) {
+        const res = await rejectOfferte(offerteId)
+        if (res?.error) { showToast(res.error, 'error'); return }
+        showToast('Verkoopkans afgesloten (niet akkoord)', 'success')
+      } else {
+        showToast('Taak afgerond', 'success')
+      }
+      setTakenLijst(prev => prev.filter(t => t.id !== taak.id))
+      setBeslisTaak(null)
+      router.refresh()
+    } catch (err) {
+      showToast('Mislukt: ' + (err instanceof Error ? err.message : String(err)), 'error')
+    } finally {
+      setBeslisBezig(false)
+    }
   }
 
   async function handleDeadlineChange(id: string, newDeadline: string | null) {
@@ -377,6 +422,65 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
           })}
         />
       )}
+
+      {/* Beslis-popup bij afronden van een taak met een verstuurde offerte */}
+      <Dialog
+        open={!!beslisTaak}
+        onClose={() => { if (!beslisBezig) setBeslisTaak(null) }}
+        title="Taak afgerond — wat is de uitkomst?"
+      >
+        {beslisTaak && (() => {
+          const off = beslisTaak.offerte
+          const excl = off?.subtotaal && off.subtotaal > 0
+            ? off.subtotaal
+            : off?.totaal ? off.totaal / 1.21 : 0
+          return (
+            <div className="space-y-4">
+              <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm">
+                <div className="font-medium text-gray-900">{beslisTaak.titel}</div>
+                <div className="mt-1 text-gray-500">
+                  {beslisTaak.relatie?.bedrijfsnaam || 'Onbekende relatie'}
+                  {off?.offertenummer ? <> · offerte <span className="font-mono">{off.offertenummer}</span></> : null}
+                  {excl > 0 ? <> · {formatCurrency(excl)} excl.</> : null}
+                </div>
+              </div>
+              <p className="text-sm text-gray-600">
+                Ging de klant akkoord met de offerte? Bij <strong>akkoord</strong> gaat de verkoopkans
+                door naar de factuurfase (er wordt een order aangemaakt). Bij <strong>niet akkoord</strong>
+                wordt de verkoopkans afgesloten.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={beslisBezig}
+                  onClick={() => handleBeslis('akkoord')}
+                  className="flex items-center justify-center gap-2 rounded-md bg-[#00a66e] text-white px-4 py-2.5 text-sm font-medium hover:bg-[#00935f] disabled:opacity-60 transition-colors"
+                >
+                  {beslisBezig ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+                  Akkoord → factuurfase
+                </button>
+                <button
+                  type="button"
+                  disabled={beslisBezig}
+                  onClick={() => handleBeslis('niet_akkoord')}
+                  className="flex items-center justify-center gap-2 rounded-md bg-red-50 text-red-700 border border-red-200 px-4 py-2.5 text-sm font-medium hover:bg-red-100 disabled:opacity-60 transition-colors"
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                  Niet akkoord
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={beslisBezig}
+                onClick={() => handleBeslis('alleen_taak')}
+                className="w-full flex items-center justify-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-60 transition-colors"
+              >
+                Alleen taak afronden (later beslissen) <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )
+        })()}
+      </Dialog>
     </div>
   )
 }

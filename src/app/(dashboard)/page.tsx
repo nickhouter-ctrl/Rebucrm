@@ -2,6 +2,7 @@ import { getDashboardData, getMedewerkerDashboardData } from '@/lib/actions'
 import { createClient } from '@/lib/supabase/server'
 import { DashboardView } from './dashboard-view'
 import { MedewerkerDashboard } from './medewerker-dashboard'
+import { TakenHerinnering } from './taken-herinnering'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -14,9 +15,9 @@ export default async function DashboardPage() {
 
   if (rol === 'medewerker') {
     const medewerkerData = await getMedewerkerDashboardData()
-    return <MedewerkerDashboard data={medewerkerData} />
+    return <><TakenHerinnering /><MedewerkerDashboard data={medewerkerData} /></>
   }
 
   const data = await getDashboardData()
-  return <DashboardView data={data} />
+  return <><TakenHerinnering /><DashboardView data={data} /></>
 }

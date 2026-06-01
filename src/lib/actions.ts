@@ -1199,6 +1199,32 @@ export async function acceptOfferte(id: string) {
   return { success: true }
 }
 
+// Tegenhanger van acceptOfferte: de klant gaat NIET akkoord. De offerte wordt
+// afgewezen waardoor de verkoopkans (project) in de pipeline naar 'verloren'
+// schuift — oftewel: de verkoopkans is afgehandeld/klaar zonder deal. Wordt
+// o.a. gebruikt vanuit de taak-afronden-popup ("niet akkoord").
+export async function rejectOfferte(id: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+
+  const { data: orig } = await supabase.from('offertes').select('offertenummer, status').eq('id', id).maybeSingle()
+  const { error } = await supabase
+    .from('offertes')
+    .update({ status: 'afgewezen' })
+    .eq('id', id)
+  if (error) return { error: error.message }
+
+  try {
+    const { logAudit } = await import('@/lib/audit')
+    await logAudit({ actie: 'offerte.afgewezen', entiteitType: 'offerte', entiteitId: id, details: orig || undefined })
+  } catch { /* audit niet-blokkerend */ }
+
+  revalidatePath('/offertes')
+  revalidatePath('/')
+  return { success: true }
+}
+
 export async function markOrderBesteld(orderId: string) {
   const supabase = await createClient()
   const { error } = await supabase
@@ -3802,7 +3828,7 @@ export async function getTaken() {
   const taken = await fetchAllRows<any>((from, to) => {
     let query = supabase
       .from('taken')
-      .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(totaal, subtotaal), relatie:relaties(bedrijfsnaam)')
+      .select('*, categorie, project:projecten(naam), toegewezen:profielen(naam), medewerker:medewerkers(naam), offerte:offertes(id, offertenummer, status, totaal, subtotaal), relatie:relaties(bedrijfsnaam)')
       .order('created_at', { ascending: true })
       .range(from, to)
     if (rol === 'medewerker') {
@@ -3811,6 +3837,37 @@ export async function getTaken() {
     return query
   })
   return { taken, rol, currentUserId: user.id }
+}
+
+// Open taken voor de ingelogde gebruiker met een deadline vandaag of eerder
+// (achterstallig). Voedt de dagelijkse herinner-popup op het dashboard zodat
+// taken die dag echt worden opgevolgd. Admins zien alle taken, medewerkers
+// alleen die van henzelf — net als getTaken.
+export async function getMijnTakenVandaag() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data: profiel } = await supabase.from('profielen').select('rol').eq('id', user.id).single()
+  const rol = profiel?.rol || 'medewerker'
+  const vandaag = new Date().toISOString().slice(0, 10)
+  let query = supabase
+    .from('taken')
+    .select('id, titel, deadline, deadline_tijd, prioriteit, relatie:relaties(bedrijfsnaam), toegewezen:profielen(naam)')
+    .neq('status', 'afgerond')
+    .not('deadline', 'is', null)
+    .lte('deadline', vandaag)
+    .order('deadline', { ascending: true })
+  if (rol === 'medewerker') query = query.eq('toegewezen_aan', user.id)
+  const { data } = await query
+  return (data || []).map(t => ({
+    id: t.id as string,
+    titel: t.titel as string,
+    deadline: t.deadline as string | null,
+    deadline_tijd: t.deadline_tijd as string | null,
+    prioriteit: t.prioriteit as string,
+    relatieNaam: (Array.isArray(t.relatie) ? t.relatie[0] : t.relatie)?.bedrijfsnaam || null,
+    toegewezenNaam: (Array.isArray(t.toegewezen) ? t.toegewezen[0] : t.toegewezen)?.naam || null,
+  }))
 }
 
 export async function getAgendaLeveringen() {
