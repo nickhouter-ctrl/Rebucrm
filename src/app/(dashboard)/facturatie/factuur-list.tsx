@@ -260,6 +260,10 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const [syncing, setSyncing] = useState(false)
   const [versturenLoading, setVersturenLoading] = useState<string | null>(null)
   const [versturenStatus, setVersturenStatus] = useState<Record<string, 'ok' | 'error'>>({})
+  // Jaar-filter voor het 'Alle facturen'-tabblad: standaard het huidige jaar
+  // zodat 2024/2025 het overzicht niet vervuilen. Niet-destructief — de cijfers
+  // blijven in Rapportages/Archief staan.
+  const [jaarFilter, setJaarFilter] = useState<string>(String(new Date().getFullYear()))
 
   async function handleSnelVersturen(e: React.MouseEvent, factuurId: string) {
     e.preventDefault()
@@ -303,6 +307,13 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     return (b.factuurnummer || '').localeCompare(a.factuurnummer || '')
   })
   const vandaagStr = new Date().toISOString().slice(0, 10)
+  // Beschikbare jaren (uit factuurdatums) voor het jaar-filter.
+  const beschikbareJaren = Array.from(new Set(facturen.map(f => (f.datum || '').slice(0, 4)).filter(Boolean))).sort((a, b) => b.localeCompare(a))
+  // 'Alle facturen'-tab filtert op het gekozen jaar; concepten (nog geen datum)
+  // tonen we altijd zodat ze niet wegvallen.
+  const sortedAlle = jaarFilter === 'alle'
+    ? sorted
+    : sorted.filter(f => (f.datum || '').slice(0, 4) === jaarFilter || f.status === 'concept')
   // Openstaand = niet betaald, niet geannuleerd, niet gecrediteerd (en geen
   // credit-nota). Gecrediteerde facturen krijgen een eigen tab.
   const openstaandFacturenAll = sorted.filter(f =>
@@ -399,7 +410,7 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     const data = tab === 'openstaand' ? openstaandFacturen
       : tab === 'aanbetaling' ? aanbetalingFacturen
       : tab === 'restbetaling' ? restbetalingFacturen
-      : sorted
+      : sortedAlle
     if (data.length === 0) return
     const rows = data.map(f => ({
       Factuurnummer: f.factuurnummer,
@@ -494,13 +505,29 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         ))}
       </div>
 
+      {/* Jaar-filter (alleen op het 'Alle facturen'-tabblad) */}
+      {tab === 'alle' && beschikbareJaren.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-gray-500">Jaar:</span>
+          <select
+            value={jaarFilter}
+            onChange={(e) => setJaarFilter(e.target.value)}
+            className="px-2.5 py-1 border border-gray-300 rounded-md text-sm bg-white focus:outline-none focus:ring-1 focus:ring-[#00a66e]"
+          >
+            {beschikbareJaren.map(j => <option key={j} value={j}>{j}</option>)}
+            <option value="alle">Alle jaren</option>
+          </select>
+          {jaarFilter !== 'alle' && <span className="text-xs text-gray-400">2024/2025 verborgen — kies &apos;Alle jaren&apos; voor de historie</span>}
+        </div>
+      )}
+
       {/* Tab content */}
       {tab === 'alle' && (
-        sorted.length === 0 ? (
+        sortedAlle.length === 0 ? (
           <EmptyState
             icon={Receipt}
             title="Geen facturen"
-            description="U heeft nog geen facturen aangemaakt."
+            description={jaarFilter === 'alle' ? 'U heeft nog geen facturen aangemaakt.' : `Geen facturen in ${jaarFilter}.`}
             action={
               <Button onClick={() => router.push('/facturatie/nieuw')}>
                 <Plus className="h-4 w-4" />
@@ -510,10 +537,10 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
           />
         ) : (
           <>
-            <StatsBar stats={berekenStats(sorted)} />
+            <StatsBar stats={berekenStats(sortedAlle)} />
             <DataTable
               columns={columns}
-              data={sorted}
+              data={sortedAlle}
               searchPlaceholder="Zoek factuur..."
               onRowClick={(row) => router.push(`/facturatie/${row.id}`)}
               mobileCard={(f) => ({

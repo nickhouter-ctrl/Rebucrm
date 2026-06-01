@@ -745,6 +745,51 @@ export async function archiveerOfferte(offerteId: string, gearchiveerd = true) {
   return { success: true }
 }
 
+// Jaaroverzicht voor het archief: per jaar de omzet (excl. BTW), het aantal
+// facturen, het aantal offertes en de conversie. Zo houd je grip op de cijfers
+// van 2024/2025 terwijl je in de actieve lijsten met het huidige jaar werkt.
+export async function getJaarCijfers() {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return []
+
+  const [facturen, offertes] = await Promise.all([
+    fetchAllRows<{ datum: string | null; subtotaal: number | null; totaal: number | null; status: string; factuur_type: string | null }>((from, to) =>
+      supabase.from('facturen').select('datum, subtotaal, totaal, status, factuur_type').eq('administratie_id', adminId).range(from, to)),
+    fetchAllRows<{ datum: string | null; status: string }>((from, to) =>
+      supabase.from('offertes').select('datum, status').eq('administratie_id', adminId).range(from, to)),
+  ])
+
+  const perJaar = new Map<string, { jaar: string; omzet: number; aantalFacturen: number; aantalOffertes: number; geaccepteerd: number }>()
+  const zorg = (jaar: string) => {
+    let e = perJaar.get(jaar)
+    if (!e) { e = { jaar, omzet: 0, aantalFacturen: 0, aantalOffertes: 0, geaccepteerd: 0 }; perJaar.set(jaar, e) }
+    return e
+  }
+
+  for (const f of facturen) {
+    const jaar = (f.datum || '').slice(0, 4)
+    if (!jaar) continue
+    // Omzet: tel verstuurde/betaalde facturen mee; sla concept en gecrediteerd over.
+    // Credit-nota's hebben negatieve bedragen → trekken automatisch af.
+    if (f.status === 'concept' || f.status === 'gecrediteerd') continue
+    const e = zorg(jaar)
+    e.omzet += Number(f.subtotaal ?? ((f.totaal || 0) / 1.21))
+    e.aantalFacturen++
+  }
+  for (const o of offertes) {
+    const jaar = (o.datum || '').slice(0, 4)
+    if (!jaar) continue
+    const e = zorg(jaar)
+    e.aantalOffertes++
+    if (o.status === 'geaccepteerd') e.geaccepteerd++
+  }
+
+  return [...perJaar.values()]
+    .map(e => ({ ...e, omzet: Math.round(e.omzet), conversie: e.aantalOffertes > 0 ? Math.round((e.geaccepteerd / e.aantalOffertes) * 100) : 0 }))
+    .sort((a, b) => b.jaar.localeCompare(a.jaar))
+}
+
 export async function getArchiefFacturen() {
   const adminId = await getAdministratieId()
   if (!adminId) return []
