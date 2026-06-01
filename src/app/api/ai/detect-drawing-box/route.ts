@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateObject } from 'ai'
-import { anthropic } from '@ai-sdk/anthropic'
+import { aiModel } from '@/lib/ai-model'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
   const rl = rateLimit(`detect-box:${user.id}`, 30, 60_000)
   if (!rl.ok) return NextResponse.json({ error: `Te veel verzoeken — wacht ${Math.ceil(rl.resetIn / 1000)}s` }, { status: 429 })
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
+  if (!process.env.AI_GATEWAY_API_KEY && !process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: 'AI_GATEWAY_API_KEY of ANTHROPIC_API_KEY ontbreekt' }, { status: 500 })
   }
 
   const { imageBase64, imageWidth, imageHeight, supplier } = (await req.json()) as {
@@ -93,7 +93,7 @@ Geef een royale rechthoek met ruimte rond de tekening (~20px marge). Coordinaten
 
   try {
     const { object } = await generateObject({
-      model: anthropic('claude-sonnet-4-5'),
+      model: aiModel('anthropic/claude-sonnet-4-5'),
       system,
       schema,
       temperature: 0,
