@@ -5703,6 +5703,8 @@ export async function approveTriageEmail(emailId: string) {
 
   // Create task (assigned to medewerker whose inbox received the email)
   const toegewezenMedewerker = await matchMedewerkerByEmailAddress(email.aan_email, adminId, supabaseAdmin)
+  // SLA: offerte moet binnen 20 uur terug naar de klant.
+  const slaDeadline = new Date(Date.now() + 20 * 3600 * 1000).toISOString()
   await supabaseAdmin.from('taken').insert({
     administratie_id: adminId,
     taaknummer: await getVolgendTaaknummer(supabaseAdmin),
@@ -5711,6 +5713,8 @@ export async function approveTriageEmail(emailId: string) {
     prioriteit: 'hoog',
     status: 'open',
     relatie_id: relatieId,
+    offerte_id: conceptOfferteId,
+    sla_deadline: slaDeadline,
     medewerker_id: toegewezenMedewerker?.id || null,
     toegewezen_aan: toegewezenMedewerker?.profiel_id || null,
   })
@@ -5753,7 +5757,7 @@ export async function getAanvragen() {
   const [takenRes, emailsRes] = await Promise.all([
     supabaseAdmin
       .from('taken')
-      .select('*')
+      .select('*, toegewezen:profielen(naam)')
       .eq('administratie_id', adminId)
       .eq('titel', 'Nieuwe aanvraag - offerte nog te maken')
       .order('created_at', { ascending: false }),
@@ -5776,10 +5780,14 @@ export async function getAanvragen() {
     }
   }
 
-  // Collect all relatie_ids to fetch names
+  // Collect all relatie_ids to fetch names — uit de e-mails én rechtstreeks van
+  // de aanvraag-taken (die hebben tegenwoordig een eigen relatie_id).
   const relatieIds = new Set<string>()
   for (const email of emails) {
     if (email.relatie_id) relatieIds.add(email.relatie_id)
+  }
+  for (const taak of taken) {
+    if (taak.relatie_id) relatieIds.add(taak.relatie_id)
   }
 
   // Fetch relatie names
@@ -5796,26 +5804,31 @@ export async function getAanvragen() {
 
   // Match taak omschrijving to email onderwerp to get relatie_id + extract offerte_id
   return taken.map(taak => {
-    let relatie_id: string | null = null
+    let relatie_id: string | null = taak.relatie_id || null
     let relatie_naam: string | null = null
-    let offerte_id: string | null = null
+    // Prefereer de echte offerte_id-kolom; val terug op de [offerte:uuid]-tag
+    // voor oude aanvragen die nog geen kolomwaarde hebben.
+    let offerte_id: string | null = taak.offerte_id || null
 
     if (taak.omschrijving) {
-      // Extract offerte_id from [offerte:uuid] tag
-      const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
-      if (offerteMatch?.[1]) {
-        offerte_id = offerteMatch[1]
+      if (!offerte_id) {
+        const offerteMatch = taak.omschrijving.match(/\[offerte:([a-f0-9-]+)\]/)
+        if (offerteMatch?.[1]) offerte_id = offerteMatch[1]
       }
-
       const match = taak.omschrijving.match(/"(.+)"/)
-      if (match?.[1]) {
+      if (match?.[1] && !relatie_id) {
         relatie_id = onderwerpRelatieMap.get(match[1]) || null
-        if (relatie_id) {
-          relatie_naam = relatieNaamMap.get(relatie_id) || null
-        }
       }
     }
-    return { ...taak, relatie_id, relatie_naam, offerte_id }
+    if (relatie_id) relatie_naam = relatieNaamMap.get(relatie_id) || null
+
+    return {
+      ...taak,
+      relatie_id,
+      relatie_naam,
+      offerte_id,
+      toegewezen_naam: (Array.isArray(taak.toegewezen) ? taak.toegewezen[0] : taak.toegewezen)?.naam || null,
+    }
   })
 }
 
@@ -5834,6 +5847,73 @@ export async function updateAanvraagStatus(taakId: string, status: string) {
   revalidatePath('/aanvragen')
   revalidatePath('/')
   return { success: true }
+}
+
+// Wijs een aanvraag toe aan een medewerker (degene die de offerte gaat maken).
+export async function wijzigAanvraagToewijzing(taakId: string, profielId: string | null) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabaseAdmin = createAdminClient()
+  const { error } = await supabaseAdmin
+    .from('taken')
+    .update({ toegewezen_aan: profielId })
+    .eq('id', taakId)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/aanvragen')
+  revalidatePath('/taken')
+  return { success: true }
+}
+
+// Verleng de SLA van een aanvraag van 20u naar 48u (grote offerte) en stuur de
+// klant automatisch een terugkoppelmail dat de offerte binnen 48 uur volgt.
+export async function verlengAanvraagSla(taakId: string) {
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const supabaseAdmin = createAdminClient()
+
+  const { data: taak } = await supabaseAdmin
+    .from('taken')
+    .select('id, created_at, sla_verlengd, relatie_id, omschrijving, relatie:relaties(bedrijfsnaam, contactpersoon, email)')
+    .eq('id', taakId)
+    .eq('administratie_id', adminId)
+    .maybeSingle()
+  if (!taak) return { error: 'Aanvraag niet gevonden' }
+  if (taak.sla_verlengd) return { error: 'Deze aanvraag is al verlengd naar 48 uur' }
+
+  // Nieuwe deadline = aanmaak + 48 uur
+  const basis = taak.created_at ? new Date(taak.created_at).getTime() : Date.now()
+  const nieuweDeadline = new Date(basis + 48 * 3600 * 1000).toISOString()
+  const { error } = await supabaseAdmin
+    .from('taken')
+    .update({ sla_deadline: nieuweDeadline, sla_verlengd: true })
+    .eq('id', taakId)
+  if (error) return { error: error.message }
+
+  // Terugkoppelmail naar de klant (best-effort — verlenging slaagt ook zonder mail)
+  const rel = (Array.isArray(taak.relatie) ? taak.relatie[0] : taak.relatie) as
+    { bedrijfsnaam?: string; contactpersoon?: string; email?: string } | null
+  let mailVerstuurd = false
+  if (rel?.email) {
+    try {
+      const aanhef = rel.contactpersoon || rel.bedrijfsnaam || 'beste klant'
+      const { sendEmail } = await import('@/lib/email')
+      await sendEmail({
+        to: rel.email,
+        subject: 'Uw offerte-aanvraag bij Rebu Kozijnen',
+        html: `<p>Beste ${aanhef},</p>
+<p>Bedankt voor uw aanvraag. Om u een zorgvuldige en complete offerte te kunnen sturen hebben wij iets meer tijd nodig.</p>
+<p>Wij streven ernaar uw offerte <strong>binnen 48 uur</strong> naar u toe te sturen.</p>
+<p>Met vriendelijke groet,<br/>Rebu Kozijnen</p>`,
+      })
+      mailVerstuurd = true
+    } catch (err) {
+      console.error('Terugkoppelmail 48u mislukt:', err)
+    }
+  }
+
+  revalidatePath('/aanvragen')
+  return { success: true, mailVerstuurd, geenEmail: !rel?.email }
 }
 
 export async function reclassifyExistingEmails() {
@@ -6668,6 +6748,18 @@ export async function sendOfferteEmail(offerteId: string, options: {
 
   // Update status naar verzonden
   await supabase.from('offertes').update({ status: 'verzonden' }).eq('id', offerteId)
+
+  // SLA: de offerte is nu terug naar de klant. Stempel de gekoppelde
+  // aanvraag-taak als 'teruggestuurd' zodat het SLA-dashboard weet of het
+  // binnen 20/48 uur is gelukt. Alleen de eerste keer (teruggestuurd_op leeg).
+  try {
+    await supabase
+      .from('taken')
+      .update({ teruggestuurd_op: new Date().toISOString() })
+      .eq('offerte_id', offerteId)
+      .is('teruggestuurd_op', null)
+      .not('sla_deadline', 'is', null)
+  } catch { /* SLA-stempel is niet-blokkerend */ }
 
   // Log email in email_log
   const { data: { user } } = await supabase.auth.getUser()
