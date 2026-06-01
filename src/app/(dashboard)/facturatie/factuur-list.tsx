@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { Plus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink, FolderKanban, RefreshCw, Download, Send, Loader2 } from 'lucide-react'
-import { syncSnelstartBetalingen, verstuurFactuurSnel } from '@/lib/actions'
+import { syncSnelstartBetalingen, verstuurFactuurSnel, setFactuurGeplandeDatum } from '@/lib/actions'
 import Link from 'next/link'
 import { showToast } from '@/components/ui/toast'
 
@@ -20,6 +20,7 @@ interface Factuur {
   factuurnummer: string
   datum: string | null
   vervaldatum: string | null
+  geplande_datum: string | null
   status: string
   totaal: number
   subtotaal: number | null
@@ -95,6 +96,7 @@ function buildColumns(
   versturenLoading: string | null,
   versturenStatus: Record<string, 'ok' | 'error'>,
   onVerstuur: (e: React.MouseEvent, id: string) => void,
+  onPlanChange: (id: string, datum: string | null) => void,
 ): ColumnDef<Factuur, unknown>[] {
   const vandaag = new Date().toISOString().slice(0, 10)
   return [
@@ -170,7 +172,34 @@ function buildColumns(
       )
     },
   },
-  // 5) Vervaldatum (met visuele waarschuwing bij vervallen)
+  // 5) Gepland — verzenddatum-planning voor concepten (inline bewerkbaar).
+  // 'Klaar om te versturen' als de geplande datum is bereikt.
+  {
+    id: 'gepland',
+    header: 'Gepland',
+    cell: ({ row }) => {
+      const f = row.original
+      if (f.status !== 'concept') {
+        return <span className="text-gray-300">-</span>
+      }
+      const gepland = f.geplande_datum
+      const klaar = gepland && gepland <= vandaag
+      return (
+        <span className="relative inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="date"
+            value={gepland ? gepland.slice(0, 10) : ''}
+            onChange={(e) => onPlanChange(f.id, e.target.value || null)}
+            title="Geplande verzenddatum"
+            className={`bg-transparent border-0 p-0 text-sm focus:outline-none focus:ring-1 focus:ring-[#00a66e] rounded cursor-pointer ${klaar ? 'text-emerald-600 font-medium' : gepland ? 'text-gray-600' : 'text-gray-400'}`}
+            style={{ minWidth: '110px' }}
+          />
+          {klaar && <span className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">klaar</span>}
+        </span>
+      )
+    },
+  },
+  // 6) Vervaldatum (met visuele waarschuwing bij vervallen)
   {
     accessorKey: 'vervaldatum',
     header: 'Vervaldatum',
@@ -252,7 +281,17 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
     }
   }
 
-  const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen)
+  async function handlePlanChange(id: string, datum: string | null) {
+    const res = await setFactuurGeplandeDatum(id, datum)
+    if (res && 'error' in res && res.error) {
+      showToast(`Plannen mislukt: ${res.error}`, 'error')
+    } else {
+      showToast(datum ? 'Verzenddatum gepland' : 'Planning gewist', 'success')
+      router.refresh()
+    }
+  }
+
+  const columns = buildColumns(versturenLoading, versturenStatus, handleSnelVersturen, handlePlanChange)
 
   // Sorteer op datum aflopend (nieuwste factuur bovenaan). Factuurnummer als
   // tiebreaker zodat de volgorde deterministisch is bij meerdere facturen op
@@ -281,10 +320,19 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
   const openstaandFacturen = sorteerOudNaarNieuw(vervallenOnly
     ? openstaandFacturenAll.filter(f => f.vervaldatum && f.vervaldatum < vandaagStr)
     : openstaandFacturenAll)
-  // Split het openstaand-tabblad in twee secties: concepten (nog te versturen,
-  // oud→nieuw) en verstuurde facturen die nog op betaling wachten. Beide al
-  // oud→nieuw gesorteerd via openstaandFacturen, dus filter behoudt volgorde.
-  const openstaandConcept = openstaandFacturen.filter(f => f.status === 'concept')
+  // Split het openstaand-tabblad in twee secties: concepten (nog te versturen)
+  // en verstuurde facturen die nog op betaling wachten.
+  // Concepten hebben nog geen factuurdatum; sorteer ze op GEPLANDE verzenddatum
+  // (vroegst eerst, ongeplande achteraan) zodat 'klaar om te versturen' bovenaan
+  // staat. De te-betalen-sectie houdt oud→nieuw aan.
+  const openstaandConcept = openstaandFacturen
+    .filter(f => f.status === 'concept')
+    .sort((a, b) => {
+      const ga = a.geplande_datum || '9999-12-31'
+      const gb = b.geplande_datum || '9999-12-31'
+      if (ga !== gb) return ga.localeCompare(gb)
+      return (a.factuurnummer || '').localeCompare(b.factuurnummer || '')
+    })
   const openstaandTeBetalen = openstaandFacturen.filter(f => f.status !== 'concept')
   const gecrediteerdeFacturen = sorted.filter(f => f.status === 'gecrediteerd' || f.factuur_type === 'credit')
   const aanbetalingFacturen = sorted.filter(f => f.factuur_type === 'aanbetaling')

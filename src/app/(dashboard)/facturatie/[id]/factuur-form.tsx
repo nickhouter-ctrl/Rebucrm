@@ -293,6 +293,18 @@ export function FactuurForm({ factuur, relaties, producten }: {
               <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || ''} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Input
+                  id="geplande_datum"
+                  name="geplande_datum"
+                  label="Geplande verzenddatum"
+                  type="date"
+                  defaultValue={(factuur?.geplande_datum as string) || (factuur ? '' : new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10))}
+                />
+                <p className="text-[11px] text-gray-400 mt-1">Wanneer dit concept verstuurd moet worden (planning, geen automatische verzending).</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Select id="relatie_id" name="relatie_id" label="Relatie" defaultValue={(factuur?.relatie_id as string) || ''} placeholder="Selecteer relatie..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
               <Select id="status" name="status" label="Status" defaultValue={(factuur?.status as string) || 'concept'} options={[
                 { value: 'concept', label: 'Concept' }, { value: 'verzonden', label: 'Verzonden' },

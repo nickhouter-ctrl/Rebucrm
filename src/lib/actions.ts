@@ -1958,6 +1958,7 @@ export async function saveFactuur(formData: FormData) {
   const status = (formData.get('status') as string) || 'concept'
   const datumInput = (formData.get('datum') as string) || null
   const vervaldatumInput = (formData.get('vervaldatum') as string) || null
+  const geplandeDatumInput = (formData.get('geplande_datum') as string) || null
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
@@ -1966,6 +1967,8 @@ export async function saveFactuur(formData: FormData) {
     // Concept-facturen krijgen pas een datum bij verzending (zie sendFactuurEmail).
     datum: status === 'concept' ? datumInput : (datumInput || new Date().toISOString().slice(0, 10)),
     vervaldatum: vervaldatumInput,
+    // Geplande verzenddatum (planning); alleen relevant voor concepten.
+    geplande_datum: geplandeDatumInput,
     status,
     onderwerp: formData.get('onderwerp') as string || null,
     subtotaal,
@@ -2006,6 +2009,17 @@ export async function saveFactuur(formData: FormData) {
   revalidatePath('/facturatie')
   revalidatePath('/')
   revalidatePath('/rapportages')
+  return { success: true }
+}
+
+// Zet/wist de geplande verzenddatum van een (concept-)factuur. Voor inline
+// plannen vanuit het facturen-overzicht. `datum` is 'YYYY-MM-DD' of null.
+export async function setFactuurGeplandeDatum(id: string, datum: string | null) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('facturen').update({ geplande_datum: datum }).eq('id', id)
+  if (error) return { error: error.message }
+  revalidatePath('/facturatie')
+  revalidatePath('/')
   return { success: true }
 }
 
