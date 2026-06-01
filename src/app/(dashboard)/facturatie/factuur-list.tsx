@@ -375,7 +375,8 @@ export function FactuurList({ facturen, ordersMetStatus }: { facturen: Factuur[]
         showToast(res.error, 'error')
       } else if (res && 'success' in res && res.success) {
         const pushMsg = res.gepushtNaarSnelstart && res.gepushtNaarSnelstart > 0 ? `, ${res.gepushtNaarSnelstart} naar SnelStart gepusht` : ''
-        showToast(`SnelStart sync klaar: ${res.bijgewerkt} bijgewerkt (${res.betaaldGeworden} betaald)${pushMsg}`, 'success')
+        const bestelMsg = res.naarBestellen && res.naarBestellen > 0 ? `, ${res.naarBestellen} klaar om te bestellen` : ''
+        showToast(`SnelStart sync klaar: ${res.bijgewerkt} bijgewerkt (${res.betaaldGeworden} betaald)${bestelMsg}${pushMsg}`, 'success')
         router.refresh()
       }
     } catch (err) {

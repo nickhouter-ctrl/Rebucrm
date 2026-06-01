@@ -2831,11 +2831,11 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
   const crmFacturen = await fetchAllRows<{
     id: string; factuurnummer: string; totaal: number; betaald_bedrag: number | null;
     status: string; vervaldatum: string | null; snelstart_boeking_id: string | null;
-    snelstart_openstaand: number | null;
+    snelstart_openstaand: number | null; order_id: string | null; factuur_type: string | null;
   }>((from, to) =>
     supabaseAdmin
       .from('facturen')
-      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id, snelstart_openstaand')
+      .select('id, factuurnummer, totaal, betaald_bedrag, status, vervaldatum, snelstart_boeking_id, snelstart_openstaand, order_id, factuur_type')
       .eq('administratie_id', adminId)
       .not('factuurnummer', 'is', null)
       .range(from, to)
@@ -2855,6 +2855,7 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
   let updated = 0
   let betaaldNieuw = 0
   let deelsBetaaldNieuw = 0
+  let naarBestellen = 0
   let vervallenNieuw = 0
   const niet_gevonden: string[] = []
 
@@ -2955,6 +2956,24 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
       } catch (err) {
         console.warn('Betalingsbevestiging-mail na SnelStart sync mislukt:', err)
       }
+
+      // "Na betaling gelijk kunnen bestellen": zodra de aanbetaling (of een
+      // volledige factuur) betaald is, kan het materiaal bij de leverancier
+      // worden besteld. Zet de gekoppelde order op 'moet_besteld' zodat 'ie in
+      // het dashboard-blok "Moet besteld worden" verschijnt. Alleen vanuit een
+      // vroege orderstatus en alleen voor aanbetaling/volledig (niet bij een
+      // restbetaling — dan is al lang besteld).
+      if (f.order_id && (f.factuur_type === 'aanbetaling' || f.factuur_type === 'volledig' || !f.factuur_type)) {
+        try {
+          const { data: ord } = await supabaseAdmin.from('orders').select('status').eq('id', f.order_id).maybeSingle()
+          if (ord && (ord.status === 'nieuw' || ord.status === 'in_behandeling')) {
+            await supabaseAdmin.from('orders').update({ status: 'moet_besteld' }).eq('id', f.order_id)
+            naarBestellen++
+          }
+        } catch (err) {
+          console.warn('Order op moet_besteld zetten na betaling mislukt:', err)
+        }
+      }
     }
   }
 
@@ -3016,6 +3035,7 @@ export async function syncSnelstartBetalingen(administratieIdOverride?: string) 
     betaaldGeworden: betaaldNieuw,
     deelsBetaaldGeworden: deelsBetaaldNieuw,
     vervallenGeworden: vervallenNieuw,
+    naarBestellen,
     gepushtNaarSnelstart: gepushtNieuw,
     pushErrors: pushErrors.slice(0, 20),
     nietGevonden: niet_gevonden.slice(0, 20),
