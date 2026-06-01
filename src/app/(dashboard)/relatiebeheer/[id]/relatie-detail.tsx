@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie, toggleVasteKlant } from '@/lib/actions'
 import { EmailLogDialog } from '@/components/email-log-dialog'
 import { RelatieTimeline } from '@/components/relaties/timeline'
 import { PageHeader } from '@/components/ui/page-header'
@@ -16,7 +16,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
-import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil, Paperclip } from 'lucide-react'
+import { ArrowLeft, Save, Trash2, DollarSign, FileText, Receipt, TrendingUp, MessageSquare, Plus, Clock, Bell, X, FolderKanban, Globe, UserPlus, Loader2, ChevronDown, ChevronUp, Phone, Mail, MapPin, CheckSquare, ArrowDownLeft, ArrowUpRight, Download, Pencil, Paperclip, Star } from 'lucide-react'
 import { CopyablePhone } from '@/components/ui/copyable-phone'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import type { PipelineStage } from '@/lib/actions'
@@ -28,6 +28,7 @@ interface RelatieData {
   id: string
   bedrijfsnaam: string
   type: string
+  vaste_klant?: boolean | null
   contactpersoon: string | null
   email: string | null
   telefoon: string | null
@@ -171,6 +172,7 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
   const { relatie, offertes, facturen, projecten, stats } = detail
   const router = useRouter()
   const { navigateBack } = useBackNav(`relatie-${relatie.id}`)
+  const [vasteKlant, setVasteKlant] = useState<boolean>(!!relatie.vaste_klant)
   type TabKey = 'overzicht' | 'tijdlijn' | 'projecten' | 'offertes' | 'facturen' | 'documenten' | 'taken' | 'notities' | 'portaal' | 'gegevens'
   // Initiele tab uit URL ?tab=... zodat back-navigatie de juiste tab laat zien.
   // De tab-wissel gebruikt router.replace() — anders weet Next.js' interne
@@ -446,6 +448,22 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
             <Button variant="ghost" onClick={() => navigateBack('/relatiebeheer')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={async () => {
+                const nieuw = !vasteKlant
+                setVasteKlant(nieuw)
+                const res = await toggleVasteKlant(relatie.id, nieuw)
+                const { showToast } = await import('@/components/ui/toast')
+                if (res?.error) { setVasteKlant(!nieuw); showToast(res.error, 'error') }
+                else showToast(nieuw ? 'Gemarkeerd als vaste klant' : 'Vaste-klant-markering verwijderd', 'success')
+              }}
+              title="Vaste klanten krijgen een vooraankondiging bij vakantie"
+              className={vasteKlant ? 'text-amber-500' : 'text-gray-400'}
+            >
+              <Star className={`h-4 w-4 ${vasteKlant ? 'fill-amber-400' : ''}`} />
+              {vasteKlant ? 'Vaste klant' : 'Vaste klant?'}
             </Button>
             <Button variant="secondary" onClick={() => router.push(`/offertes/nieuw?relatie_id=${relatie.id}`)}>
               <FileText className="h-4 w-4" />

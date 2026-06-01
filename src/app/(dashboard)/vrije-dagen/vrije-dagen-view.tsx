@@ -9,8 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { showToast } from '@/components/ui/toast'
-import { saveVrijeDag, beoordeelVrijeDag, deleteVrijeDag } from '@/lib/actions'
-import { Plus, Palmtree, Check, X, Trash2, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { saveVrijeDag, beoordeelVrijeDag, deleteVrijeDag, getVakantieVooraankondiging, stuurVakantieVooraankondiging } from '@/lib/actions'
+import { Plus, Palmtree, Check, X, Trash2, Clock, CheckCircle, XCircle, Mail, Loader2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 
@@ -25,9 +25,18 @@ interface VrijeDag {
   reden: string | null
   status: string
   aangevraagd_op: string
+  vooraankondiging_verstuurd_op: string | null
 }
 
 interface Medewerker { id: string; naam: string }
+
+interface VooraankondigingPreview {
+  id: string
+  aantalKlanten: number
+  voorbeeldKlanten: string[]
+  alVerstuurdOp: string | null
+  medewerkerNaam: string | null
+}
 
 const TYPE_LABEL: Record<string, string> = { vakantie: 'Vakantie', verlof: 'Verlof', ziek: 'Ziek', bijzonder: 'Bijzonder verlof' }
 
@@ -42,6 +51,28 @@ export function VrijeDagenView({ items, rol, medewerkers }: { items: VrijeDag[];
   const [dialogOpen, setDialogOpen] = useState(false)
   const [bezig, setBezig] = useState(false)
   const [loadingId, setLoadingId] = useState<string | null>(null)
+  // Vakantie-vooraankondiging naar vaste klanten
+  const [vooraankondiging, setVooraankondiging] = useState<VooraankondigingPreview | null>(null)
+  const [vaSending, setVaSending] = useState(false)
+
+  async function openVooraankondiging(id: string) {
+    setLoadingId(id)
+    const preview = await getVakantieVooraankondiging(id)
+    setLoadingId(null)
+    if (!preview) { showToast('Kon gegevens niet laden', 'error'); return }
+    setVooraankondiging(preview as VooraankondigingPreview)
+  }
+
+  async function verstuurVooraankondiging() {
+    if (!vooraankondiging || vaSending) return
+    setVaSending(true)
+    const res = await stuurVakantieVooraankondiging(vooraankondiging.id)
+    setVaSending(false)
+    if (res?.error) { showToast(res.error, 'error'); return }
+    showToast(`${res?.verstuurd ?? 0} vaste klant(en) geïnformeerd`, 'success')
+    setVooraankondiging(null)
+    router.refresh()
+  }
 
   const aangevraagd = items.filter(i => i.status === 'aangevraagd')
   const goedgekeurd = items.filter(i => i.status === 'goedgekeurd')
@@ -103,6 +134,15 @@ export function VrijeDagenView({ items, rol, medewerkers }: { items: VrijeDag[];
                 <X className="h-4 w-4" />
               </Button>
             </>
+          )}
+          {isAdmin && v.status === 'goedgekeurd' && v.type === 'vakantie' && (
+            v.vooraankondiging_verstuurd_op ? (
+              <span className="text-[11px] text-emerald-600 flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" />klanten geïnformeerd</span>
+            ) : (
+              <Button size="sm" variant="ghost" disabled={loadingId === v.id} onClick={() => openVooraankondiging(v.id)} className="text-blue-600 hover:bg-blue-50" title="Vaste klanten vooraf informeren over tragere reactie">
+                <Mail className="h-4 w-4" /> Klanten informeren
+              </Button>
+            )
           )}
           {(isAdmin || v.status === 'aangevraagd') && (
             <Button size="sm" variant="ghost" disabled={loadingId === v.id} onClick={() => handleDelete(v.id)} className="text-gray-400 hover:text-red-500">
@@ -211,6 +251,42 @@ export function VrijeDagenView({ items, rol, medewerkers }: { items: VrijeDag[];
             <Button type="submit" disabled={bezig}>{bezig ? 'Bezig…' : isAdmin ? 'Opslaan' : 'Aanvragen'}</Button>
           </div>
         </form>
+      </Dialog>
+
+      {/* Bevestiging vakantie-vooraankondiging */}
+      <Dialog open={!!vooraankondiging} onClose={() => { if (!vaSending) setVooraankondiging(null) }} title="Vaste klanten informeren">
+        {vooraankondiging && (
+          <div className="space-y-4">
+            {vooraankondiging.aantalKlanten === 0 ? (
+              <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+                Er zijn nog geen <strong>vaste klanten</strong> met e-mailadres gemarkeerd. Markeer klanten als &apos;vaste klant&apos;
+                op hun relatiepagina; alleen die krijgen deze vooraankondiging.
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-gray-700">
+                  Er wordt een mail gestuurd naar <strong>{vooraankondiging.aantalKlanten} vaste klant{vooraankondiging.aantalKlanten === 1 ? '' : 'en'}</strong>
+                  {vooraankondiging.medewerkerNaam ? <> (vakantie {vooraankondiging.medewerkerNaam})</> : null}: dat jullie wat minder
+                  snel bereikbaar zijn en dat mailen naar info@ sneller wordt opgepakt.
+                </p>
+                {vooraankondiging.voorbeeldKlanten.length > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Bijv.: {vooraankondiging.voorbeeldKlanten.join(', ')}{vooraankondiging.aantalKlanten > vooraankondiging.voorbeeldKlanten.length ? ', …' : ''}
+                  </p>
+                )}
+              </>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-200">
+              <Button type="button" variant="ghost" onClick={() => setVooraankondiging(null)} disabled={vaSending}>Annuleren</Button>
+              {vooraankondiging.aantalKlanten > 0 && (
+                <Button type="button" onClick={verstuurVooraankondiging} disabled={vaSending}>
+                  {vaSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+                  {vaSending ? 'Versturen…' : `Verstuur naar ${vooraankondiging.aantalKlanten}`}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </Dialog>
     </div>
   )

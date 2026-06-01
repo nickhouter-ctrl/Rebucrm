@@ -9671,6 +9671,104 @@ export async function deleteVrijeDag(id: string) {
   return { success: true }
 }
 
+// Markeer een relatie als 'vaste klant' (of niet). Alleen vaste klanten krijgen
+// een vakantie-vooraankondiging.
+export async function toggleVasteKlant(relatieId: string, vast: boolean) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { error } = await supabase.from('relaties').update({ vaste_klant: vast }).eq('id', relatieId).eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/relatiebeheer')
+  revalidatePath(`/relatiebeheer/${relatieId}`)
+  return { success: true }
+}
+
+// Preview voor de vakantie-vooraankondiging: hoeveel vaste klanten met e-mail
+// worden gemaild, en of er al een vooraankondiging voor deze periode is gestuurd.
+export async function getVakantieVooraankondiging(vrijeDagId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+  const { data: vd } = await supabase
+    .from('vrije_dagen')
+    .select('id, start_datum, eind_datum, type, status, vooraankondiging_verstuurd_op, medewerker:medewerkers(naam)')
+    .eq('id', vrijeDagId).eq('administratie_id', adminId).maybeSingle()
+  if (!vd) return null
+  const { data: klanten, count } = await supabase
+    .from('relaties')
+    .select('id, bedrijfsnaam, email', { count: 'exact' })
+    .eq('administratie_id', adminId)
+    .eq('vaste_klant', true)
+    .not('email', 'is', null)
+  return {
+    id: vd.id as string,
+    startDatum: vd.start_datum as string,
+    eindDatum: vd.eind_datum as string,
+    type: vd.type as string,
+    medewerkerNaam: (Array.isArray(vd.medewerker) ? vd.medewerker[0] : vd.medewerker)?.naam || null,
+    alVerstuurdOp: (vd.vooraankondiging_verstuurd_op as string | null) || null,
+    aantalKlanten: count || 0,
+    voorbeeldKlanten: (klanten || []).slice(0, 5).map(k => k.bedrijfsnaam as string),
+  }
+}
+
+// Verstuur de vakantie-vooraankondiging naar alle vaste klanten met een e-mail.
+// Handmatig getriggerd vanuit de UI ná bevestiging — nooit automatisch.
+export async function stuurVakantieVooraankondiging(vrijeDagId: string) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { rol } = await getRolEnEigenMedewerker(supabase, adminId)
+  if (rol === 'medewerker') return { error: 'Alleen een beheerder kan klanten informeren' }
+
+  const { data: vd } = await supabase
+    .from('vrije_dagen')
+    .select('id, start_datum, eind_datum, vooraankondiging_verstuurd_op')
+    .eq('id', vrijeDagId).eq('administratie_id', adminId).maybeSingle()
+  if (!vd) return { error: 'Periode niet gevonden' }
+
+  const { data: klanten } = await supabase
+    .from('relaties')
+    .select('id, bedrijfsnaam, contactpersoon, email')
+    .eq('administratie_id', adminId)
+    .eq('vaste_klant', true)
+    .not('email', 'is', null)
+  if (!klanten || klanten.length === 0) return { error: 'Geen vaste klanten met e-mailadres gemarkeerd' }
+
+  // Info-adres voor sneller contact tijdens vakantie.
+  const { data: admin } = await supabase.from('administraties').select('email').eq('id', adminId).maybeSingle()
+  const infoMail = admin?.email || process.env.SMTP_FROM || 'info@rebukozijnen.nl'
+
+  const fmt = (d: string) => new Date(d).toLocaleDateString('nl-NL', { day: 'numeric', month: 'long' })
+  const periode = vd.start_datum === vd.eind_datum ? `op ${fmt(vd.start_datum)}` : `van ${fmt(vd.start_datum)} t/m ${fmt(vd.eind_datum)}`
+
+  const { sendEmail } = await import('@/lib/email')
+  let verstuurd = 0
+  const fouten: string[] = []
+  for (const k of klanten) {
+    const aanhef = (k.contactpersoon as string) || (k.bedrijfsnaam as string) || 'beste klant'
+    try {
+      await sendEmail({
+        to: k.email as string,
+        subject: 'Even wat minder snel bereikbaar — Rebu Kozijnen',
+        html: `<p>Beste ${aanhef},</p>
+<p>In verband met vakantie zijn wij ${periode} wat minder snel bereikbaar. Reacties kunnen iets langer duren dan u van ons gewend bent.</p>
+<p>Heeft u met spoed iets nodig? Mail dan naar <a href="mailto:${infoMail}">${infoMail}</a> — die berichten worden doorgaans sneller opgepakt.</p>
+<p>Bedankt voor uw begrip.</p>
+<p>Met vriendelijke groet,<br/>Rebu Kozijnen</p>`,
+      })
+      verstuurd++
+    } catch (err) {
+      fouten.push(`${k.bedrijfsnaam}: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  await supabase.from('vrije_dagen').update({ vooraankondiging_verstuurd_op: new Date().toISOString() }).eq('id', vrijeDagId)
+  revalidatePath('/vrije-dagen')
+  return { success: true, verstuurd, fouten: fouten.slice(0, 10) }
+}
+
 export async function getMedewerker(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
