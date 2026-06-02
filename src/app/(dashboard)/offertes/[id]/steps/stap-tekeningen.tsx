@@ -281,19 +281,38 @@ export function StapTekeningen({
       try {
         let ai: AiExtractie | null = null
 
-        // Vision-route
+        // Vision-route — in BATCHES zodat ook grote/samengevoegde PDF's (>12
+        // pagina's) volledig gelezen worden zonder Vercel's 4,5MB request-limiet
+        // te raken. Elke batch gaat apart naar de vision-API; we voegen de
+        // elementen samen (dedup op naam tegen dubbeltellen bij pagina-overgangen)
+        // en sommeren de prijs over de unieke elementen.
         try {
-          setProgress('AI leest de tekeningen (beeld)...')
-          const images = await renderPagesToImages(pdf, totalPages, 12)
+          // Ruime limiet: ook grote/samengevoegde offertes (veel pagina's)
+          // worden volledig gelezen. Batches blijven klein zodat elke request
+          // ruim onder de 4,5MB payload-limiet blijft.
+          const images = await renderPagesToImages(pdf, totalPages, 80)
           if (images.length > 0) {
-            const vRes = await fetch('/api/ai/extract-offerte-vision', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ images, leverancier: leverancierDisplay, regexResult }),
-            })
-            if (vRes.ok) {
+            const BATCH = 8
+            const samen = new Map<string, NonNullable<AiExtractie['elementen']>[number]>()
+            let gevonden = false
+            for (let i = 0; i < images.length; i += BATCH) {
+              const batch = images.slice(i, i + BATCH)
+              setProgress(`AI leest de tekeningen (beeld) ${Math.min(i + BATCH, images.length)}/${images.length}...`)
+              const vRes = await fetch('/api/ai/extract-offerte-vision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ images: batch, leverancier: leverancierDisplay, regexResult }),
+              })
+              if (!vRes.ok) continue
               const v = await vRes.json() as AiExtractie
-              if (v.elementen && v.elementen.length > 0) ai = v
+              for (const el of v.elementen || []) {
+                gevonden = true
+                if (el.naam && !samen.has(el.naam)) samen.set(el.naam, el)
+              }
+            }
+            if (gevonden) {
+              const els = [...samen.values()]
+              ai = { elementen: els, totaal: els.reduce((s, e) => s + (e.prijs || 0) * (e.hoeveelheid || 1), 0) }
             }
           }
         } catch (visErr) {
@@ -405,7 +424,7 @@ export function StapTekeningen({
         // 'Productie maten' header + Aantal/Verbinding samen = sterke indicator van een
         // element-tekening-pagina ook als de aanzicht-markers ontbreken/uitelkaar gebroken
         // zijn door pdfjs text-extractie.
-        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|AANZICHT|%%2>-',8|1IVO\s*[%&'()*+,\-.]|Productie\s+maten/i.test(pageText)
+        const hasDrawing = /Binnenaanzicht|Binnenzicht|Buitenaanzicht|Buitenzicht|BUITEN\s*ZICHT|BINNEN\s*ZICHT|AANZICHT\s*:\s*BUITEN|AANZICHT|%%2>-',8|1IVO\s*[%&'()*+,\-.]|Productie\s+maten|Widok\s*z\s*(?:zewn|wewn)|Skala\s*\d\s*:/i.test(pageText)
           || (/Aantal\s*:\s*\d+/i.test(pageText) && /Verbinding\s*:/i.test(pageText))
         const isStandaloneProduct = standaloneProductPattern.test(pageText)
         let elementNaam: string | null = null
