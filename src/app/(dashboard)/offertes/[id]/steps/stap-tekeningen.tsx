@@ -298,11 +298,22 @@ export function StapTekeningen({
             for (let i = 0; i < images.length; i += BATCH) {
               const batch = images.slice(i, i + BATCH)
               setProgress(`AI leest de tekeningen (beeld) ${Math.min(i + BATCH, images.length)}/${images.length}...`)
-              const vRes = await fetch('/api/ai/extract-offerte-vision', {
+              // Kruiscontrole (tekst-parser) ALLEEN bij de eerste batch meesturen.
+              // Bij latere batches (bv. een tweede, samengevoegde offerte met een
+              // ander formaat) zou die lijst de AI op het verkeerde been zetten
+              // ("verwijder ghosts") en juist echte elementen onderdrukken.
+              const callVision = (): Promise<Response> => fetch('/api/ai/extract-offerte-vision', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ images: batch, leverancier: leverancierDisplay, regexResult }),
+                body: JSON.stringify({ images: batch, leverancier: leverancierDisplay, regexResult: i === 0 ? regexResult : undefined }),
               })
+              let vRes = await callVision()
+              if (!vRes.ok) {
+                // Eén retry bij transiënte fout (429/timeout) — anders zou een
+                // mislukte batch stilletjes hele pagina's laten wegvallen.
+                await new Promise(r => setTimeout(r, 1500))
+                vRes = await callVision()
+              }
               if (!vRes.ok) continue
               const v = await vRes.json() as AiExtractie
               for (const el of v.elementen || []) {
@@ -980,6 +991,35 @@ export function StapTekeningen({
     processUploadedPdf(file)
   }
 
+  // "PDF toevoegen": voegt nieuwe PDF('s) samen MET de al geladen PDF i.p.v. te
+  // vervangen. Zo kun je losse leverancier-offertes na elkaar uploaden en samen
+  // als één offerte inlezen (alle tekeningen + prijzen).
+  async function handleAddPdf(e: React.ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(e.target.files || []).filter(
+      f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
+    )
+    e.target.value = ''
+    if (incoming.length === 0) return
+    // Bestaande (reeds geladen/samengevoegde) PDF eerst, daarna de nieuwe erachter.
+    const all = pendingPdfFile ? [pendingPdfFile, ...incoming] : incoming
+    setError('')
+    setProcessing(true)
+    setProgress(`PDF's samenvoegen (${all.length})...`)
+    let file: File
+    try {
+      file = all.length > 1 ? await mergePdfs(all) : all[0]
+    } catch (err) {
+      setError(`Samenvoegen mislukt: ${err instanceof Error ? err.message : String(err)}`)
+      setProcessing(false)
+      setProgress('')
+      return
+    }
+    const fileKey = `${file.name}-${file.size}-${file.lastModified}`
+    processedFileRef.current = fileKey
+    onUploadPdf(file)
+    processUploadedPdf(file)
+  }
+
   // Modal-confirm: gebruiker heeft een leverancier gekozen of nieuwe toegevoegd → fase B starten
   async function handleLevModalConfirm() {
     if (!pendingPdfFile || !pendingPdf || !pendingFullText) {
@@ -1145,6 +1185,13 @@ export function StapTekeningen({
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              <label className="cursor-pointer">
+                <input type="file" accept=".pdf" multiple className="hidden" onChange={handleAddPdf} />
+                <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-white bg-[#00a66e] rounded-md hover:bg-[#008f5f]">
+                  <Plus className="h-3 w-3" />
+                  PDF toevoegen
+                </span>
+              </label>
               <label className="cursor-pointer">
                 <input type="file" accept=".pdf" multiple className="hidden" onChange={handleFileChange} />
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
