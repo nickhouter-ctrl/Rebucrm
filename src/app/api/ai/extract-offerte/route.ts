@@ -122,6 +122,8 @@ KRITIEKE REGELS (op basis van fouten die eerder zijn gemaakt):
    - < 0.7 = serieuze twijfel (bv. "Prijs op aanvraag", verschillende prijzen, ghost-referentie risico)
    Vul confidence_reden in zodra de score < 0.9.
 
+10. **Poolse Eko-Okna offertes / fasades**: "Poz. 001" (Pozycja) = element "Positie 001". Een "Fasada" is een GELDIG element — neem 'm mee. "1 szt."/"3 szt." = hoeveelheid (szt = stuks). Prijs = "Cena pojedyncza" (per stuk). "Suma netto" = offertetotaal. Eén offerte kan meerdere Poz. (fasades) bevatten — extraheer ze ALLEMAAL.
+
 Wees grondig. Als iets twijfelachtig is, leg het uit in "opmerkingen".`
 
   const userPrompt = `Hieronder de volledige tekst van een kozijn-offerte PDF. Extraheer alle echte elementen volgens de regels.

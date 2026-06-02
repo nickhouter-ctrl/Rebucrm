@@ -335,9 +335,13 @@ export function StapTekeningen({
           console.warn('Vision-extractie mislukt, val terug op tekst:', visErr)
         }
 
-        // Tekst-route als fallback (of als vision niets vond)
-        if (!ai) {
-          setProgress('AI controleert element-lijst...')
+        // Tekst-route ALTIJD draaien en samenvoegen met vision. De platte tekst
+        // bevat soms elementen die vision (op beeld) mist — bv. Poolse fasade-
+        // posities ("Poz./Fasada") in een samengevoegde offerte. Vision blijft
+        // leidend; we voegen alleen tekst-elementen toe waarvan de naam nog niet
+        // in de vision-set zit, en herberekenen het totaal.
+        try {
+          setProgress('AI controleert element-lijst (tekst)...')
           const aiRes = await fetch('/api/ai/extract-offerte', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -345,8 +349,23 @@ export function StapTekeningen({
           })
           if (aiRes.ok) {
             const t = await aiRes.json() as AiExtractie
-            if (t.elementen && t.elementen.length > 0) ai = t
+            if (t.elementen && t.elementen.length > 0) {
+              if (!ai) {
+                ai = t
+              } else {
+                const bestaand = new Set((ai.elementen || []).map(e => e.naam))
+                for (const el of t.elementen) {
+                  if (el.naam && !bestaand.has(el.naam)) {
+                    ai.elementen!.push(el)
+                    bestaand.add(el.naam)
+                  }
+                }
+                ai.totaal = ai.elementen!.reduce((s, e) => s + (e.prijs || 0) * (e.hoeveelheid || 1), 0)
+              }
+            }
           }
+        } catch (txtErr) {
+          console.warn('Tekst-extractie mislukt:', txtErr)
         }
 
         if (ai && ai.elementen && ai.elementen.length > 0) {
