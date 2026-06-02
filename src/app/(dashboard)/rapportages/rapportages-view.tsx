@@ -7,7 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import { ChevronDown, ChevronUp, TrendingUp, TrendingDown, ArrowRight, Target, Loader2 } from 'lucide-react'
 import { OmzetChart } from '@/components/dashboard/omzet-chart'
 import { ConversieFunnelDashboard, type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
-import { getMaandPrognose } from '@/lib/actions'
+import { getMaandPrognose, getConversieCijfers } from '@/lib/actions'
 
 interface PrognoseRegel {
   maand: number
@@ -74,12 +74,17 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
   uren: Uur[]
   funnel: FunnelData | null
 }) {
-  const [tab, setTab] = useState<'omzet' | 'prognose' | 'klanten' | 'btw' | 'uren'>('omzet')
+  const [tab, setTab] = useState<'omzet' | 'prognose' | 'conversie' | 'klanten' | 'btw' | 'uren'>('omzet')
 
   // Prognose wordt server-side per jaar berekend; client-side ophalen zodra de
   // tab actief is of het jaar wijzigt, zodat 'ie de jaar-selector volgt.
   const [prognose, setPrognose] = useState<PrognoseData | null>(null)
   const [prognoseLoading, setPrognoseLoading] = useState(false)
+
+  // Conversie-cijfers: idem server-side per jaar.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [conversie, setConversie] = useState<any>(null)
+  const [conversieLoading, setConversieLoading] = useState(false)
 
   // Bepaal beschikbare jaren
   const beschikbareJaren = useMemo(() => {
@@ -99,6 +104,16 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
     getMaandPrognose(jaar)
       .then(d => { if (actief) setPrognose(d as PrognoseData | null) })
       .finally(() => { if (actief) setPrognoseLoading(false) })
+    return () => { actief = false }
+  }, [tab, jaar])
+
+  useEffect(() => {
+    if (tab !== 'conversie') return
+    let actief = true
+    setConversieLoading(true)
+    getConversieCijfers(jaar)
+      .then(d => { if (actief) setConversie(d) })
+      .finally(() => { if (actief) setConversieLoading(false) })
     return () => { actief = false }
   }, [tab, jaar])
 
@@ -286,13 +301,13 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
       {/* Jaar selector + tabs */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <div className="flex gap-2">
-          {(['omzet', 'prognose', 'klanten', 'btw', 'uren'] as const).map((t) => (
+          {(['omzet', 'prognose', 'conversie', 'klanten', 'btw', 'uren'] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`px-4 py-2 text-sm rounded-md transition-colors ${tab === t ? 'bg-primary text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}`}
             >
-              {t === 'omzet' ? 'Omzet' : t === 'prognose' ? 'Prognose' : t === 'klanten' ? 'Top klanten' : t === 'btw' ? 'BTW' : 'Uren'}
+              {t === 'omzet' ? 'Omzet' : t === 'prognose' ? 'Prognose' : t === 'conversie' ? 'Conversie' : t === 'klanten' ? 'Top klanten' : t === 'btw' ? 'BTW' : 'Uren'}
             </button>
           ))}
         </div>
@@ -584,6 +599,88 @@ export function RapportagesView({ facturen, inkoopfacturen, uren, funnel }: {
                       </tfoot>
                     </table>
                   </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* === CONVERSIE TAB === */}
+      {tab === 'conversie' && (
+        <div className="space-y-6">
+          {conversieLoading ? (
+            <div className="flex items-center justify-center py-16 text-gray-500">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" /> Conversie-cijfers berekenen…
+            </div>
+          ) : !conversie ? (
+            <Card><CardContent className="py-10 text-center text-gray-500">Geen gegevens voor {jaar}.</CardContent></Card>
+          ) : (
+            <>
+              {/* KPI's */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card><CardContent className="pt-5">
+                  <p className="text-xs text-gray-500 mb-1">Offertes gemaakt</p>
+                  <p className="text-2xl font-semibold text-gray-900">{conversie.offertes.totaal}</p>
+                  <p className="text-xs text-gray-400 mt-1">{conversie.offertes.perMaand}/mnd · {conversie.offertes.perWeek}/wk · {conversie.offertes.perDag}/dag</p>
+                </CardContent></Card>
+                <Card><CardContent className="pt-5">
+                  <p className="text-xs text-gray-500 mb-1">Conversie</p>
+                  <p className="text-2xl font-semibold text-gray-900">{conversie.offertes.conversiePct != null ? `${conversie.offertes.conversiePct}%` : '–'}</p>
+                  <p className="text-xs text-gray-400 mt-1">{conversie.offertes.geaccepteerd} akkoord · {conversie.offertes.afgewezen} afgewezen</p>
+                </CardContent></Card>
+                <Card><CardContent className="pt-5">
+                  <p className="text-xs text-gray-500 mb-1">Gem. doorlooptijd offerte</p>
+                  <p className="text-2xl font-semibold text-gray-900">{conversie.offertes.gemDoorlooptijdDagen != null ? `${conversie.offertes.gemDoorlooptijdDagen} dg` : '–'}</p>
+                  <p className="text-xs text-gray-400 mt-1">aanmaken → offertedatum</p>
+                </CardContent></Card>
+                <Card><CardContent className="pt-5">
+                  <p className="text-xs text-gray-500 mb-1">Facturen</p>
+                  <p className="text-2xl font-semibold text-gray-900">{conversie.facturen.aantal}</p>
+                  <p className="text-xs text-gray-400 mt-1">{conversie.facturen.perMaand}/mnd · gem. {formatCurrency(conversie.facturen.gemWaarde)}</p>
+                </CardContent></Card>
+              </div>
+
+              {/* Per maand */}
+              <Card>
+                <CardContent className="pt-5">
+                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Per maand — {jaar}</h3>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-500 border-b">
+                        <th className="text-left py-2 font-medium">Maand</th>
+                        <th className="text-right py-2 font-medium">Offertes</th>
+                        <th className="text-right py-2 font-medium">Akkoord</th>
+                        <th className="text-right py-2 font-medium">Facturen</th>
+                        <th className="text-right py-2 font-medium">Gem. factuur</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                      {conversie.perMaand.map((m: any) => (
+                        <tr key={m.maand} className="border-b border-gray-100 last:border-0">
+                          <td className="py-2 capitalize">{m.maandNaam}</td>
+                          <td className="py-2 text-right">{m.offertes || '–'}</td>
+                          <td className="py-2 text-right">{m.geaccepteerd || '–'}</td>
+                          <td className="py-2 text-right">{m.facturen || '–'}</td>
+                          <td className="py-2 text-right">{m.gemFactuurwaarde ? formatCurrency(m.gemFactuurwaarde) : '–'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="font-semibold text-gray-900 border-t-2">
+                        <td className="py-2">Totaal</td>
+                        <td className="py-2 text-right">{conversie.offertes.totaal}</td>
+                        <td className="py-2 text-right">{conversie.offertes.geaccepteerd}</td>
+                        <td className="py-2 text-right">{conversie.facturen.aantal}</td>
+                        <td className="py-2 text-right">{formatCurrency(conversie.facturen.gemWaarde)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                  <p className="text-xs text-gray-400 mt-3">
+                    Offertes geteld op aanmaakdatum, facturen op factuurdatum (excl. concept &amp; credit). Gemiddelde factuurwaarde incl. btw.
+                    Doorlooptijd = aanmaken → offertedatum (proxy; er is geen tijdsregistratie per offerte).
+                  </p>
                 </CardContent>
               </Card>
             </>

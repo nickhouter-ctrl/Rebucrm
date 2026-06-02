@@ -907,15 +907,53 @@ export function StapTekeningen({
     }
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) {
-      const fileKey = `${file.name}-${file.size}-${file.lastModified}`
-      processedFileRef.current = fileKey
-      onUploadPdf(file)
-      processUploadedPdf(file)
-      e.target.value = ''
+  // Meerdere PDF's → samenvoegen tot één document, daarna de normale flow.
+  async function mergePdfs(files: File[]): Promise<File> {
+    const { PDFDocument } = await import('pdf-lib')
+    const merged = await PDFDocument.create()
+    for (const f of files) {
+      const bytes = await f.arrayBuffer()
+      const doc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+      const pages = await merged.copyPages(doc, doc.getPageIndices())
+      pages.forEach(p => merged.addPage(p))
     }
+    const out = await merged.save()
+    // .slice() levert een Uint8Array met een eigen, exact-passende ArrayBuffer
+    // (type-veilig als BlobPart, i.t.t. de ArrayBufferLike die save() teruggeeft).
+    const buf = out.slice().buffer
+    // Bestandsnaam afgeleid van het eerste bestand zodat 'm herkenbaar blijft.
+    const basis = files[0].name.replace(/\.pdf$/i, '')
+    return new File([buf], `${basis} (+${files.length - 1} samengevoegd).pdf`, { type: 'application/pdf' })
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []).filter(
+      f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
+    )
+    e.target.value = ''
+    if (files.length === 0) return
+
+    let file = files[0]
+    if (files.length > 1) {
+      // Sorteer op bestandsnaam zodat de volgorde voorspelbaar is.
+      files.sort((a, b) => a.name.localeCompare(b.name, 'nl', { numeric: true }))
+      setError('')
+      setProcessing(true)
+      setProgress(`${files.length} PDF's samenvoegen...`)
+      try {
+        file = await mergePdfs(files)
+      } catch (err) {
+        setError(`Samenvoegen mislukt: ${err instanceof Error ? err.message : String(err)}`)
+        setProcessing(false)
+        setProgress('')
+        return
+      }
+    }
+
+    const fileKey = `${file.name}-${file.size}-${file.lastModified}`
+    processedFileRef.current = fileKey
+    onUploadPdf(file)
+    processUploadedPdf(file)
   }
 
   // Modal-confirm: gebruiker heeft een leverancier gekozen of nieuwe toegevoegd → fase B starten
@@ -1084,7 +1122,7 @@ export function StapTekeningen({
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <label className="cursor-pointer">
-                <input type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+                <input type="file" accept=".pdf" multiple className="hidden" onChange={handleFileChange} />
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50">
                   <Upload className="h-3 w-3" />
                   Vervangen
@@ -1115,9 +1153,9 @@ export function StapTekeningen({
       {!pendingPdfFile && (
         <label className="flex flex-col items-center justify-center py-16 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-primary hover:bg-gray-50 transition-colors mb-6">
           <Upload className="h-12 w-12 text-gray-400 mb-3" />
-          <span className="text-base font-medium text-gray-700">Klik om leverancier PDF te uploaden</span>
-          <span className="text-sm text-gray-500 mt-2">De kozijntekeningen en totaalprijs worden automatisch ingelezen</span>
-          <input type="file" accept=".pdf" className="hidden" onChange={handleFileChange} />
+          <span className="text-base font-medium text-gray-700">Klik om leverancier PDF('s) te uploaden</span>
+          <span className="text-sm text-gray-500 mt-2">Meerdere PDF's worden automatisch samengevoegd · kozijntekeningen en totaalprijs worden ingelezen</span>
+          <input type="file" accept=".pdf" multiple className="hidden" onChange={handleFileChange} />
         </label>
       )}
 

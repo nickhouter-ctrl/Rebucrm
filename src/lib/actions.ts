@@ -3833,6 +3833,130 @@ export async function getMaandPrognose(jaar: number) {
   }
 }
 
+// Conversie-cijfers per jaar: offerte-doorvoer (per dag/week/maand), conversie,
+// gemiddelde factuurwaarde en gemiddelde doorlooptijd per offerte. Voedt de
+// Conversie-tab in Rapportages.
+export async function getConversieCijfers(jaar: number) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return null
+
+  const start = `${jaar}-01-01`
+  const eind = `${jaar}-12-31`
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offertes = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('offertes')
+      .select('id, status, datum, created_at, subtotaal, totaal')
+      .eq('administratie_id', adminId)
+      .gte('created_at', `${start}T00:00:00`)
+      .lte('created_at', `${eind}T23:59:59`)
+      .range(from, to),
+  )
+
+  // Verstuurde/echte facturen (geen concepten) op factuurdatum binnen het jaar.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const facturen = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('facturen')
+      .select('id, datum, totaal, status, factuur_type')
+      .eq('administratie_id', adminId)
+      .neq('status', 'concept')
+      .neq('factuur_type', 'credit')
+      .gte('datum', start)
+      .lte('datum', eind)
+      .range(from, to),
+  )
+
+  // Verstreken periode: t/m vandaag bij het lopende jaar, anders het hele jaar.
+  const now = new Date()
+  const startDate = new Date(`${jaar}-01-01T00:00:00`)
+  const eindDate = new Date(`${jaar}-12-31T23:59:59`)
+  const tot = now < eindDate ? now : eindDate
+  const dagen = Math.max(1, Math.round((tot.getTime() - startDate.getTime()) / 86400000) + 1)
+  const weken = dagen / 7
+  const maandenVerstreken = jaar === now.getFullYear() ? now.getMonth() + 1 : 12
+
+  const MAAND_NAMEN = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec']
+
+  // Headline offerte-cijfers
+  const offertesTotaal = offertes.length
+  const geaccepteerd = offertes.filter(o => o.status === 'geaccepteerd').length
+  const afgewezen = offertes.filter(o => o.status === 'afgewezen').length
+  const beslist = geaccepteerd + afgewezen
+  const conversiePct = beslist > 0 ? Math.round((geaccepteerd / beslist) * 100) : null
+
+  // Gemiddelde doorlooptijd: aanmaken -> offertedatum (dagen), alleen waar datum
+  // later valt dan created_at. Proxy voor "tijd bezig per offerte" (er is geen
+  // aparte tijdsregistratie per offerte).
+  const doorlooptijden: number[] = []
+  for (const o of offertes) {
+    if (!o.datum || !o.created_at) continue
+    const d = (new Date(o.datum).getTime() - new Date(o.created_at).getTime()) / 86400000
+    if (d >= 0 && d <= 365) doorlooptijden.push(d)
+  }
+  const gemDoorlooptijd = doorlooptijden.length
+    ? Math.round((doorlooptijden.reduce((s, d) => s + d, 0) / doorlooptijden.length) * 10) / 10
+    : null
+
+  // Headline factuur-cijfers
+  const factuurWaarden = facturen.map(f => Number(f.totaal) || 0)
+  const facturenAantal = facturen.length
+  const totaalFactuurwaarde = factuurWaarden.reduce((s, v) => s + v, 0)
+  const gemFactuurwaarde = facturenAantal ? Math.round(totaalFactuurwaarde / facturenAantal) : 0
+
+  const round1 = (n: number) => Math.round(n * 10) / 10
+
+  // Per maand uitsplitsen
+  const perMaand = Array.from({ length: 12 }, (_, i) => ({
+    maand: i + 1,
+    maandNaam: MAAND_NAMEN[i],
+    offertes: 0,
+    geaccepteerd: 0,
+    facturen: 0,
+    factuurwaarde: 0,
+  }))
+  for (const o of offertes) {
+    const m = new Date(o.created_at).getMonth()
+    if (perMaand[m]) {
+      perMaand[m].offertes++
+      if (o.status === 'geaccepteerd') perMaand[m].geaccepteerd++
+    }
+  }
+  for (const f of facturen) {
+    const m = new Date(f.datum).getMonth()
+    if (perMaand[m]) {
+      perMaand[m].facturen++
+      perMaand[m].factuurwaarde += Number(f.totaal) || 0
+    }
+  }
+
+  return {
+    jaar,
+    periode: { dagen, weken: round1(weken), maanden: maandenVerstreken },
+    offertes: {
+      totaal: offertesTotaal,
+      geaccepteerd,
+      afgewezen,
+      conversiePct,
+      perDag: round1(offertesTotaal / dagen),
+      perWeek: round1(offertesTotaal / weken),
+      perMaand: round1(offertesTotaal / maandenVerstreken),
+      gemDoorlooptijdDagen: gemDoorlooptijd,
+    },
+    facturen: {
+      aantal: facturenAantal,
+      gemWaarde: gemFactuurwaarde,
+      totaalWaarde: Math.round(totaalFactuurwaarde),
+      perDag: round1(facturenAantal / dagen),
+      perWeek: round1(facturenAantal / weken),
+      perMaand: round1(facturenAantal / maandenVerstreken),
+    },
+    perMaand: perMaand.map(m => ({ ...m, factuurwaarde: Math.round(m.factuurwaarde), gemFactuurwaarde: m.facturen ? Math.round(m.factuurwaarde / m.facturen) : 0 })),
+  }
+}
+
 export async function getProject(id: string) {
   const supabase = await createClient()
   const { data } = await supabase
