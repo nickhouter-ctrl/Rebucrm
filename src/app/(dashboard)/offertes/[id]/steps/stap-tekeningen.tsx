@@ -342,10 +342,14 @@ export function StapTekeningen({
         // in de vision-set zit, en herberekenen het totaal.
         try {
           setProgress('AI controleert element-lijst (tekst)...')
+          // Géén regexResult meesturen: die bevat (bij een samengevoegde offerte)
+          // alleen de elementen van de eerste offerte en zet de AI op het verkeerde
+          // been ("verwijder ghosts"). Zonder kruiscontrole leest de tekst-route
+          // alles, inclusief de tweede offerte (bewezen via directe modeltest).
           const aiRes = await fetch('/api/ai/extract-offerte', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: fullText, leverancier: leverancierDisplay, profiel: undefined, regexResult }),
+            body: JSON.stringify({ text: fullText, leverancier: leverancierDisplay, profiel: undefined }),
           })
           if (aiRes.ok) {
             const t = await aiRes.json() as AiExtractie
