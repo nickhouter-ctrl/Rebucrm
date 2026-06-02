@@ -205,6 +205,9 @@ export function StapPreview({
 
   // Handmatige prijs-overrides per element (wanneer AI prijs 0 leest of fout heeft)
   const [prijsOverrides, setPrijsOverrides] = useState<Record<string, number>>({})
+  // Handmatige hoeveelheid-overrides per element (AI las verkeerd aantal, bv.
+  // "poz. 2 = 1" terwijl het er 3 zijn). Werkt door in subtotaal + opgeslagen offerte.
+  const [hoeveelheidOverrides, setHoeveelheidOverrides] = useState<Record<string, number>>({})
   // Welke prijs is er feitelijk voor een element (override of geparsed) — helper
   // beschikbaar voor toekomstige callsites.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -239,9 +242,9 @@ export function StapPreview({
       if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) return sum
       const m = elementMarges[e.naam] ?? margePercentage
       const inkoop = prijsOverrides[e.naam] ?? e.prijs
-      return sum + inkoop * (1 + m / 100) * e.hoeveelheid
+      return sum + inkoop * (1 + m / 100) * (hoeveelheidOverrides[e.naam] ?? e.hoeveelheid)
     }, 0)
-  }, [parsedPdfResult.elementen, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, prijsOverrides])
+  }, [parsedPdfResult.elementen, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, prijsOverrides, hoeveelheidOverrides])
 
   // Sync verkoopprijs naar de "Kunststof kozijnen leveren" regel
   function syncKozijnRegel() {
@@ -412,7 +415,7 @@ export function StapPreview({
         }
         return {
           naam: el.naam,
-          hoeveelheid: el.hoeveelheid,
+          hoeveelheid: hoeveelheidOverrides[el.naam] ?? el.hoeveelheid,
           systeem: el.systeem,
           kleur: el.kleur,
           afmetingen: el.afmetingen,
@@ -507,7 +510,7 @@ export function StapPreview({
     return () => {
       if (invalidateRef.current) clearTimeout(invalidateRef.current)
     }
-  }, [prijsOverrides, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, regels, vrijTekst, onderwerp])
+  }, [prijsOverrides, hoeveelheidOverrides, elementMarges, margePercentage, zichtbaarheid, verwijderdeElementen, regels, vrijTekst, onderwerp])
 
   // Cleanup blob-url op unmount
   useEffect(() => () => {
@@ -568,7 +571,7 @@ export function StapPreview({
           .filter(e => !verwijderdeElementen.has(e.naam))
           .map(e => ({
             naam: e.naam,
-            hoeveelheid: e.hoeveelheid,
+            hoeveelheid: hoeveelheidOverrides[e.naam] ?? e.hoeveelheid,
             prijs: e.prijs,
             marge: elementMarges[e.naam] ?? margePercentage,
             verborgen: !!zichtbaarheid[e.naam]?.hidden,
@@ -712,6 +715,7 @@ export function StapPreview({
         onderwerp: string
         history: CorrectieSnapshot[]
         prijsOverrides: Record<string, number>
+        hoeveelheidOverrides?: Record<string, number>
       }>
       if (s.elementMarges) setElementMarges(s.elementMarges)
       if (s.zichtbaarheid) setZichtbaarheid(s.zichtbaarheid)
@@ -720,6 +724,7 @@ export function StapPreview({
       if (s.onderwerp) setOnderwerp(s.onderwerp)
       if (s.history) setHistory(s.history)
       if (s.prijsOverrides) setPrijsOverrides(s.prijsOverrides)
+      if (s.hoeveelheidOverrides) setHoeveelheidOverrides(s.hoeveelheidOverrides)
     })
     return () => { cancelled = true }
   }, [offerteId]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -782,11 +787,12 @@ export function StapPreview({
           onderwerp,
           history,
           prijsOverrides,
+          hoeveelheidOverrides,
         },
       }).catch(() => { /* niet kritiek */ })
     }, 1500)
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
-  }, [offerteId, elementMarges, zichtbaarheid, verwijderdeElementen, regels, onderwerp, history, prijsOverrides])
+  }, [offerteId, elementMarges, zichtbaarheid, verwijderdeElementen, regels, onderwerp, history, prijsOverrides, hoeveelheidOverrides])
 
   const inkoopprijzen = useMemo(() => parsedPdfResult.elementen.map(e => e.prijs), [parsedPdfResult.elementen])
 
@@ -835,7 +841,7 @@ export function StapPreview({
         if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) continue
         // Gebruik handmatige override als die er is — anders AI-prijs
         const prijs = prijsOverrides[e.naam] ?? e.prijs
-        elementPrijzen[e.naam] = { prijs, hoeveelheid: e.hoeveelheid }
+        elementPrijzen[e.naam] = { prijs, hoeveelheid: hoeveelheidOverrides[e.naam] ?? e.hoeveelheid }
       }
       await saveLeverancierTekeningen(offerteId, tekeningenPayload, margePercentage, elementMarges, elementPrijzen)
       return { ok: true }
@@ -878,7 +884,7 @@ export function StapPreview({
           for (const e of parsedPdfResult.elementen) {
             if (zichtbaarheid[e.naam]?.hidden || verwijderdeElementen.has(e.naam)) continue
             const prijs = prijsOverrides[e.naam] ?? e.prijs
-            elementPrijzen[e.naam] = { prijs, hoeveelheid: e.hoeveelheid }
+            elementPrijzen[e.naam] = { prijs, hoeveelheid: hoeveelheidOverrides[e.naam] ?? e.hoeveelheid }
           }
           await updateLeverancierOverrides(offerteId, margePercentage, elementMarges, elementPrijzen)
         } catch (e) {
@@ -1078,7 +1084,8 @@ export function StapPreview({
                     {parsedPdfResult.elementen.filter(el => !verwijderdeElementen.has(el.naam)).map((el) => {
                       const m = elementMarges[el.naam] ?? margePercentage
                       const inkoop = prijsOverrides[el.naam] ?? el.prijs
-                      const verkoop = inkoop * (1 + m / 100) * el.hoeveelheid
+                      const hoev = hoeveelheidOverrides[el.naam] ?? el.hoeveelheid
+                      const verkoop = inkoop * (1 + m / 100) * hoev
                       const hidden = !!zichtbaarheid[el.naam]?.hidden
                       const aiHl = aiAangepast.has(el.naam)
                       const pages = naamToPages.get(el.naam) || []
@@ -1135,7 +1142,29 @@ export function StapPreview({
                               {aiHl && <span className="text-[10px] bg-yellow-200 text-yellow-800 px-1 rounded">AI aangepast</span>}
                             </div>
                           </td>
-                          <td className="text-center px-1.5 py-1.5 text-gray-600">{el.hoeveelheid}</td>
+                          <td className="text-center px-1.5 py-1.5">
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              value={hoev}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value)
+                                setHoeveelheidOverrides(prev => {
+                                  const next = { ...prev }
+                                  if (isNaN(v) || v === el.hoeveelheid) delete next[el.naam]
+                                  else next[el.naam] = v
+                                  return next
+                                })
+                              }}
+                              className={`w-12 px-1 py-0.5 text-xs text-center rounded focus:outline-none focus:ring-1 focus:ring-primary ${
+                                hoeveelheidOverrides[el.naam] !== undefined
+                                  ? 'border border-blue-300 bg-blue-50 font-medium'
+                                  : 'border border-gray-200 hover:border-gray-300 focus:border-primary'
+                              }`}
+                              title="Aantal (handmatig aanpassen)"
+                            />
+                          </td>
                           <td className="text-right px-2 py-1.5 text-gray-600">
                             <input
                               type="number"
