@@ -108,6 +108,9 @@ export function StapTekeningen({
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState('')
   const [error, setError] = useState('')
+  // Diagnose-tekst: hoeveel elementen per bron (beeld/tekst) — zichtbaar in het
+  // resultaat-blok zodat we kunnen zien waar bij samengevoegde offertes iets misgaat.
+  const [bronInfo, setBronInfo] = useState('')
   const processedFileRef = useRef<string | null>(null)
   const [bekendeLijst, setBekendeLijst] = useState<BekendeLeverancier[]>([])
   const [showLevModal, setShowLevModal] = useState(false)
@@ -340,37 +343,55 @@ export function StapTekeningen({
         // posities ("Poz./Fasada") in een samengevoegde offerte. Vision blijft
         // leidend; we voegen alleen tekst-elementen toe waarvan de naam nog niet
         // in de vision-set zit, en herberekenen het totaal.
+        const visionCount = ai?.elementen?.length ?? 0
+        let tekstCount = 0
+        let tekstFout = ''
+        let toegevoegd = 0
         try {
           setProgress('AI controleert element-lijst (tekst)...')
           // Géén regexResult meesturen: die bevat (bij een samengevoegde offerte)
           // alleen de elementen van de eerste offerte en zet de AI op het verkeerde
           // been ("verwijder ghosts"). Zonder kruiscontrole leest de tekst-route
           // alles, inclusief de tweede offerte (bewezen via directe modeltest).
-          const aiRes = await fetch('/api/ai/extract-offerte', {
+          const callTekst = (): Promise<Response> => fetch('/api/ai/extract-offerte', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: fullText, leverancier: leverancierDisplay, profiel: undefined }),
           })
+          let aiRes = await callTekst()
+          if (!aiRes.ok) {
+            tekstFout = `HTTP ${aiRes.status}`
+            await new Promise(r => setTimeout(r, 1500))
+            aiRes = await callTekst()
+          }
           if (aiRes.ok) {
+            tekstFout = ''
             const t = await aiRes.json() as AiExtractie
+            tekstCount = t.elementen?.length ?? 0
             if (t.elementen && t.elementen.length > 0) {
               if (!ai) {
                 ai = t
+                toegevoegd = t.elementen.length
               } else {
                 const bestaand = new Set((ai.elementen || []).map(e => e.naam))
                 for (const el of t.elementen) {
                   if (el.naam && !bestaand.has(el.naam)) {
                     ai.elementen!.push(el)
                     bestaand.add(el.naam)
+                    toegevoegd++
                   }
                 }
                 ai.totaal = ai.elementen!.reduce((s, e) => s + (e.prijs || 0) * (e.hoeveelheid || 1), 0)
               }
             }
+          } else if (!tekstFout) {
+            tekstFout = `HTTP ${aiRes.status}`
           }
         } catch (txtErr) {
+          tekstFout = txtErr instanceof Error ? txtErr.message : 'fout'
           console.warn('Tekst-extractie mislukt:', txtErr)
         }
+        setBronInfo(`beeld: ${visionCount} · tekst: ${tekstCount}${toegevoegd ? ` (+${toegevoegd} toegevoegd)` : ''}${tekstFout ? ` · tekst-fout: ${tekstFout}` : ''}`)
 
         if (ai && ai.elementen && ai.elementen.length > 0) {
             // Merge AI per naam met regex (regex heeft meer spec-velden)
@@ -1206,6 +1227,7 @@ export function StapTekeningen({
                 {parsedPdfResult!.aantalElementen} kozijntekeningen gevonden &middot; {parsedPdfResult!.elementen.length} elementen met prijs
                 {parsedPdfResult!.totaal > 0 && <> &middot; Totaalprijs: <strong>{formatCurrency(parsedPdfResult!.totaal)}</strong></>}
               </p>
+              {bronInfo && <p className="text-[11px] text-gray-400 mt-0.5">AI-bron — {bronInfo}</p>}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <label className="cursor-pointer">
