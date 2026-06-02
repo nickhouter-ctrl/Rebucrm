@@ -48,7 +48,7 @@ export function FaalkostForm({ faalkost, projecten, isNew }: FaalkostFormProps) 
         <h1 className="text-2xl font-bold text-gray-900">
           {isNew ? 'Nieuwe faalkost' : 'Faalkost bewerken'}
         </h1>
-        <Button variant="ghost" onClick={() => router.back()}>
+        <Button variant="ghost" onClick={() => navigateBack('/faalkosten')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
         </Button>

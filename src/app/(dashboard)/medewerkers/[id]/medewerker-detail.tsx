@@ -89,7 +89,7 @@ export function MedewerkerDetail({
       <PageHeader
         title={isNew ? 'Nieuwe medewerker' : (medewerker.naam as string)}
         actions={
-          <Button variant="secondary" size="sm" onClick={() => router.back()}>
+          <Button variant="secondary" size="sm" onClick={() => navigateBack('/medewerkers')}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             Terug
           </Button>

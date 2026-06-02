@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
 import { Save, ArrowLeft, Plus, X } from 'lucide-react'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface Regel {
   grootboekrekening_id: string
@@ -28,6 +29,7 @@ export function BoekingForm({ boeking, rekeningen }: {
   rekeningen: Rekening[]
 }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav(`boeking-${(boeking?.id as string) || 'nieuw'}`)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !boeking
@@ -61,7 +63,7 @@ export function BoekingForm({ boeking, rekeningen }: {
 
   return (
     <div>
-      <PageHeader title={isNew ? 'Nieuwe boeking' : `Boeking ${boeking?.boekingsnummer}`} actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+      <PageHeader title={isNew ? 'Nieuwe boeking' : `Boeking ${boeking?.boekingsnummer}`} actions={<Button variant="ghost" onClick={() => navigateBack('/boekhouding')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit} className="space-y-4">
         <Card>

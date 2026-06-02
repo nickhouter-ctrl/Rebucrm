@@ -7,9 +7,16 @@ import type { PipelineStage } from '@/lib/actions'
 interface PipelineProps {
   stages: PipelineStage[]
   compact?: boolean
+  /**
+   * Maakt een bolletje klikbaar. De parent bepaalt wat elke fase doet
+   * (bv. 'Akkoord' = offerte accepteren, 'Afgerond' = kans afronden).
+   * Wordt aangeroepen met stopPropagation, zodat een onderliggende
+   * rij-klik (naar de verkoopkans) niet meevuurt.
+   */
+  onStageClick?: (stage: PipelineStage, index: number) => void
 }
 
-export function Pipeline({ stages, compact = false }: PipelineProps) {
+export function Pipeline({ stages, compact = false, onStageClick }: PipelineProps) {
   const nodeSize = compact ? 'w-5 h-5' : 'w-7 h-7'
   const iconSize = compact ? 'h-3 w-3' : 'h-4 w-4'
 
@@ -19,13 +26,17 @@ export function Pipeline({ stages, compact = false }: PipelineProps) {
         <div key={stage.key} className="flex items-center flex-1 last:flex-none">
           <div className={cn('flex flex-col items-center', !compact && 'gap-1.5')}>
             <div
+              role={onStageClick ? 'button' : undefined}
+              title={onStageClick ? stage.label : undefined}
+              onClick={onStageClick ? (e) => { e.stopPropagation(); onStageClick(stage, i) } : undefined}
               className={cn(
                 'rounded-full flex items-center justify-center shrink-0',
                 nodeSize,
                 stage.bereikt
                   ? 'bg-primary text-white'
                   : 'bg-gray-200 text-gray-400',
-                stage.actief && 'ring-2 ring-primary ring-offset-2'
+                stage.actief && 'ring-2 ring-primary ring-offset-2',
+                onStageClick && 'cursor-pointer hover:ring-2 hover:ring-primary/50 hover:ring-offset-1 transition-shadow'
               )}
             >
               {stage.bereikt ? (

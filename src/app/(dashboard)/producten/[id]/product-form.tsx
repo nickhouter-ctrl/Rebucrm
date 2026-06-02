@@ -56,7 +56,7 @@ export function ProductForm({ product }: { product: ProductData | null }) {
       <PageHeader
         title={isNew ? 'Nieuw product' : 'Product bewerken'}
         actions={
-          <Button variant="ghost" onClick={() => router.back()}>
+          <Button variant="ghost" onClick={() => navigateBack('/producten')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
           </Button>

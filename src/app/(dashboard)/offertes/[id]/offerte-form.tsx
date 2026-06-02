@@ -695,7 +695,7 @@ function EditOfferteView({
             </a>
             <Button variant="secondary" onClick={openEmailDialog} disabled={loading}>
               <Send className="h-4 w-4" />
-              Versturen
+              {offerteStatus === 'verzonden' || offerteStatus === 'geaccepteerd' ? 'Opnieuw versturen' : 'Versturen'}
             </Button>
             {(offerteStatus === 'verzonden' || offerteStatus === 'concept') && (
               <Button
@@ -941,6 +941,7 @@ function EditOfferteView({
           <div>
             <label htmlFor="email_to" className="block text-sm font-medium text-gray-700 mb-1"><Mail className="h-3.5 w-3.5 inline mr-1" />Aan</label>
             <input id="email_to" type="email" value={emailTo} onChange={e => setEmailTo(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" placeholder="E-mailadres ontvanger" />
+            <p className="text-xs text-gray-400 mt-1">Pas het adres aan om de offerte naar een ander e-mailadres te (her)sturen.</p>
           </div>
           <div>
             <label htmlFor="email_subject" className="block text-sm font-medium text-gray-700 mb-1">Onderwerp</label>

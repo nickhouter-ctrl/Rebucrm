@@ -19,6 +19,7 @@ import {
 import { formatDateShort } from '@/lib/utils'
 import { CopyablePhone } from '@/components/ui/copyable-phone'
 import { leadStatussen } from '@/lib/constants'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface Lead {
   id: string
@@ -57,6 +58,7 @@ const statusConfig: Record<string, { label: string; next?: string; nextLabel?: s
 
 export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: Taak[] }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav(`lead-${lead.id}`)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -172,7 +174,7 @@ export function LeadDetail({ lead, taken: initialTaken }: { lead: Lead; taken: T
         description={`Lead ${config.label.toLowerCase()} — ${formatDateShort(lead.created_at)}`}
         actions={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => router.back()}>
+            <Button variant="secondary" onClick={() => navigateBack('/leads')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
             </Button>

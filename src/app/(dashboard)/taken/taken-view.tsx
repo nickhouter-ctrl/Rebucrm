@@ -402,7 +402,13 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
           columns={getColumns(isAdmin, handleToggle, handleDeadlineChange)}
           data={takenLijst}
           searchPlaceholder="Zoek taak..."
-          onRowClick={(row) => router.push(`/taken/${row.id}`)}
+          onRowClick={(row) => {
+            // Klik op een taak opent direct de gekoppelde verkoopkans, zodat je
+            // meteen ziet of er al gefactureerd is / akkoord is / nog openstaat.
+            // Geen verkoopkans gekoppeld → val terug op het taak-scherm.
+            const projectId = (row as { project_id?: string | null }).project_id
+            router.push(projectId ? `/projecten/${projectId}` : `/taken/${row.id}`)
+          }}
           mobileCard={(t) => ({
             title: t.titel,
             subtitle: <>

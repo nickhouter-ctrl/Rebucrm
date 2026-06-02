@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Save, Trash2, ArrowLeft, Search, Building2, Loader2, MapPin, Sparkles } from 'lucide-react'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface RelatieData {
   id: string
@@ -38,6 +39,7 @@ interface KvkResult {
 
 export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav(`relatie-${relatie?.id || 'nieuw'}`)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !relatie
@@ -267,7 +269,7 @@ export function RelatieForm({ relatie }: { relatie: RelatieData | null }) {
       <PageHeader
         title={isNew ? 'Nieuwe relatie' : 'Relatie bewerken'}
         actions={
-          <Button variant="ghost" onClick={() => router.back()}>
+          <Button variant="ghost" onClick={() => navigateBack('/relatiebeheer')}>
               <ArrowLeft className="h-4 w-4" />
               Terug
           </Button>

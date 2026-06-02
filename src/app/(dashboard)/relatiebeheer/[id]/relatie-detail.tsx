@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
 import Link from 'next/link'
-import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie, toggleVasteKlant } from '@/lib/actions'
+import { saveRelatie, deleteRelatie, saveNotitie, deleteNotitie, deleteProject, saveContactpersoon, deleteContactpersoon, deleteTaak, saveProjectNotitie, toggleVasteKlant, acceptOfferte, setProjectStatus } from '@/lib/actions'
 import { EmailLogDialog } from '@/components/email-log-dialog'
 import { RelatieTimeline } from '@/components/relaties/timeline'
 import { PageHeader } from '@/components/ui/page-header'
@@ -1003,7 +1003,31 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                         </button>
                       </div>
                     </div>
-                    <Pipeline stages={stages} compact />
+                    <Pipeline stages={stages} compact onStageClick={async (stage) => {
+                      const { showToast } = await import('@/components/ui/toast')
+                      if (stage.key === 'offerte_akkoord') {
+                        if (heeftGeaccepteerd) { showToast('Deze verkoopkans is al akkoord'); return }
+                        if (!laatsteOfferte) { showToast('Maak eerst een offerte aan', 'error'); return }
+                        if (!confirm(`Offerte ${laatsteOfferte.offertenummer} op akkoord zetten? Er wordt automatisch een order aangemaakt.`)) return
+                        const res = await acceptOfferte(laatsteOfferte.id)
+                        if (res?.error) showToast(res.error, 'error')
+                        else { showToast('Offerte geaccepteerd', 'success'); router.refresh() }
+                      } else if (stage.key === 'afgerond') {
+                        if (isAfgerond) {
+                          if (!confirm(`"${p.naam}" weer heropenen?`)) return
+                          const res = await setProjectStatus(p.id, 'actief')
+                          if (res?.error) showToast(res.error, 'error')
+                          else { showToast('Verkoopkans heropend', 'success'); router.refresh() }
+                        } else {
+                          if (!confirm(`"${p.naam}" afronden? De kans verdwijnt uit de actieve lijst.`)) return
+                          const res = await setProjectStatus(p.id, 'afgerond')
+                          if (res?.error) showToast(res.error, 'error')
+                          else { showToast('Verkoopkans afgerond', 'success'); router.refresh() }
+                        }
+                      } else {
+                        showToast('Deze stap volgt automatisch uit de offerte/facturen')
+                      }
+                    }} />
                   </div>
                   {laatsteOfferte && (
                     <CardContent className="p-0">

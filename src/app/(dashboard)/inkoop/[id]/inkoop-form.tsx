@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, handleNumberPaste } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X } from 'lucide-react'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface Regel {
   omschrijving: string
@@ -23,6 +24,7 @@ export function InkoopForm({ factuur, relaties }: {
   relaties: { id: string; bedrijfsnaam: string }[]
 }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav(`inkoop-${(factuur?.id as string) || 'nieuw'}`)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !factuur
@@ -59,7 +61,7 @@ export function InkoopForm({ factuur, relaties }: {
 
   return (
     <div>
-      <PageHeader title={isNew ? 'Nieuwe inkoopfactuur' : 'Inkoopfactuur bewerken'} actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
+      <PageHeader title={isNew ? 'Nieuwe inkoopfactuur' : 'Inkoopfactuur bewerken'} actions={<Button variant="ghost" onClick={() => navigateBack('/inkoop')}><ArrowLeft className="h-4 w-4" />Terug</Button>} />
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit} className="space-y-4">
         <Card>

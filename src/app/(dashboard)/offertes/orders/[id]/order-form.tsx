@@ -128,7 +128,7 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
     <div>
       <PageHeader
         title={isNew ? 'Nieuwe order' : `Order ${order?.ordernummer}`}
-        actions={<Button variant="ghost" onClick={() => router.push('/offertes/orders')}><ArrowLeft className="h-4 w-4" />Terug</Button>}
+        actions={<Button variant="ghost" onClick={() => navigateBack('/offertes/orders')}><ArrowLeft className="h-4 w-4" />Terug</Button>}
       />
       {error && <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md mb-4">{error}</div>}
       <form action={handleSubmit} className="space-y-4">

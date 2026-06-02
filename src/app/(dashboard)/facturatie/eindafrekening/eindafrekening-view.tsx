@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { ArrowLeft, CheckCircle2, FileText, Loader2, AlertTriangle } from 'lucide-react'
 import { maakEindafrekening } from '@/lib/actions'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 // Bepaal of de berekende rest verdacht is. Spiegel van de sanity-check in
 // maakEindafrekening — gebruiker krijgt visuele waarschuwing voor de klik.
@@ -49,6 +50,7 @@ type Aanbetaling = {
 
 export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling[] }) {
   const router = useRouter()
+  const { navigateBack } = useBackNav('eindafrekening')
   const [busyId, setBusyId] = useState<string | null>(null)
 
   async function handleMaak(id: string) {
@@ -141,7 +143,7 @@ export function EindafrekeningView({ aanbetalings }: { aanbetalings: Aanbetaling
       <PageHeader
         title="Eindafrekening nodig"
         description={`${aanbetalings.length} klanten waar nog een restbetaling/eindfactuur voor verstuurd moet worden`}
-        actions={<Button variant="ghost" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" />Terug</Button>}
+        actions={<Button variant="ghost" onClick={() => navigateBack('/facturatie')}><ArrowLeft className="h-4 w-4" />Terug</Button>}
       />
       {aanbetalings.length === 0 ? (
         <div className="text-center py-12 text-gray-400">

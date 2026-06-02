@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { saveLeadAsRelatie } from '@/lib/actions'
 import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Search, UserPlus, Star, Loader2, MapPin, Phone, Globe, CheckCircle } from 'lucide-react'
+import { useBackNav } from '@/lib/hooks/use-back-nav'
 
 interface PlaceResult {
   place_id: string
@@ -22,7 +22,7 @@ interface PlaceResult {
 }
 
 export function LeadsSearch() {
-  const router = useRouter()
+  const { navigateBack } = useBackNav('leads-search')
   const [query, setQuery] = useState('')
   const [postcode, setPostcode] = useState('')
   const [results, setResults] = useState<PlaceResult[]>([])
@@ -94,7 +94,7 @@ export function LeadsSearch() {
         title="Leads zoeken"
         description="Zoek potentiële klanten op bedrijfsnaam, branche of locatie"
         actions={
-          <Button variant="ghost" onClick={() => router.back()}>
+          <Button variant="ghost" onClick={() => navigateBack('/relatiebeheer/leads')}>
             <ArrowLeft className="h-4 w-4" />
             Terug
           </Button>
