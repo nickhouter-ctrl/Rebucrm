@@ -104,6 +104,7 @@ KRITIEKE REGELS:
 7. **Naam-formatting** exact: "Element 001", "Deur 008", "Positie 001", "Merk 2A".
 8. **Totaal** = som(prijs × hoeveelheid); als er een "Totaal excl. BTW" zichtbaar is dat matcht, gebruik die.
 9. **Confidence per element** (0-1): laag bij onleesbare/dubbelzinnige delen; vul confidence_reden bij < 0.9.
+10. **Poolse Eko-Okna offertes / fasades**: "Poz. 001" (Pozycja) = element met naam "Positie 001". Een "Fasada" (fasade/vliesgevel) is een GELDIG element — neem 'm mee, ook al heeft 'ie geen klassiek kozijn-aanzicht. Pools "1 szt."/"3 szt." = hoeveelheid (szt = stuks). De prijs staat als "Cena pojedyncza/Cena całkowita ... EUR" — gebruik de **Cena pojedyncza** (prijs per stuk). "Suma netto ... EUR" = het totaal van de hele offerte (gebruik voor totaal, niet als element). Eén offerte kan meerdere Poz. (fasades) bevatten — extraheer ze ALLEMAAL.
 
 Als een afbeelding onscherp of onleesbaar is, vermeld dat in "opmerkingen" i.p.v. te gokken.`
 

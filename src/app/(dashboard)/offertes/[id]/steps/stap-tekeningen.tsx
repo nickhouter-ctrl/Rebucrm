@@ -307,7 +307,12 @@ export function StapTekeningen({
               const v = await vRes.json() as AiExtractie
               for (const el of v.elementen || []) {
                 gevonden = true
-                if (el.naam && !samen.has(el.naam)) samen.set(el.naam, el)
+                // Dedup-sleutel = naam + afmetingen + prijs, zodat een element dat
+                // op een batch-grens in tweeën valt niet dubbel telt, maar twee
+                // ECHT verschillende elementen met dezelfde naam (bv. "Element 001"
+                // uit twee samengevoegde offertes) allebei bewaard blijven.
+                const key = `${el.naam}|${el.afmetingen || ''}|${el.prijs || 0}`
+                if (el.naam && !samen.has(key)) samen.set(key, el)
               }
             }
             if (gevonden) {
