@@ -4614,7 +4614,7 @@ export async function getDashboardData() {
     supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam, adres, postcode, plaats), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
-    supabase.from('facturen').select('id, factuurnummer, totaal, subtotaal, btw_totaal, betaald_bedrag, vervaldatum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, subtotaal, offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))), offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
+    supabase.from('facturen').select('id, factuurnummer, totaal, subtotaal, btw_totaal, betaald_bedrag, vervaldatum, geplande_datum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, subtotaal, offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))), offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
     supabase.from('omzetdoelen').select('*').eq('administratie_id', adminId).eq('jaar', new Date().getFullYear()).maybeSingle(),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, status, project_id, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).neq('status', 'concept').order('datum', { ascending: false }).limit(100),
     supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), offerte:offertes(offertenummer)').eq('administratie_id', adminId).eq('status', 'moet_besteld').order('datum', { ascending: true }),
@@ -5018,6 +5018,7 @@ export async function getDashboardData() {
       betaald_bedrag: betaaldIncl * ratio,
       openstaand_bedrag: openstaandExcl,
       vervaldatum: f.vervaldatum,
+      geplande_datum: f.geplande_datum || null,
       status: f.status,
       factuur_type: f.factuur_type as string | null,
       verkoopkans_naam: projectNaam,
@@ -5027,6 +5028,23 @@ export async function getDashboardData() {
   // Sorteer op factuurnummer aflopend (nieuwste eerst). DB-sortering werkt
   // alfabetisch maar het format "F-YYYY-NNNNN" is zero-padded dus correct.
   openstaandeFacturen.sort((a, b) => (b.factuurnummer || '').localeCompare(a.factuurnummer || ''))
+
+  // Concept-facturen die volgens hun planning (geplande verzenddatum) nu de deur
+  // uit zouden moeten — als dashboard-melding "verstuur deze zelf" (er gaat NIETS
+  // automatisch). Geplande datum vandaag of eerder = klaar om te versturen.
+  const vandaagISO = new Date().toISOString().slice(0, 10)
+  const conceptFacturenGepland = openstaandeFacturen
+    .filter(f => f.status === 'concept' && f.geplande_datum && (f.geplande_datum as string) <= vandaagISO)
+    .map(f => ({
+      id: f.id,
+      factuurnummer: f.factuurnummer,
+      relatie_id: f.relatie_id,
+      relatie_bedrijfsnaam: f.relatie_bedrijfsnaam,
+      onderwerp: f.onderwerp,
+      bedrag: f.totaal,
+      geplande_datum: f.geplande_datum as string,
+    }))
+    .sort((a, b) => (a.geplande_datum || '').localeCompare(b.geplande_datum || ''))
 
   // Top 50 klanten: aggregate by relatie_id
   const relatieMap = new Map<string, { relatie_id: string; bedrijfsnaam: string; betaald: number; offerte_waarde: number }>()
@@ -5323,6 +5341,7 @@ export async function getDashboardData() {
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
     recenteNotities,
     restbetalingTeVersturen,
+    conceptFacturenGepland,
   }
 }
 

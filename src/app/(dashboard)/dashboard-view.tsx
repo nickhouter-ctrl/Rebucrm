@@ -189,6 +189,15 @@ interface DashboardData {
     factuurnummer: string
     bedrag: number
   }[]
+  conceptFacturenGepland?: {
+    id: string
+    factuurnummer: string
+    relatie_id: string | null
+    relatie_bedrijfsnaam: string
+    onderwerp: string | null
+    bedrag: number
+    geplande_datum: string
+  }[]
 }
 
 function formatDateShort(d: string) {
@@ -786,6 +795,55 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                         </Button>
                         <Link
                           href={`/facturatie/${r.factuur_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-gray-300 hover:text-gray-600 shrink-0"
+                          title="Open factuur"
+                        >
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    )
+                  })}
+                </div>
+              </Section>
+            </div>
+          )}
+
+          {(data.conceptFacturenGepland || []).length > 0 && (
+            <div id="concept-gepland" className="scroll-mt-20">
+              <Section title="Concept-facturen gepland om te versturen" icon={Send} iconColor="bg-blue-50 text-blue-600" count={data.conceptFacturenGepland!.length} linkHref="/facturatie" linkLabel="Alle facturen" accentColor="bg-blue-100 text-blue-700" defaultOpen>
+                <p className="px-5 pt-1 pb-2 text-xs text-gray-500">Deze concepten stonden gepland voor vandaag of eerder. Ze worden <strong>niet automatisch</strong> verstuurd — verstuur ze zelf.</p>
+                <div className="divide-y divide-gray-50">
+                  {data.conceptFacturenGepland!.map(c => {
+                    const dagen = dagenVerschil(c.geplande_datum)
+                    const verstuurStatus = versturenStatus[c.id]
+                    return (
+                      <div key={c.id} className="px-5 py-3 flex items-center gap-4 hover:bg-blue-50/30 transition-colors">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <KlantNaam id={c.relatie_id} naam={c.relatie_bedrijfsnaam} className="text-sm font-medium text-gray-900" />
+                            <Link href={`/facturatie/${c.id}`} onClick={(e) => e.stopPropagation()} className="text-xs text-[#00a66e] hover:underline">
+                              {c.factuurnummer}
+                            </Link>
+                          </div>
+                          {c.onderwerp && <p className="text-xs text-gray-500 truncate">{c.onderwerp}</p>}
+                          <p className={`text-[11px] mt-0.5 ${dagen < 0 ? 'text-red-600 font-medium' : 'text-amber-600 font-medium'}`}>
+                            {dagen < 0 ? `Gepland ${Math.abs(dagen)} dag${Math.abs(dagen) === 1 ? '' : 'en'} geleden` : 'Gepland voor vandaag'} · {formatDateShort(c.geplande_datum)}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-gray-900">{formatCurrency(c.bedrag)}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs bg-[#00a66e] hover:bg-[#008f5f] shadow-sm shrink-0"
+                          onClick={(e) => handleSnelVersturen(e, c.id)}
+                          disabled={versturenLoading === c.id}
+                        >
+                          {versturenLoading === c.id ? '...' : verstuurStatus === 'ok' ? '✓ Verzonden' : 'Versturen'}
+                        </Button>
+                        <Link
+                          href={`/facturatie/${c.id}`}
                           onClick={(e) => e.stopPropagation()}
                           className="text-gray-300 hover:text-gray-600 shrink-0"
                           title="Open factuur"
