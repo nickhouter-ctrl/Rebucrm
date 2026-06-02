@@ -290,18 +290,18 @@ export function FactuurForm({ factuur, relaties, producten }: {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Input id="factuurnummer" name="factuurnummer" label="Factuurnummer *" defaultValue={(factuur?.factuurnummer as string) || ''} required />
               <Input id="datum" name="datum" label={factuur?.datum ? 'Factuurdatum' : 'Factuurdatum (volgt bij verzending)'} type="date" defaultValue={(factuur?.datum as string) || ''} />
-              <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || ''} />
+              <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || (factuur ? '' : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Input
                   id="geplande_datum"
                   name="geplande_datum"
-                  label="Geplande verzenddatum"
+                  label="Concept versturen op"
                   type="date"
                   defaultValue={(factuur?.geplande_datum as string) || (factuur ? '' : new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10))}
                 />
-                <p className="text-[11px] text-gray-400 mt-1">Wanneer dit concept verstuurd moet worden (planning, geen automatische verzending).</p>
+                <p className="text-[11px] text-gray-400 mt-1">Planningsdatum: wanneer je dit concept wilt versturen. Verstuurt niets automatisch — gaat niet over levering van de kozijnen.</p>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

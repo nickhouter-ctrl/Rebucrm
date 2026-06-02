@@ -2508,14 +2508,9 @@ export async function sendFactuurEmail(factuurId: string, options: {
     factuurUpdate.datum = vandaag
     const oudeDatum = factuur.datum ? new Date(factuur.datum) : null
     const oudeVervaldatum = factuur.vervaldatum ? new Date(factuur.vervaldatum) : null
-    // Standaard-termijn op basis van factuur_type
-    const typeTermijn: Record<string, number> = {
-      aanbetaling: 14,
-      termijn: 21,
-      restbetaling: 30,
-      volledig: 30,
-    }
-    let dagenTermijn = typeTermijn[(factuur.factuur_type as string) || ''] ?? 14
+    // Standaard betalingstermijn = 7 dagen voor alle facturen. Een handmatig
+    // ingestelde vervaldatum (verschil oude datum/vervaldatum) blijft leidend.
+    let dagenTermijn = 7
     if (oudeDatum && oudeVervaldatum) {
       const diff = Math.round((oudeVervaldatum.getTime() - oudeDatum.getTime()) / (1000 * 60 * 60 * 24))
       if (diff > 0 && diff <= 90) dagenTermijn = diff
@@ -3893,8 +3888,26 @@ export async function saveProject(formData: FormData) {
   }
 
   if (id) {
+    // Oude relatie ophalen zodat we kunnen detecteren of de klant wijzigt en
+    // beide klantpagina's kunnen revalideren.
+    const { data: oud } = await supabase.from('projecten').select('relatie_id').eq('id', id).maybeSingle()
+    const oudeRelatieId = oud?.relatie_id as string | null | undefined
+
     const { error } = await supabase.from('projecten').update(record).eq('id', id)
     if (error) return { error: error.message }
+
+    // Verhuist de verkoopkans naar een andere klant? Dan moeten de gekoppelde
+    // offertes en taken mee — anders blijven die bij de oude klant hangen en
+    // lijkt het alsof de verkoopkans "terugspringt" naar de oude relatie.
+    // Facturen blijven bewust ongemoeid (boekhoudkundige documenten).
+    if (record.relatie_id && record.relatie_id !== oudeRelatieId) {
+      await supabase.from('offertes').update({ relatie_id: record.relatie_id }).eq('project_id', id)
+      await supabase.from('taken').update({ relatie_id: record.relatie_id }).eq('project_id', id)
+    }
+
+    revalidatePath(`/projecten/${id}`)
+    if (oudeRelatieId) revalidatePath(`/relatiebeheer/${oudeRelatieId}`)
+    if (record.relatie_id) revalidatePath(`/relatiebeheer/${record.relatie_id}`)
   } else {
     const { data: nieuwProject, error } = await supabase.from('projecten').insert(record).select('id').single()
     if (error) return { error: error.message }
