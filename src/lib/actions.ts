@@ -1425,6 +1425,21 @@ export async function saveOrder(formData: FormData) {
     await supabase.from('order_regels').insert(regelRecords)
   }
 
+  // Klus-planning: zodra de leverdatum bekend is, laat de CONCEPT-facturen van
+  // deze order in die maand vallen door hun geplande verzenddatum gelijk te
+  // zetten aan de leverdatum ("klus in maand → concept valt in die maand").
+  // Alleen concepten en alleen het planningsveld — verstuurt of wijzigt niets
+  // financieels. De bestaande restbetaling-signalering (leverdatum binnen 3 dgn)
+  // pakt 'm dan vanzelf op.
+  if (orderId && record.leverdatum) {
+    await supabase
+      .from('facturen')
+      .update({ geplande_datum: record.leverdatum })
+      .eq('order_id', orderId)
+      .eq('status', 'concept')
+    revalidatePath('/facturatie')
+  }
+
   revalidatePath('/offertes/orders')
   return { success: true }
 }
