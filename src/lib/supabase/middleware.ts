@@ -2,6 +2,20 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function updateSession(request: NextRequest) {
+  // Prefetch-requests NIET door de auth-flow halen. Next.js prefetcht links
+  // (bij hover, en bij de terug-knop). Zo'n prefetch raakt de middleware
+  // tegelijk met de echte navigatie → twee gelijktijdige token-refreshes met
+  // dezelfde refresh-token → Supabase roteert de eerste en verklaart de tweede
+  // ongeldig → gebruiker wordt onterecht uitgelogd. Prefetch hoeft niet te
+  // redirecten of de sessie te verversen; de echte navigatie regelt auth.
+  const isPrefetch =
+    request.headers.get('next-router-prefetch') === '1' ||
+    request.headers.get('purpose') === 'prefetch' ||
+    (request.headers.get('sec-purpose') || '').includes('prefetch')
+  if (isPrefetch) {
+    return NextResponse.next({ request })
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -33,6 +47,17 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  // Kopieer de (ververste of gewiste) Supabase-sessiecookies van
+  // supabaseResponse naar een redirect-response. ZONDER dit verliest elke
+  // redirect de zojuist ververste auth-token → browser en server raken uit
+  // sync → sessie wordt voortijdig beëindigd (gedocumenteerde Supabase-SSR
+  // vereiste). Geldt ook voor de signOut-redirect: dan bevat supabaseResponse
+  // de gewíste cookie, die zo correct naar de browser gaat.
+  const withSession = (res: NextResponse) => {
+    supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c))
+    return res
+  }
+
   // LET OP: cron-/sync-endpoints MOETEN publiek zijn — anders redirect deze
   // middleware ze naar /login (307) en draait de route nooit (Vercel Cron
   // stuurt geen sessie-cookie mee). De herinnering-cron checkt vóór elke
@@ -52,7 +77,7 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return withSession(NextResponse.redirect(url))
   }
 
   if (user) {
@@ -70,14 +95,14 @@ export async function updateSession(request: NextRequest) {
       if (!isPortaalPath && !isPublicPath && !isApiRoute) {
         const url = request.nextUrl.clone()
         url.pathname = '/portaal'
-        return NextResponse.redirect(url)
+        return withSession(NextResponse.redirect(url))
       }
     } else {
       // Admin/medewerker mag niet naar /portaal
       if (isPortaalPath) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
-        return NextResponse.redirect(url)
+        return withSession(NextResponse.redirect(url))
       }
 
       // 2FA-check + inactiviteit uitlog (geldt alleen voor medewerkers, niet
@@ -98,7 +123,7 @@ export async function updateSession(request: NextRequest) {
           const url = request.nextUrl.clone()
           url.pathname = '/login'
           url.searchParams.set('reason', !tfaOk ? 'tfa_required' : 'inactief')
-          const redirectResponse = NextResponse.redirect(url)
+          const redirectResponse = withSession(NextResponse.redirect(url))
           redirectResponse.cookies.delete('tfa_verified')
           redirectResponse.cookies.delete('last_activity')
           return redirectResponse
@@ -118,7 +143,7 @@ export async function updateSession(request: NextRequest) {
       if (isPublicPath && !isApiRoute && !request.nextUrl.pathname.startsWith('/offerte/') && !isLoginPath) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
-        return NextResponse.redirect(url)
+        return withSession(NextResponse.redirect(url))
       }
     }
   }
