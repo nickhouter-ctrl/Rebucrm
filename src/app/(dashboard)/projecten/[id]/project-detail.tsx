@@ -53,6 +53,41 @@ interface VerstuurdeEmail {
   offertenummer?: string | null
 }
 
+// Uitklapbare sectie voor afwijkende factuurgegevens per verkoopkans. Wanneer
+// "afwijkend" aangevinkt is, worden deze gegevens op de factuur-PDF + in de
+// factuurmail gebruikt i.p.v. de klant. Velden blijven (verborgen) in de DOM
+// zodat ze altijd meeposten — zo behoud je de ingevulde waarden.
+function FactuurGegevensFieldset({ project }: { project?: Record<string, unknown> | null }) {
+  const [open, setOpen] = useState(!!project?.factuur_afwijkend)
+  const g = (k: string) => (project?.[k] as string) || ''
+  return (
+    <div className="border-t border-gray-200 pt-3 mt-1">
+      <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+        <input
+          type="checkbox"
+          name="factuur_afwijkend"
+          value="true"
+          defaultChecked={!!project?.factuur_afwijkend}
+          onChange={e => setOpen(e.target.checked)}
+          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+        />
+        Afwijkende factuurgegevens
+      </label>
+      <p className="text-xs text-gray-400 mt-1">Voor als de factuur naar een ander adres/e-mail moet dan de klant. Lege velden vallen terug op de klantgegevens.</p>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 ${open ? '' : 'hidden'}`}>
+        <Input id="factuur_bedrijfsnaam" name="factuur_bedrijfsnaam" label="Bedrijfsnaam" defaultValue={g('factuur_bedrijfsnaam')} />
+        <Input id="factuur_contactpersoon" name="factuur_contactpersoon" label="T.a.v." defaultValue={g('factuur_contactpersoon')} />
+        <Input id="factuur_adres" name="factuur_adres" label="Adres" defaultValue={g('factuur_adres')} />
+        <Input id="factuur_postcode" name="factuur_postcode" label="Postcode" defaultValue={g('factuur_postcode')} />
+        <Input id="factuur_plaats" name="factuur_plaats" label="Plaats" defaultValue={g('factuur_plaats')} />
+        <Input id="factuur_email" name="factuur_email" label="Factuur-e-mail" type="email" defaultValue={g('factuur_email')} />
+        <Input id="factuur_btw_nummer" name="factuur_btw_nummer" label="BTW-nummer" defaultValue={g('factuur_btw_nummer')} />
+        <Input id="factuur_kvk_nummer" name="factuur_kvk_nummer" label="KvK-nummer" defaultValue={g('factuur_kvk_nummer')} />
+      </div>
+    </div>
+  )
+}
+
 export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [], verstuurdeEmails = [] }: {
   timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
@@ -171,6 +206,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
                 <textarea id="omschrijving" name="omschrijving" rows={3} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
               </div>
+              <FactuurGegevensFieldset />
             </CardContent>
             <CardFooter className="flex justify-end">
               <Button type="submit" disabled={loading}><Save className="h-4 w-4" />{loading ? 'Opslaan...' : 'Opslaan'}</Button>
@@ -273,6 +309,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                     <label htmlFor="omschrijving" className="block text-sm font-medium text-gray-700 mb-1">Omschrijving</label>
                     <textarea id="omschrijving" name="omschrijving" rows={2} defaultValue={(project.omschrijving as string) || ''} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent" />
                   </div>
+                  <FactuurGegevensFieldset project={project as Record<string, unknown>} />
                   <div className="flex gap-2 pt-1">
                     <Button type="submit" size="sm" disabled={loading} className="flex-1">
                       <Save className="h-3 w-3" />{loading ? 'Opslaan...' : 'Opslaan'}
@@ -306,6 +343,18 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                       <span className="text-gray-500">Geen klant</span>
                     )}
                   </div>
+
+                  {/* Afwijkend factuuradres */}
+                  {!!project.factuur_afwijkend && (
+                    <div className="flex items-start gap-2 text-xs bg-amber-50 border border-amber-100 rounded-md p-2">
+                      <Receipt className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="text-gray-600">
+                        <div className="font-medium text-amber-700">Afwijkend factuuradres</div>
+                        <div>{[project.factuur_bedrijfsnaam, project.factuur_plaats].filter(Boolean).join(' · ') || 'ingesteld'}</div>
+                        {!!project.factuur_email && <div className="truncate">{project.factuur_email as string}</div>}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Fase */}
                   <div className="flex items-center gap-2">

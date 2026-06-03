@@ -7,6 +7,7 @@ import { revalidatePath } from 'next/cache'
 import { buildRebuEmailHtml } from '@/lib/email-template'
 import { sendEmail } from '@/lib/email'
 import { createMolliePayment } from '@/lib/mollie'
+import { FACTUUR_OVERRIDE_EMBED, pasFactuurAdresToe } from '@/lib/factuur-adres'
 
 // === HELPER: genereer Mollie betaallink voor een factuur als die nog niet bestaat ===
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -652,11 +653,17 @@ async function autoFacturerenNaAcceptatie(
   // === Haal volledige factuur op voor PDF + email ===
   const { data: factuurVolledig } = await supabaseAdmin
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
+    .select(`*, relatie:relaties(*), regels:factuur_regels(*), ${FACTUUR_OVERRIDE_EMBED}`)
     .eq('id', factuurIdToSend)
     .single()
 
   if (!factuurVolledig) return
+
+  // Afwijkende factuurgegevens van de verkoopkans toepassen (override op relatie).
+  // factuurRelatie reflecteert de override (of de relatie als er geen is) en
+  // wordt gebruikt voor de PDF + e-mailadres/aanhef.
+  pasFactuurAdresToe(factuurVolledig)
+  const factuurRelatie = factuurVolledig.relatie
 
   // === Mollie betaallink ===
   let betaalLink: string | null = null
@@ -683,13 +690,13 @@ async function autoFacturerenNaAcceptatie(
   }
 
   // === Email versturen ===
-  const emailTo = relatie?.email
+  const emailTo = factuurRelatie?.email
   if (!emailTo) {
     console.error('Geen e-mailadres voor relatie, email niet verstuurd')
     return
   }
 
-  const klantNaam = relatie?.contactpersoon || relatie?.bedrijfsnaam || ''
+  const klantNaam = factuurRelatie?.contactpersoon || factuurRelatie?.bedrijfsnaam || ''
   const totaalFormatted = new Intl.NumberFormat('nl-NL', { style: 'currency', currency: 'EUR' }).format(factuurVolledig.totaal || 0)
   const vervaldatumFormatted = factuurVolledig.vervaldatum
     ? new Date(factuurVolledig.vervaldatum).toLocaleDateString('nl-NL')

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { createClient } from '@/lib/supabase/server'
 import { FactuurDocument } from '@/lib/pdf/factuur-template'
+import { FACTUUR_OVERRIDE_EMBED, pasFactuurAdresToe } from '@/lib/factuur-adres'
 
 export async function GET(
   _request: Request,
@@ -12,13 +13,16 @@ export async function GET(
 
   const { data: factuur, error } = await supabase
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
+    .select(`*, relatie:relaties(*), regels:factuur_regels(*), ${FACTUUR_OVERRIDE_EMBED}`)
     .eq('id', id)
     .single()
 
   if (error || !factuur) {
     return NextResponse.json({ error: 'Factuur niet gevonden' }, { status: 404 })
   }
+
+  // Afwijkende factuurgegevens van de verkoopkans toepassen (override op relatie).
+  pasFactuurAdresToe(factuur)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -14,6 +14,7 @@ import { cookies, headers } from 'next/headers'
 import { sendEmail } from '@/lib/email'
 import { buildRebuEmailHtml, buildFactuurEmailHtml } from '@/lib/email-template'
 import { getAppUrl } from '@/lib/utils'
+import { FACTUUR_OVERRIDE_EMBED, pasFactuurAdresToe } from '@/lib/factuur-adres'
 
 // Helper: pagineer Supabase queries die door de 1000-rij limiet heen moeten
 async function fetchAllRows<T>(queryFn: (from: number, to: number) => PromiseLike<{ data: T[] | null }>): Promise<T[]> {
@@ -2122,11 +2123,15 @@ export async function getFactuurEmailDefaults(factuurId: string) {
 
   const { data: factuur } = await adminSb
     .from('facturen')
-    .select('*, relatie:relaties(*)')
+    .select(`*, relatie:relaties(*), ${FACTUUR_OVERRIDE_EMBED}`)
     .eq('id', factuurId)
     .single()
 
   if (!factuur) return { error: 'Factuur niet gevonden' }
+
+  // Afwijkende factuurgegevens van de verkoopkans: override naam/e-mail zodat
+  // de mail naar het juiste adres gaat en de aanhef klopt.
+  pasFactuurAdresToe(factuur)
 
   const { data: { user } } = await supabase.auth.getUser()
   let medewerkerNaam = 'Rebu Kozijnen'
@@ -2403,11 +2408,14 @@ export async function sendFactuurEmail(factuurId: string, options: {
   // gebeurt verderop nog gewoon via de user-scope waar mogelijk.
   const { data: factuur } = await supabaseAdmin2
     .from('facturen')
-    .select('*, relatie:relaties(*), regels:factuur_regels(*), offerte:offertes(offertenummer)')
+    .select(`*, relatie:relaties(*), regels:factuur_regels(*), ${FACTUUR_OVERRIDE_EMBED}`)
     .eq('id', factuurId)
     .single()
 
   if (!factuur) return { error: 'Factuur niet gevonden' }
+
+  // Afwijkende factuurgegevens van de verkoopkans toepassen (override op relatie).
+  pasFactuurAdresToe(factuur)
   if (!options.to) return { error: 'Geen e-mailadres opgegeven' }
 
   // Medewerker-info voor mail-footer + Reply-To
@@ -4024,6 +4032,16 @@ export async function saveProject(formData: FormData) {
     einddatum: formData.get('einddatum') as string || null,
     budget: parseFloat(formData.get('budget') as string) || null,
     uurtarief: parseFloat(formData.get('uurtarief') as string) || null,
+    // Afwijkende factuurgegevens (wijken af van de relatie als afwijkend = true)
+    factuur_afwijkend: formData.get('factuur_afwijkend') === 'true',
+    factuur_bedrijfsnaam: (formData.get('factuur_bedrijfsnaam') as string)?.trim() || null,
+    factuur_contactpersoon: (formData.get('factuur_contactpersoon') as string)?.trim() || null,
+    factuur_adres: (formData.get('factuur_adres') as string)?.trim() || null,
+    factuur_postcode: (formData.get('factuur_postcode') as string)?.trim() || null,
+    factuur_plaats: (formData.get('factuur_plaats') as string)?.trim() || null,
+    factuur_email: (formData.get('factuur_email') as string)?.trim() || null,
+    factuur_btw_nummer: (formData.get('factuur_btw_nummer') as string)?.trim() || null,
+    factuur_kvk_nummer: (formData.get('factuur_kvk_nummer') as string)?.trim() || null,
   }
 
   if (id) {
