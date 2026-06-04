@@ -4284,6 +4284,40 @@ export async function getTaken() {
     }
   }
 
+  // Tweede vangnet: taken zonder kans én zonder offerte maar met een klant die
+  // precies één verzonden offerte heeft → die offerte als beslis-offerte. Bij
+  // meerdere open offertes laten we het leeg (ambigu, niet automatisch te kiezen).
+  const relIdsZonderOfferte = [...new Set(
+    taken.filter(t => !t.offerte_id && !t.project_id && t.relatie_id && !t.offerte).map(t => t.relatie_id as string),
+  )]
+  if (relIdsZonderOfferte.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const relOffertes = await fetchAllRows<any>((from, to) =>
+      supabase
+        .from('offertes')
+        .select('id, offertenummer, status, totaal, subtotaal, relatie_id')
+        .in('relatie_id', relIdsZonderOfferte)
+        .eq('status', 'verzonden')
+        .range(from, to),
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const offertesPerRelatie = new Map<string, any[]>()
+    for (const o of relOffertes) {
+      const arr = offertesPerRelatie.get(o.relatie_id) || []
+      arr.push(o)
+      offertesPerRelatie.set(o.relatie_id, arr)
+    }
+    for (const t of taken) {
+      if (!t.offerte_id && !t.project_id && t.relatie_id && !t.offerte) {
+        const arr = offertesPerRelatie.get(t.relatie_id)
+        if (arr && arr.length === 1) {
+          const o = arr[0]
+          t.offerte = { id: o.id, offertenummer: o.offertenummer, status: o.status, totaal: o.totaal, subtotaal: o.subtotaal }
+        }
+      }
+    }
+  }
+
   return { taken, rol, currentUserId: user.id }
 }
 
