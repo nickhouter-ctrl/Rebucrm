@@ -6,11 +6,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send } from 'lucide-react'
+import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send, EyeOff } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
-import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel } from '@/lib/actions'
+import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel, archiveerOfferte } from '@/lib/actions'
 import { DeliveryPlanningDialog } from './delivery-planning-dialog'
 import { type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
 import { ConversiePerMaandDialog } from '@/components/dashboard/conversie-per-maand-dialog'
@@ -468,6 +468,18 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     setFactuurDialogOfferte(null)
   }
 
+  // Geaccepteerde offerte verbergen uit de "te factureren"-lijst (bv. al
+  // afgehandeld zonder factuur). Offerte blijft 'geaccepteerd' (telt mee voor
+  // conversie), maar wordt gearchiveerd zodat 'ie uit deze actie-widget valt.
+  async function handleVerbergGeaccepteerd(offerteId: string) {
+    if (!confirm('Deze geaccepteerde offerte uit de lijst halen? (blijft als gewonnen meetellen, alleen verborgen)')) return
+    setFactuurLoading(offerteId)
+    const res = await archiveerOfferte(offerteId)
+    setFactuurLoading(null)
+    if (res?.error) alert(res.error)
+    else router.refresh()
+  }
+
   async function handleSaveDoelen() {
     setDoelenSaving(true)
     const fd = new FormData()
@@ -881,9 +893,14 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       </td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
                       <td className="px-5 py-3 text-right">
-                        <Button size="sm" className="h-7 text-xs bg-[#00a66e] hover:bg-[#008f5f] shadow-sm" onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })} disabled={factuurLoading === o.id}>
-                          {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
-                        </Button>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" className="h-7 text-xs bg-[#00a66e] hover:bg-[#008f5f] shadow-sm" onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })} disabled={factuurLoading === o.id}>
+                            {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
+                          </Button>
+                          <button title="Verbergen (al afgehandeld zonder factuur)" onClick={() => handleVerbergGeaccepteerd(o.id)} disabled={factuurLoading === o.id} className="h-7 w-7 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition-colors">
+                            <EyeOff className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -901,9 +918,14 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       </div>
                       <p className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(o.totaal)}</p>
                     </div>
-                    <Button size="sm" className="w-full h-8 text-xs bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })} disabled={factuurLoading === o.id}>
-                      {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" className="flex-1 h-8 text-xs bg-[#00a66e] hover:bg-[#008f5f]" onClick={() => setFactuurDialogOfferte({ id: o.id, totaal: o.totaal })} disabled={factuurLoading === o.id}>
+                        {factuurLoading === o.id ? 'Bezig...' : 'Factuur maken'}
+                      </Button>
+                      <button title="Verbergen (al afgehandeld zonder factuur)" onClick={() => handleVerbergGeaccepteerd(o.id)} disabled={factuurLoading === o.id} className="h-8 w-9 inline-flex items-center justify-center rounded border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors">
+                        <EyeOff className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
