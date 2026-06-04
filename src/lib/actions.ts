@@ -4257,75 +4257,11 @@ export async function getTaken() {
     return query
   })
 
-  // Beslis-offerte voor de afvink-popup: een taak zonder eigen offerte maar
-  // gekoppeld aan een verkoopkans met een verzonden (nog niet besliste) offerte
-  // krijgt die offerte mee. Zo toont het afvinken óók de gewonnen/verloren-popup
-  // voor opvolgtaken die alleen aan de verkoopkans hangen (geen directe offerte_id).
-  const projIdsZonderOfferte = [...new Set(
-    taken.filter(t => !t.offerte_id && t.project_id).map(t => t.project_id as string),
-  )]
-  if (projIdsZonderOfferte.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const projOffertes = await fetchAllRows<any>((from, to) =>
-      supabase
-        .from('offertes')
-        .select('id, offertenummer, status, totaal, subtotaal, project_id, versie_nummer, datum')
-        .in('project_id', projIdsZonderOfferte)
-        .eq('status', 'verzonden')
-        .range(from, to),
-    )
-    // Laatste verzonden offerte per verkoopkans (op datum, versie als tiebreaker).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const laatstePerProject = new Map<string, any>()
-    for (const o of projOffertes) {
-      const cur = laatstePerProject.get(o.project_id)
-      const da = o.datum ? new Date(o.datum).getTime() : 0
-      const dc = cur?.datum ? new Date(cur.datum).getTime() : 0
-      const beter = !cur || (da !== dc ? da > dc : (o.versie_nummer || 0) > (cur.versie_nummer || 0))
-      if (beter) laatstePerProject.set(o.project_id, o)
-    }
-    for (const t of taken) {
-      if (!t.offerte_id && t.project_id && !t.offerte) {
-        const o = laatstePerProject.get(t.project_id)
-        if (o) t.offerte = { id: o.id, offertenummer: o.offertenummer, status: o.status, totaal: o.totaal, subtotaal: o.subtotaal }
-      }
-    }
-  }
-
-  // Tweede vangnet: taken zonder kans én zonder offerte maar met een klant die
-  // precies één verzonden offerte heeft → die offerte als beslis-offerte. Bij
-  // meerdere open offertes laten we het leeg (ambigu, niet automatisch te kiezen).
-  const relIdsZonderOfferte = [...new Set(
-    taken.filter(t => !t.offerte_id && !t.project_id && t.relatie_id && !t.offerte).map(t => t.relatie_id as string),
-  )]
-  if (relIdsZonderOfferte.length > 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const relOffertes = await fetchAllRows<any>((from, to) =>
-      supabase
-        .from('offertes')
-        .select('id, offertenummer, status, totaal, subtotaal, relatie_id')
-        .in('relatie_id', relIdsZonderOfferte)
-        .eq('status', 'verzonden')
-        .range(from, to),
-    )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const offertesPerRelatie = new Map<string, any[]>()
-    for (const o of relOffertes) {
-      const arr = offertesPerRelatie.get(o.relatie_id) || []
-      arr.push(o)
-      offertesPerRelatie.set(o.relatie_id, arr)
-    }
-    for (const t of taken) {
-      if (!t.offerte_id && !t.project_id && t.relatie_id && !t.offerte) {
-        const arr = offertesPerRelatie.get(t.relatie_id)
-        if (arr && arr.length === 1) {
-          const o = arr[0]
-          t.offerte = { id: o.id, offertenummer: o.offertenummer, status: o.status, totaal: o.totaal, subtotaal: o.subtotaal }
-        }
-      }
-    }
-  }
-
+  // Alleen de ECHTE offerte-koppeling van de taak zelf (taak.offerte_id) telt.
+  // Eerdere fallbacks die een offerte van de verkoopkans/klant aan losse taken
+  // plakten zijn verwijderd: dat koppelde offertes aan taken die er niets mee te
+  // maken hebben. De afvink-popup verschijnt dus alleen bij een taak die echt aan
+  // een verzonden offerte hangt (bv. de automatische opvolgtaak met offerte_id).
   return { taken, rol, currentUserId: user.id }
 }
 
