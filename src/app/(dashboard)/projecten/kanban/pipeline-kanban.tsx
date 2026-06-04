@@ -31,6 +31,7 @@ const FASES: { key: PipelineFase; label: string; kleur: string; icoonkleur: stri
   { key: 'concept',      label: 'Concept',       kleur: 'bg-amber-50 border-amber-200',   icoonkleur: 'text-amber-600' },
   { key: 'verzonden',    label: 'Verzonden',     kleur: 'bg-blue-50 border-blue-200',     icoonkleur: 'text-blue-600' },
   { key: 'geaccepteerd', label: 'Geaccepteerd',  kleur: 'bg-green-50 border-green-200',   icoonkleur: 'text-green-700' },
+  { key: 'factuur',      label: 'Factuur',       kleur: 'bg-indigo-50 border-indigo-200', icoonkleur: 'text-indigo-600' },
   { key: 'afgerond',     label: 'Afgerond',      kleur: 'bg-purple-50 border-purple-200', icoonkleur: 'text-purple-700' },
   { key: 'verloren',     label: 'Verloren',      kleur: 'bg-red-50 border-red-200',       icoonkleur: 'text-red-600' },
 ]

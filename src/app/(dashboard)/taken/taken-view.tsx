@@ -10,10 +10,10 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
-import { completeTaak, uncompleteTaak, updateTaakDeadline, acceptOfferte, rejectOfferte } from '@/lib/actions'
+import { completeTaak, uncompleteTaak, updateTaakDeadline, acceptOfferte, rejectOfferte, convertToFactuur } from '@/lib/actions'
 import { Dialog } from '@/components/ui/dialog'
 import { showToast } from '@/components/ui/toast'
-import { Plus, CheckSquare, X, Phone, FileText, ListTodo, ThumbsUp, ThumbsDown, Loader2, ArrowRight } from 'lucide-react'
+import { Plus, CheckSquare, X, Phone, FileText, ListTodo, ThumbsUp, ThumbsDown, ArrowRight } from 'lucide-react'
 
 interface Taak {
   id: string
@@ -257,6 +257,11 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
   // markeert 'm als verloren — zo weten we precies wat er doorgaat.
   const [beslisTaak, setBeslisTaak] = useState<Taak | null>(null)
   const [beslisBezig, setBeslisBezig] = useState(false)
+  // Twee-traps popup: eerst gewonnen/verloren ('keuze'), bij gewonnen daarna de
+  // factureer-keuze ('factureer'). Zo kun je nog kiezen hoe er gefactureerd wordt.
+  const [beslisModus, setBeslisModus] = useState<'keuze' | 'factureer'>('keuze')
+  const [customSplitPercentage, setCustomSplitPercentage] = useState(70)
+  const [split3Percentages, setSplit3Percentages] = useState<[number, number, number]>([50, 40, 10])
 
   async function handleToggle(id: string, currentStatus: string) {
     // Heropenen kan altijd direct, geen popup.
@@ -270,6 +275,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     // wacht? Dan eerst de akkoord/niet-akkoord-popup tonen i.p.v. stil afvinken.
     const taak = takenLijst.find(t => t.id === id) || taken.find(t => t.id === id)
     if (taak?.offerte?.id && taak.offerte.status === 'verzonden') {
+      setBeslisModus('keuze')
       setBeslisTaak(taak)
       return
     }
@@ -279,27 +285,56 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
   }
 
   // Afhandeling vanuit de beslis-popup. uitkomst bepaalt wat er met de offerte
-  // gebeurt; de taak wordt in alle gevallen afgerond.
-  async function handleBeslis(uitkomst: 'akkoord' | 'niet_akkoord' | 'alleen_taak') {
+  // gebeurt; de taak wordt in alle gevallen afgerond. Gewonnen en verloren
+  // landen elk in hun eigen bucket (offerte geaccepteerd vs afgewezen) zodat de
+  // conversie blijft kloppen.
+  async function handleBeslis(uitkomst: 'verloren' | 'alleen_taak') {
     const taak = beslisTaak
     if (!taak || beslisBezig) return
     setBeslisBezig(true)
     try {
       await completeTaak(taak.id)
       const offerteId = taak.offerte?.id
-      if (uitkomst === 'akkoord' && offerteId) {
-        const res = await acceptOfferte(offerteId)
-        if (res?.error) { showToast(res.error, 'error'); return }
-        showToast('Offerte akkoord — doorgezet naar factuurfase', 'success')
-      } else if (uitkomst === 'niet_akkoord' && offerteId) {
+      if (uitkomst === 'verloren' && offerteId) {
         const res = await rejectOfferte(offerteId)
         if (res?.error) { showToast(res.error, 'error'); return }
-        showToast('Verkoopkans afgesloten (niet akkoord)', 'success')
+        showToast('Offerte verloren — verkoopkans afgesloten', 'success')
       } else {
         showToast('Taak afgerond', 'success')
       }
       setTakenLijst(prev => prev.filter(t => t.id !== taak.id))
       setBeslisTaak(null)
+      setBeslisModus('keuze')
+      router.refresh()
+    } catch (err) {
+      showToast('Mislukt: ' + (err instanceof Error ? err.message : String(err)), 'error')
+    } finally {
+      setBeslisBezig(false)
+    }
+  }
+
+  // Gewonnen: offerte op akkoord (order wordt aangemaakt) én factureren volgens
+  // de gekozen splitsing. Daarna schuift de kans automatisch naar de factuur-fase
+  // zodra de (eerste) factuur verstuurd is.
+  async function handleGewonnen(
+    splitType: 'volledig' | 'split' | 'split3',
+    percentage = 70,
+    termijnen?: [number, number, number],
+  ) {
+    const taak = beslisTaak
+    const offerteId = taak?.offerte?.id
+    if (!taak || !offerteId || beslisBezig) return
+    setBeslisBezig(true)
+    try {
+      await completeTaak(taak.id)
+      const acc = await acceptOfferte(offerteId)
+      if (acc?.error) { showToast(acc.error, 'error'); return }
+      const fac = await convertToFactuur(offerteId, splitType, percentage, termijnen)
+      if (fac?.error) showToast(`Offerte gewonnen, maar factuur aanmaken mislukte: ${fac.error}`, 'error')
+      else showToast('Offerte gewonnen — factuur aangemaakt', 'success')
+      setTakenLijst(prev => prev.filter(t => t.id !== taak.id))
+      setBeslisTaak(null)
+      setBeslisModus('keuze')
       router.refresh()
     } catch (err) {
       showToast('Mislukt: ' + (err instanceof Error ? err.message : String(err)), 'error')
@@ -432,14 +467,15 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
       {/* Beslis-popup bij afronden van een taak met een verstuurde offerte */}
       <Dialog
         open={!!beslisTaak}
-        onClose={() => { if (!beslisBezig) setBeslisTaak(null) }}
-        title="Taak afgerond — wat is de uitkomst?"
+        onClose={() => { if (!beslisBezig) { setBeslisTaak(null); setBeslisModus('keuze') } }}
+        title={beslisModus === 'factureer' ? 'Offerte gewonnen — hoe factureren?' : 'Taak afgerond — wat is de uitkomst?'}
       >
         {beslisTaak && (() => {
           const off = beslisTaak.offerte
           const excl = off?.subtotaal && off.subtotaal > 0
             ? off.subtotaal
             : off?.totaal ? off.totaal / 1.21 : 0
+          const totaalIncl = off?.totaal && off.totaal > 0 ? off.totaal : Math.round(excl * 1.21 * 100) / 100
           return (
             <div className="space-y-4">
               <div className="rounded-lg bg-gray-50 border border-gray-200 px-4 py-3 text-sm">
@@ -450,39 +486,123 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
                   {excl > 0 ? <> · {formatCurrency(excl)} excl.</> : null}
                 </div>
               </div>
-              <p className="text-sm text-gray-600">
-                Ging de klant akkoord met de offerte? Bij <strong>akkoord</strong> gaat de verkoopkans
-                door naar de factuurfase (er wordt een order aangemaakt). Bij <strong>niet akkoord</strong>
-                wordt de verkoopkans afgesloten.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  disabled={beslisBezig}
-                  onClick={() => handleBeslis('akkoord')}
-                  className="flex items-center justify-center gap-2 rounded-md bg-[#00a66e] text-white px-4 py-2.5 text-sm font-medium hover:bg-[#00935f] disabled:opacity-60 transition-colors"
-                >
-                  {beslisBezig ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
-                  Akkoord → factuurfase
-                </button>
-                <button
-                  type="button"
-                  disabled={beslisBezig}
-                  onClick={() => handleBeslis('niet_akkoord')}
-                  className="flex items-center justify-center gap-2 rounded-md bg-red-50 text-red-700 border border-red-200 px-4 py-2.5 text-sm font-medium hover:bg-red-100 disabled:opacity-60 transition-colors"
-                >
-                  <ThumbsDown className="h-4 w-4" />
-                  Niet akkoord
-                </button>
-              </div>
-              <button
-                type="button"
-                disabled={beslisBezig}
-                onClick={() => handleBeslis('alleen_taak')}
-                className="w-full flex items-center justify-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-60 transition-colors"
-              >
-                Alleen taak afronden (later beslissen) <ArrowRight className="h-3.5 w-3.5" />
-              </button>
+
+              {beslisModus === 'keuze' ? (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Is de offerte gewonnen of verloren? Bij <strong>gewonnen</strong> zet je de offerte op
+                    akkoord en kies je hoe er gefactureerd wordt — de kans schuift dan naar de factuur-fase.
+                    Bij <strong>verloren</strong> wordt de verkoopkans afgesloten. Zo blijft de conversie kloppen.
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={beslisBezig}
+                      onClick={() => setBeslisModus('factureer')}
+                      className="flex items-center justify-center gap-2 rounded-md bg-[#00a66e] text-white px-4 py-2.5 text-sm font-medium hover:bg-[#00935f] disabled:opacity-60 transition-colors"
+                    >
+                      <ThumbsUp className="h-4 w-4" />
+                      Offerte gewonnen → factureren
+                    </button>
+                    <button
+                      type="button"
+                      disabled={beslisBezig}
+                      onClick={() => handleBeslis('verloren')}
+                      className="flex items-center justify-center gap-2 rounded-md bg-red-50 text-red-700 border border-red-200 px-4 py-2.5 text-sm font-medium hover:bg-red-100 disabled:opacity-60 transition-colors"
+                    >
+                      <ThumbsDown className="h-4 w-4" />
+                      Offerte verloren
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={beslisBezig}
+                    onClick={() => handleBeslis('alleen_taak')}
+                    className="w-full flex items-center justify-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-60 transition-colors"
+                  >
+                    Alleen taak afronden (later beslissen) <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600">Hoe wil je deze offerte factureren?</p>
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      disabled={beslisBezig}
+                      onClick={() => handleGewonnen('volledig')}
+                      className="w-full text-left p-3 rounded-lg border-2 border-gray-200 hover:border-[#00a66e] hover:bg-emerald-50/40 disabled:opacity-60 transition-all"
+                    >
+                      <p className="font-medium text-sm">100% factureren</p>
+                      <p className="text-xs text-gray-500">1 factuur · {formatCurrency(totaalIncl)}</p>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={beslisBezig}
+                      onClick={() => handleGewonnen('split', 70)}
+                      className="w-full text-left p-3 rounded-lg border-2 border-gray-200 hover:border-[#00a66e] hover:bg-emerald-50/40 disabled:opacity-60 transition-all"
+                    >
+                      <p className="font-medium text-sm">70% / 30% splitsen</p>
+                      <p className="text-xs text-gray-500">Aanbetaling {formatCurrency(totaalIncl * 0.7)} · restbetaling {formatCurrency(totaalIncl * 0.3)} (concept)</p>
+                    </button>
+                    <div className="p-3 rounded-lg border-2 border-gray-200">
+                      <p className="font-medium text-sm mb-2">Eigen percentage (2 termijnen)</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={99}
+                          value={customSplitPercentage}
+                          onChange={(e) => setCustomSplitPercentage(Math.min(99, Math.max(1, parseInt(e.target.value) || 50)))}
+                          className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                        />
+                        <span className="text-xs text-gray-500 flex-1">% / {100 - customSplitPercentage}% · {formatCurrency(totaalIncl * customSplitPercentage / 100)} + {formatCurrency(totaalIncl * (100 - customSplitPercentage) / 100)}</span>
+                        <Button size="sm" disabled={beslisBezig} onClick={() => handleGewonnen('split', customSplitPercentage)}>Factureren</Button>
+                      </div>
+                    </div>
+                    {(() => {
+                      const [p1, p2, p3] = split3Percentages
+                      const som = p1 + p2 + p3
+                      const valid = som === 100 && p1 >= 1 && p2 >= 1 && p3 >= 1
+                      return (
+                        <div className="p-3 rounded-lg border-2 border-gray-200">
+                          <p className="font-medium text-sm mb-2">3 termijnen (samen 100%)</p>
+                          <div className="grid grid-cols-3 gap-2 mb-2">
+                            {[0, 1, 2].map(i => (
+                              <input
+                                key={i}
+                                type="number"
+                                min={1}
+                                max={98}
+                                value={split3Percentages[i]}
+                                onChange={(e) => {
+                                  const v = Math.min(98, Math.max(1, parseInt(e.target.value) || 0))
+                                  setSplit3Percentages(prev => { const next = [...prev] as [number, number, number]; next[i] = v; return next })
+                                }}
+                                className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm text-center focus:outline-none focus:ring-2 focus:ring-[#00a66e]"
+                              />
+                            ))}
+                          </div>
+                          <p className={`text-xs mb-2 ${valid ? 'text-gray-400' : 'text-red-600'}`}>
+                            {valid
+                              ? `${formatCurrency(totaalIncl * p1 / 100)} + ${formatCurrency(totaalIncl * p2 / 100)} + ${formatCurrency(totaalIncl * p3 / 100)}`
+                              : `Som: ${som}% — moet 100% zijn`}
+                          </p>
+                          <Button size="sm" className="w-full" disabled={beslisBezig || !valid} onClick={() => handleGewonnen('split3', 0, split3Percentages)}>Maak 3 facturen</Button>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={beslisBezig}
+                    onClick={() => setBeslisModus('keuze')}
+                    className="w-full flex items-center justify-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 disabled:opacity-60 transition-colors"
+                  >
+                    ← Terug
+                  </button>
+                </>
+              )}
             </div>
           )
         })()}

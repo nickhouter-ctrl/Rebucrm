@@ -2542,6 +2542,26 @@ export async function sendFactuurEmail(factuurId: string, options: {
   }
   await supabase.from('facturen').update(factuurUpdate).eq('id', factuurId)
 
+  // "Gefactureerd → opvolgtaak klaar": rond de open opvolgtaak van deze
+  // verkoopkans af zodra de factuur verstuurd is. De verkoopkans schuift dan
+  // vanzelf naar de 'factuur'-fase (zie getVerkoopkansenPipeline).
+  try {
+    const offerteIdVoorTaak = (factuur as { offerte_id?: string | null }).offerte_id
+    if (offerteIdVoorTaak) {
+      const { data: off } = await supabaseAdmin2.from('offertes').select('project_id').eq('id', offerteIdVoorTaak).maybeSingle()
+      if (off?.project_id) {
+        await supabaseAdmin2
+          .from('taken')
+          .update({ status: 'afgerond' })
+          .eq('project_id', off.project_id)
+          .ilike('titel', 'Offerte opvolgen%')
+          .neq('status', 'afgerond')
+      }
+    }
+  } catch (err) {
+    console.error('Opvolgtaak afronden bij factureren mislukt:', err)
+  }
+
   try {
     const { logAudit } = await import('@/lib/audit')
     await logAudit({
@@ -3677,7 +3697,7 @@ export async function getConversieFunnel() {
 
 // Pipeline-fase voor verkoopkansen kanban — afgeleid uit project-status +
 // offerte-status. Geen DB-migratie nodig.
-export type PipelineFase = 'aanvraag' | 'concept' | 'verzonden' | 'geaccepteerd' | 'afgerond' | 'verloren'
+export type PipelineFase = 'aanvraag' | 'concept' | 'verzonden' | 'geaccepteerd' | 'factuur' | 'afgerond' | 'verloren'
 
 export async function getVerkoopkansenPipeline() {
   const supabase = await createClient()
@@ -3685,13 +3705,13 @@ export async function getVerkoopkansenPipeline() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('id, naam, status, created_at, updated_at, verwachte_valmaand, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot)')
+      .select('id, naam, status, created_at, updated_at, verwachte_valmaand, relatie:relaties(id, bedrijfsnaam, contactpersoon), offertes:offertes(id, offertenummer, status, versie_nummer, subtotaal, totaal, datum, geldig_tot, facturen:facturen(id, status, factuur_type))')
       .neq('status', 'geannuleerd')
       .order('updated_at', { ascending: false })
       .range(from, to),
   )
   return (data || []).map(p => {
-    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number; datum: string; geldig_tot: string | null }[]
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; versie_nummer: number; subtotaal: number; totaal: number; datum: string; geldig_tot: string | null; facturen?: { status: string; factuur_type: string | null }[] }[]
     // Meest recente offerte op datum, versie_nummer als tiebreaker. Voorheen
     // alleen op versie_nummer wat bij meerdere aparte offertes per verkoopkans
     // de verkeerde als 'laatste' aanwees.
@@ -3701,8 +3721,19 @@ export async function getVerkoopkansenPipeline() {
       if (db !== da) return db - da
       return (b.versie_nummer || 0) - (a.versie_nummer || 0)
     })[0]
+    // De verkoopkans schuift automatisch mee met wat er feitelijk gebeurd is:
+    // een verstuurde factuur → 'factuur', volledig betaald → 'afgerond'. Zo is
+    // de conversie/voortgang in één oogopslag duidelijk zonder handmatig schuiven.
+    // Concept-facturen (nog niet verstuurd) en credits tellen niet als gefactureerd.
+    const facturen = offertes.flatMap(o => o.facturen || [])
+    const verstuurdeFacturen = facturen.filter(f => f.status !== 'concept' && f.factuur_type !== 'credit')
+    const eindFacturen = verstuurdeFacturen.filter(f =>
+      f.factuur_type === 'restbetaling' || f.factuur_type === 'volledig' || f.factuur_type === 'termijn' || f.factuur_type === null)
+    const volledigBetaald = eindFacturen.length > 0 && eindFacturen.every(f => f.status === 'betaald' || f.status === 'gecrediteerd')
+
     let fase: PipelineFase = 'aanvraag'
-    if (p.status === 'afgerond') fase = 'afgerond'
+    if (p.status === 'afgerond' || volledigBetaald) fase = 'afgerond'
+    else if (verstuurdeFacturen.length > 0) fase = 'factuur'
     else if (laatste?.status === 'geaccepteerd') fase = 'geaccepteerd'
     else if (laatste?.status === 'afgewezen') fase = 'verloren'
     else if (laatste?.status === 'verzonden') fase = 'verzonden'
@@ -7070,22 +7101,29 @@ export async function sendOfferteEmail(offerteId: string, options: {
     }
     const deadlineStr = deadline.toISOString().split('T')[0]
 
-    // Zoek een bestaande open opvolgtaak voor deze offerte
-    const { data: bestaandeTaak } = await supabaseAdmin
+    // Eén opvolgtaak per verkoopkans: zoek een bestaande open opvolgtaak van
+    // deze verkoopkans op project_id i.p.v. op offerte_id. Bij een nieuwe
+    // offerte-versie (nieuw offerte_id, bv. na een bedragwijziging) vinden we zo
+    // de bestaande taak terug en werken we 'm bij — geen dubbele taak.
+    let taakZoek = supabaseAdmin
       .from('taken')
       .select('id')
-      .eq('offerte_id', offerteId)
       .ilike('titel', 'Offerte opvolgen%')
       .neq('status', 'afgerond')
       .order('created_at', { ascending: false })
       .limit(1)
-      .maybeSingle()
+    taakZoek = offerte.project_id
+      ? taakZoek.eq('project_id', offerte.project_id)
+      : taakZoek.eq('offerte_id', offerteId)
+    const { data: bestaandeTaak } = await taakZoek.maybeSingle()
 
     if (bestaandeTaak?.id) {
-      // Bestaande opvolgtaak: deadline verversen + notitie i.p.v. dubbele taak
+      // Bestaande opvolgtaak bijwerken naar de laatst verstuurde offerte:
+      // deadline verversen + offerte_id/titel meenemen (zodat het overzicht de
+      // actuele offerte toont) + notitie i.p.v. een dubbele taak.
       await supabaseAdmin
         .from('taken')
-        .update({ deadline: deadlineStr })
+        .update({ deadline: deadlineStr, offerte_id: offerteId, titel: `Offerte opvolgen: ${offerte.offertenummer}` })
         .eq('id', bestaandeTaak.id)
       if (user?.id) {
         await supabaseAdmin.from('taak_notities').insert({
@@ -7687,6 +7725,22 @@ export async function factureerVerkoopkans(
     .order('versie_nummer', { ascending: false })
   const geaccepteerd = (offertes || []).find(o => o.status === 'geaccepteerd')
   const laatste = geaccepteerd || (offertes || [])[0]
+
+  // Geen dubbele factuur: hangt er al een (niet-credit) factuur aan een offerte
+  // van deze verkoopkans, dan openen we die i.p.v. een tweede aan te maken.
+  // Voorkomt dat "Factuur maken" / de factuur-fase nogmaals factureert.
+  const offerteIds = (offertes || []).map(o => o.id)
+  if (offerteIds.length > 0) {
+    const { data: bestaandeFacturen } = await supabase
+      .from('facturen')
+      .select('id, factuurnummer, created_at')
+      .in('offerte_id', offerteIds)
+      .neq('factuur_type', 'credit')
+      .order('created_at', { ascending: false })
+    if (bestaandeFacturen && bestaandeFacturen.length > 0) {
+      return { success: true, factuurId: bestaandeFacturen[0].id, factuurnummer: bestaandeFacturen[0].factuurnummer, bestond: true }
+    }
+  }
 
   if (laatste) {
     // Als offerte regels heeft én totaal > 0 → normale convertToFactuur
