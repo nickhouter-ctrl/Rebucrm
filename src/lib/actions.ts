@@ -865,6 +865,8 @@ export async function autoArchiveerAfgerondeVerkoopkansen(administratieId?: stri
 
   if (archiveerIds.length > 0) {
     await supabase.from('projecten').update({ status: 'afgerond' }).in('id', archiveerIds)
+    // Open taken van de zojuist afgeronde kansen ook sluiten (deal is klaar).
+    await supabase.from('taken').update({ status: 'afgerond' }).in('project_id', archiveerIds).neq('status', 'afgerond')
     // Audit-log per gearchiveerd project — voor latere debugging van situaties
     // zoals het 23-24 april 2026 incident waar 7 verkoopkansen ten onrechte zijn afgearchiveerd.
     try {
@@ -4027,6 +4029,12 @@ export async function setProjectStatus(projectId: string, status: string) {
   const { data: huidig } = await supabase.from('projecten').select('status, naam').eq('id', projectId).maybeSingle()
   const { error } = await supabase.from('projecten').update({ status }).eq('id', projectId)
   if (error) return { error: error.message }
+  // Verkoopkans afgerond → open taken van deze kans ook afronden: de deal is
+  // klaar, dus opvolg-/offerte-taken hoeven niet meer open te staan.
+  if (status === 'afgerond') {
+    await supabase.from('taken').update({ status: 'afgerond' }).eq('project_id', projectId).neq('status', 'afgerond')
+    revalidatePath('/taken')
+  }
   // Audit-log status-wijzigingen op verkoopkansen — voorheen ontbrak dit
   // waardoor niet traceerbaar was wie/wat een verkoopkans op afgerond zette.
   try {
