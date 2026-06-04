@@ -87,6 +87,12 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
 
   async function handleSubmit(formData: FormData) {
     if (loading) return // double-submit guard
+    // Nieuwe taken moeten aan een verkoopkans hangen (bestaande taken bewerken
+    // mag wel zonder, zodat legacy-taken zonder kans niet blokkeren).
+    if (!taak && !selectedProjectId) {
+      setError('Koppel de taak aan een verkoopkans.')
+      return
+    }
     setLoading(true); setError('')
     if (taak) formData.set('id', taak.id as string)
     formData.set('relatie_id', selectedRelatieId)
@@ -276,7 +282,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
               <SearchSelect
                 id="project_id"
                 name="project_id"
-                label="Verkoopkans"
+                label={taak ? 'Verkoopkans' : 'Verkoopkans *'}
                 placeholder="Zoek verkoopkans..."
                 options={projectOptions}
                 value={selectedProjectId}
