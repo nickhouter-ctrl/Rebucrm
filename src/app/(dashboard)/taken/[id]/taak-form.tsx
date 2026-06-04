@@ -48,6 +48,11 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   const [selectedProjectId, setSelectedProjectId] = useState((taak?.project_id as string) || defaultProjectId || '')
   const [selectedMedewerkerId, setSelectedMedewerkerId] = useState((taak?.medewerker_id as string) || (taak ? '' : currentMedewerkerId || ''))
   const [selectedOfferteId, setSelectedOfferteId] = useState((taak?.offerte_id as string) || '')
+  const [selectedCategorie, setSelectedCategorie] = useState((taak?.categorie as string) || '')
+  // 'Bellen' = nabel-/lead-taak (bv. nieuwe klant nog zonder verkoopkans): dan is
+  // de verkoopkans niet verplicht, een klant volstaat. Andere types vereisen wél
+  // een verkoopkans zodat opvolg-/offertewerk netjes in de pipeline staat.
+  const isNabelTaak = selectedCategorie === 'Bellen'
   const isNew = !taak
 
   const [notities, setNotities] = useState(initialNotities)
@@ -88,10 +93,16 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
   async function handleSubmit(formData: FormData) {
     if (loading) return // double-submit guard
     // Nieuwe taken moeten aan een verkoopkans hangen (bestaande taken bewerken
-    // mag wel zonder, zodat legacy-taken zonder kans niet blokkeren).
-    if (!taak && !selectedProjectId) {
-      setError('Koppel de taak aan een verkoopkans.')
-      return
+    // mag wel zonder, zodat legacy-taken zonder kans niet blokkeren). Uitzondering:
+    // een nabel-/lead-taak (type 'Bellen') mag zonder verkoopkans — dan volstaat
+    // een klant (bv. nieuwe klant die nog geen offerte/verkoopkans heeft).
+    if (!taak) {
+      if (isNabelTaak) {
+        if (!selectedRelatieId) { setError('Kies een klant voor deze nabel-taak.'); return }
+      } else if (!selectedProjectId) {
+        setError("Koppel de taak aan een verkoopkans — of kies type 'Bellen' voor een nabel-taak zonder verkoopkans.")
+        return
+      }
     }
     setLoading(true); setError('')
     if (taak) formData.set('id', taak.id as string)
@@ -258,8 +269,8 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
           <CardContent className="space-y-4 pt-6">
             <Input id="titel" name="titel" label="Titel *" defaultValue={(taak?.titel as string) || ''} required />
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <Select id="categorie" name="categorie" label="Type" defaultValue={(taak?.categorie as string) || ''} options={[
-                { value: '', label: '-' }, { value: 'Bellen', label: 'Bellen' }, { value: 'Uitwerken', label: 'Uitwerken' },
+              <Select id="categorie" name="categorie" label="Type" value={selectedCategorie} onChange={(e) => setSelectedCategorie(e.target.value)} options={[
+                { value: '', label: '-' }, { value: 'Bellen', label: 'Bellen (nabellen)' }, { value: 'Uitwerken', label: 'Uitwerken' },
               ]} />
               <Select id="status" name="status" label="Status" defaultValue={(taak?.status as string) || 'open'} options={[
                 { value: 'open', label: 'Open' }, { value: 'in_uitvoering', label: 'In uitvoering' }, { value: 'afgerond', label: 'Afgerond' },
@@ -282,7 +293,7 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
               <SearchSelect
                 id="project_id"
                 name="project_id"
-                label={taak ? 'Verkoopkans' : 'Verkoopkans *'}
+                label={(taak || isNabelTaak) ? 'Verkoopkans' : 'Verkoopkans *'}
                 placeholder="Zoek verkoopkans..."
                 options={projectOptions}
                 value={selectedProjectId}
@@ -297,6 +308,13 @@ export function TaakForm({ taak, projecten, medewerkers, relaties, offertes, not
                 }}
               />
             </div>
+            {!taak && (
+              <p className="text-xs text-gray-500 -mt-2">
+                {isNabelTaak
+                  ? 'Nabel-taak: een verkoopkans is niet verplicht — een klant volstaat.'
+                  : 'Een nieuwe taak hangt aan een verkoopkans. Nieuwe klant zonder verkoopkans? Kies type "Bellen (nabellen)" — dan volstaat een klant.'}
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <SearchSelect
                 id="medewerker_id"
