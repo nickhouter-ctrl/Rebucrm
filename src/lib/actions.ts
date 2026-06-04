@@ -4248,6 +4248,42 @@ export async function getTaken() {
     }
     return query
   })
+
+  // Beslis-offerte voor de afvink-popup: een taak zonder eigen offerte maar
+  // gekoppeld aan een verkoopkans met een verzonden (nog niet besliste) offerte
+  // krijgt die offerte mee. Zo toont het afvinken óók de gewonnen/verloren-popup
+  // voor opvolgtaken die alleen aan de verkoopkans hangen (geen directe offerte_id).
+  const projIdsZonderOfferte = [...new Set(
+    taken.filter(t => !t.offerte_id && t.project_id).map(t => t.project_id as string),
+  )]
+  if (projIdsZonderOfferte.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const projOffertes = await fetchAllRows<any>((from, to) =>
+      supabase
+        .from('offertes')
+        .select('id, offertenummer, status, totaal, subtotaal, project_id, versie_nummer, datum')
+        .in('project_id', projIdsZonderOfferte)
+        .eq('status', 'verzonden')
+        .range(from, to),
+    )
+    // Laatste verzonden offerte per verkoopkans (op datum, versie als tiebreaker).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const laatstePerProject = new Map<string, any>()
+    for (const o of projOffertes) {
+      const cur = laatstePerProject.get(o.project_id)
+      const da = o.datum ? new Date(o.datum).getTime() : 0
+      const dc = cur?.datum ? new Date(cur.datum).getTime() : 0
+      const beter = !cur || (da !== dc ? da > dc : (o.versie_nummer || 0) > (cur.versie_nummer || 0))
+      if (beter) laatstePerProject.set(o.project_id, o)
+    }
+    for (const t of taken) {
+      if (!t.offerte_id && t.project_id && !t.offerte) {
+        const o = laatstePerProject.get(t.project_id)
+        if (o) t.offerte = { id: o.id, offertenummer: o.offertenummer, status: o.status, totaal: o.totaal, subtotaal: o.subtotaal }
+      }
+    }
+  }
+
   return { taken, rol, currentUserId: user.id }
 }
 
