@@ -20,6 +20,13 @@ import { getAppUrl } from '@/lib/utils'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+// KILL-SWITCH: automatische betalingsherinneringen staan UIT (op verzoek, juni
+// 2026 — klanten kregen aanmaningen terwijl betalingen via bank/SnelStart nog
+// niet afgeletterd waren). De cron-schedule is ook uit vercel.json verwijderd;
+// deze guard zorgt dat ook een handmatige aanroep niets verstuurt. Zet op
+// `true` (of verwijder de guard) om de aanmaningen weer aan te zetten.
+const AANMANINGEN_ACTIEF = false
+
 const FASES = [
   { stap: 1, dagen: 7, prefix: 'Herinnering 1', toon: 'vriendelijk' },
   { stap: 2, dagen: 14, prefix: 'Herinnering 2', toon: 'dringend' },
@@ -66,6 +73,11 @@ export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
   if (process.env.CRON_SECRET && auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  // Automatische aanmaningen staan uit — verstuur niets.
+  if (!AANMANINGEN_ACTIEF) {
+    return NextResponse.json({ disabled: true, checked: 0, sent: 0 })
   }
 
   const sb = createAdminClient()
