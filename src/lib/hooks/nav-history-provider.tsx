@@ -31,6 +31,9 @@ const NAV_IGNORE_PATTERNS: RegExp[] = [
   /^\/producten\/[^/]+\/?/,
   /^\/faalkosten\/[^/]+\/?/,
   /^\/medewerkers\/[^/]+\/?/,
+  // Elk /nieuw-aanmaakformulier (relatiebeheer, projecten, inkoop, …) overslaan:
+  // het is een pure form-pagina, geen plek om naar terug te keren.
+  /\/nieuw\/?$/,
 ]
 
 const STORAGE_KEY = 'nav-history-stack'
@@ -124,7 +127,14 @@ export function NavHistoryProvider({ children }: { children: ReactNode }) {
 
   function getBackUrl() {
     const stack = readStack()
-    return stack.length > 0 ? stack[stack.length - 1] : null
+    // Loop terug naar de meest recente entry die NIET de huidige pagina is.
+    // Detail-pagina's (/relatiebeheer/[id]) en het /nieuw-formulier staan zelf
+    // op de stack; zonder deze check zou de terug-knop naar de huidige URL
+    // pushen en dus niets doen.
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i] !== fullPath) return stack[i]
+    }
+    return null
   }
 
   function markScrollRestore(url: string) {
