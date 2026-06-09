@@ -79,7 +79,7 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     text = text.replace(/Systeem([A-Z])/g, 'Systeem: $1')
     // Lossen 'Aantal stuks' zonder getal op: plaats ':1' zodat bestaande
     // Schüco pattern matcht (Schüco-PDF toont aantal zelden, vrijwel altijd 1).
-    text = text.replace(/(Merk\s+[A-Z])\s+Aantal\s+stuks(?!\s*:)/g, '$1 Aantal stuks:1')
+    text = text.replace(/(Merk\s+[A-Z0-9]+)\s+Aantal\s+stuks(?!\s*:)/g, '$1 Aantal stuks:1')
   }
 
   // Detect format - flexible whitespace to handle different PDF text extractors
@@ -128,9 +128,9 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
   // Voorheen leverde een hint als 'schuco'/'default'/'onbekend' 0 elementen op
   // bij een PDF die overduidelijk Gealan-NL is (bv. AKUGT-tekeningen).
   const isGealanNL = useGealanNL || gealanNLFingerprint
-  const isGealan = hasHint ? (useGealan && !isGealanNL) : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(text))
+  const isGealan = hasHint ? (useGealan && !isGealanNL) : (!isAluplast && !isEkoOkna && !isGealanNL && /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text) && /Netto\s*totaal/i.test(text) && !/Merk\s+[A-Z0-9]+\s*Aantal\s*stuks/i.test(text))
   const isSchuco = hasHint ? useSchuco : (!isAluplast && !isEkoOkna && !isGealanNL && !isGealan && (
-    /Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
+    /Merk\s+[A-Z0-9]+\s*Aantal\s*stuks\s*:\s*\d+/i.test(text) ||
     /Sch[üu¿\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(text)
   ))
   const isKochs = hasHint ? useKochs : (!isGealan && !isGealanNL && !isSchuco && !isAluplast && !isEkoOkna && (/K-Vision\s+\d+/.test(text) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(text)))
@@ -261,9 +261,11 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     // Schüco-decoder heeft soms geen getal voor 'Aantal stuks' en geen colons.
     // Patroon is flexibel: Merk-letter, Aantal stuks (optionele :N), Verbinding
     // (tot iets dat lijkt op Systeem), dan Systeem-naam tot EOL.
-    const elementPattern = /Merk\s+([A-Z])\s+Aantal\s*stuks\s*:?\s*(\d*)[\s\S]{0,40}?Systeem\s*:?\s*([^\n]+(?:\n(?!Merk|Productie)[^\n]+)?)/gi
+    // Merk-label is meestal een losse letter (A, B, C) maar sommige Schüco-
+    // exports nummeren ze juist (Merk 1 … Merk 10). Beide toestaan: [A-Z0-9]+.
+    const elementPattern = /Merk\s+([A-Z0-9]+)\s+Aantal\s*stuks\s*:?\s*(\d*)[\s\S]{0,40}?Systeem\s*:?\s*([^\n]+(?:\n(?!Merk|Productie)[^\n]+)?)/gi
     while ((match = elementPattern.exec(text)) !== null) {
-      const nextPat = /Merk\s+[A-Z]\s+Aantal\s*stuks/gi
+      const nextPat = /Merk\s+[A-Z0-9]+\s+Aantal\s*stuks/gi
       nextPat.lastIndex = match.index + match[0].length
       const next = nextPat.exec(text)
       const sectionEnd = next ? next.index : text.length
@@ -597,6 +599,27 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
       } else {
         type = 'Vast raam'
       }
+    } else if (isSchuco) {
+      // Schüco-vleugelregels: "Vleugel 19433 Deur Binnendraaiend",
+      // "Vleugel 19431 Draai/Kiep Raam", "Vleugel 19431 Val Raam",
+      // "Vleugel 2 Delige Hefschuif". Geen Vleugel-regel = vast glas in de kader.
+      const vleugelLines = searchText.match(/Vleugel\s+[^\n]+/gi)
+      if (/Slide/i.test(header.systeem) || /Hef-?\s*schuif|Hefschuif/i.test(searchText)) {
+        type = 'Schuifpui'
+      } else if (vleugelLines) {
+        for (const v of vleugelLines) {
+          if (/Hef-?\s*schuif|Hefschuif/i.test(v)) { type = 'Schuifpui' }
+          else if (/Stolp/i.test(v)) { type = 'Stolpdeur' }
+          else if (/Deur\s+Binnendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar binnen draaiend' }
+          else if (/Deur\s+Buitendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar buiten draaiend' }
+          else if (/Deur/i.test(v)) { type = 'Deur' }
+          else if (/Draai\s*[/.+]?\s*Kiep\s*Raam|Draai-?kiep/i.test(v)) { type = 'Draai-kiep raam' }
+          else if (/Val\s*Raam|Valraam/i.test(v)) { type = 'Valraam' }
+          else if (/Draai\s*Raam/i.test(v)) { type = 'Draairaam' }
+        }
+      } else {
+        type = 'Vast raam'
+      }
     }
 
     const vleugelMatches = !isGealan && !isGealanNL ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
@@ -683,6 +706,28 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
           afmetingen = `${w} mm x ${h} mm`
         }
       }
+    } else if (isSchuco) {
+      // Schüco zet de totale maten als losse getallen in de tekening, vlak vóór
+      // "Beschrijving Kleur". Net als S9000NL zijn de laatste twee stand-alone
+      // getallen hoogte, breedte (zijmaat staat boven de ondermaat). Sub-maten
+      // staan op regels met meerdere getallen ("55 2095", "1295800") en worden
+      // door de stand-alone-eis genegeerd.
+      const beschrIdx = searchText.search(/Beschrijving\s+Kleur/i)
+      if (beschrIdx > 0) {
+        const before = searchText.substring(0, beschrIdx)
+        const standalones: number[] = []
+        const lineRe = /^\s*(\d{3,4})\s*$/gm
+        let lm
+        while ((lm = lineRe.exec(before)) !== null) {
+          const n = parseInt(lm[1])
+          if (n >= 100 && n <= 9999) standalones.push(n)
+        }
+        if (standalones.length >= 2) {
+          const h = standalones[standalones.length - 2]
+          const w = standalones[standalones.length - 1]
+          afmetingen = `${w} mm x ${h} mm`
+        }
+      }
     }
 
     // Detect HST / schuifpui from system name or combined text
@@ -746,6 +791,19 @@ export function parseLeverancierPdfText(text: string, hint?: LeverancierKey): { 
     if (isKochs && !glasType) {
       const kochsGlasMatch = searchText.match(/(WS\s+[^\n]+?Ug[\d,]+)/i)
       if (kochsGlasMatch) glasType = cleanField(kochsGlasMatch[1])
+    }
+    // Step 5: Schüco — glasspec staat in de tekening, bv.
+    // "27.8 mm GELAAGD 33.1-15-33.1 HR++, Ug 1.1 W/m²K" of "24 mm 4-16-4 HR++,
+    // Ug 1.0 W/m²K". Verzamel alle unieke specs in deze sectie.
+    if (isSchuco && !glasType) {
+      const glasTypes: string[] = []
+      const schucoGlasPat = /([\d.]+\s*mm\s+[^\n]*?HR\+\+[^\n]*?W\/m[²2]?K)/g
+      let gm
+      while ((gm = schucoGlasPat.exec(searchText)) !== null) {
+        const gs = cleanField(gm[1].replace(/\s+/g, ' ').trim())
+        if (gs && !glasTypes.includes(gs)) glasTypes.push(gs)
+      }
+      glasType = glasTypes.join(' / ')
     }
 
     // --- Specs fields ---
@@ -837,8 +895,8 @@ export function detectLeverancierFromText(text: string): LeverancierKey | null {
   const cleaned = text.replace(/[--]/g, '')
   if (/(?:Deur|Element)\s+\d{3}[\s\n]+Hoeveelheid\s*:/i.test(cleaned)) return 'aluplast'
   if (/Productie\s+maten/i.test(cleaned) && /Netto\s*prijs/i.test(cleaned) && /Aantal\s*:\s*\d+\s+Verbinding\s*:/i.test(cleaned) && !/Merk\s+[\dA-Z]+\s*Aantal/.test(cleaned)) return 'gealan-nl'
-  if (/Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(cleaned) && /Netto\s*totaal/i.test(cleaned) && !/Merk\s+[A-Z]\s*Aantal\s*stuks/i.test(cleaned)) return 'gealan'
-  if (/Merk\s+[A-Z]\s*Aantal\s*stuks\s*:\s*\d+/i.test(cleaned) || /Sch[ü¿u\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(cleaned) || /1IVO\s*[%&'()*+,\-.]/.test(cleaned)) return 'schuco'
+  if (/Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(cleaned) && /Netto\s*totaal/i.test(cleaned) && !/Merk\s+[A-Z0-9]+\s*Aantal\s*stuks/i.test(cleaned)) return 'gealan'
+  if (/Merk\s+[A-Z0-9]+\s*Aantal\s*stuks\s*:\s*\d+/i.test(cleaned) || /Sch[ü¿u\s][cCG][oO]\s+(?:Slide|Verdiept)/i.test(cleaned) || /1IVO\s*[%&'()*+,\-.]/.test(cleaned)) return 'schuco'
   if (/K-Vision\s+\d+/.test(cleaned) || /KOCHS|Primus\s*MD|Premidoor\s*\d+/i.test(cleaned)) return 'kochs'
   if (/Hoev\.\s*:\s*\d+/.test(cleaned)) return 'eko-okna'
   return null

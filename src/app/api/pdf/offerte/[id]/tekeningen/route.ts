@@ -3,333 +3,26 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { TekeningenDocument, TekeningenElement } from '@/lib/pdf/tekeningen-template'
+import { parseLeverancierPdfText } from '@/lib/pdf-parser'
 
-interface ParsedElement {
-  naam: string
-  hoeveelheid: number
-  systeem: string
-  kleur: string
-  afmetingen: string
-  type: string
-  prijs: number
-  glasType: string
-  beslag: string
-  uwWaarde: string
-  drapirichting: string
-  dorpel: string
-  sluiting: string
-  scharnieren: string
-  gewicht: string
-  omtrek: string
-  paneel: string
-  commentaar: string
-  hoekverbinding: string
-  montageGaten: string
-  afwatering: string
-  scharnierenKleur: string
-  lakKleur: string
-  sluitcilinder: string
-  aantalSleutels: string
-  gelijksluitend: string
-  krukBinnen: string
-  krukBuiten: string
+type ParsedElement = ReturnType<typeof parseLeverancierPdfText>['elementen'][number]
+
+// Normaliseer namen zodat 'Deur 008', 'DEUR 008', 'Element 008', 'Merk 1' uit
+// verschillende bronnen (parser vs. opgeslagen prijzen vs. tekening-metadata)
+// toch op elkaar matchen.
+function normalizeName(name: string): string {
+  return name
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/^(deur|element|gekoppeld\s+element|merk|positie)\s+0*/, '')
 }
 
-function parseElementsFromText(text: string): ParsedElement[] {
-  const cleanField = (val: string) => val.replace(/\s*Geen\s*[Gg]arantie!?\s*/gi, '').replace(/\s*No\s*warranty!?\s*/gi, '').trim()
-
-  // Detect format
-  const isGealan = /Merk\s+[\dA-Z]+\s*Aantal\s*:\s*\d+/.test(text)
-  const isKochs = !isGealan && /K-Vision\s+\d+/.test(text)
-  const isEkoOkna = !isGealan && !isKochs && /Hoev\.\s*:\s*\d+/.test(text)
-
-  // Extract Kochs TZ surcharge multiplier (applied to all element prices)
-  let kochsTzMultiplier = 1
-  if (isKochs) {
-    const tzMatch = text.match(/TZ\b[\s\S]{0,50}?([\d.,]+)\s*%/)
-    if (tzMatch) kochsTzMultiplier = 1 + parseFloat(tzMatch[1].replace(',', '.')) / 100
-  }
-
-  const headers: { naam: string; hoeveelheid: number; systeem: string; kleur: string; idx: number; endIdx: number }[] = []
-  let match
-  if (isGealan) {
-    const elementPattern = /Merk\s+([\dA-Z]+)\s*Aantal\s*:\s*(\d+)(?:\s*Verbinding\s*:\s*\w+)?\s*Systeem\s*:\s*([^\n]+(?:\n[^\n]+)?)/g
-    while ((match = elementPattern.exec(text)) !== null) {
-      const nextMerkPattern = /Merk\s+[\dA-Z]+\s*Aantal\s*:/g
-      nextMerkPattern.lastIndex = match.index + match[0].length
-      const nextMerkMatch = nextMerkPattern.exec(text)
-      const sectionEnd = nextMerkMatch ? nextMerkMatch.index : text.length
-      const section = text.substring(match.index, sectionEnd)
-      const kleurMatch = section.match(/Kader\s+([^\n]+)/)
-      headers.push({ naam: 'Merk ' + match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim().replace(/\n/g, ' '), kleur: kleurMatch ? kleurMatch[1].trim() : '', idx: match.index, endIdx: match.index + match[0].length })
-    }
-  } else if (isKochs) {
-    const elementPattern = /(\d{3})\nBinnenzicht\nSysteem\s*:\s*([^\n]+)\nAfmeting\s*:\s*(\d+)\s*x\s*(\d+)\s*mm\n(\d+)\n/g
-    while ((match = elementPattern.exec(text)) !== null) {
-      const nextPosMatch = text.substring(match.index + match[0].length).match(/\d{3}\nBinnenzicht\nSysteem/)
-      const sectionEnd = nextPosMatch ? match.index + match[0].length + nextPosMatch.index : text.length
-      const section = text.substring(match.index, sectionEnd)
-      const kleurMatch = section.match(/Buiten\s+([^\n]+(?:\n[^\n]*glad[^\n]*)?)/)
-      headers.push({ naam: 'Positie ' + match[1], hoeveelheid: parseInt(match[5]), systeem: match[2].trim(), kleur: kleurMatch ? kleurMatch[1].replace(/\n/g, ' ').trim() : '', idx: match.index, endIdx: match.index + match[0].length })
-    }
-  } else if (isEkoOkna) {
-    const elementPattern = /((?:Gekoppeld\s+)?[Ee]lement\s+\d{3}(?:\/\d+)?)\s*Hoev\.\s*:\s*(\d+)\s*Kleur\s*:\s*([\s\S]*?)Systeem\s*:\s*([^\n]+)/g
-    while ((match = elementPattern.exec(text)) !== null) {
-      headers.push({ naam: match[1].trim(), hoeveelheid: parseInt(match[2]), systeem: match[4].trim(), kleur: match[3].trim(), idx: match.index, endIdx: match.index + match[0].length })
-    }
-  } else {
-    const elementPattern = /((?:Deur|Element)\s+\d{3})[\s\n]+Hoeveelheid\s*:[\s\n]*(\d+)[\s\n]+Systeem\s*:\s*([\s\S]+?)Kleur\s*:\s*([^\n]+)/g
-    while ((match = elementPattern.exec(text)) !== null) {
-      headers.push({ naam: match[1], hoeveelheid: parseInt(match[2]), systeem: match[3].trim(), kleur: match[4].trim(), idx: match.index, endIdx: match.index + match[0].length })
-    }
-  }
-
-  // Find all Buitenaanzicht positions (only for original format where specs appear BEFORE each header)
-  const allBuitenPositions: number[] = []
-  const specsPositions: number[] = []
-  if (!isEkoOkna && !isGealan && !isKochs) {
-    const buitenPattern = /Buitenaanzicht\n/g
-    while ((match = buitenPattern.exec(text)) !== null) { allBuitenPositions.push(match.index) }
-    for (let i = 0; i < headers.length; i++) {
-      const prevHeaderEnd = i > 0 ? headers[i - 1].endIdx : 0
-      const candidates = allBuitenPositions.filter(pos => pos > prevHeaderEnd && pos < headers[i].idx)
-      specsPositions.push(candidates.length > 0 ? candidates[candidates.length - 1] : -1)
-    }
-  }
-
-  // Extract prices in order (only for original format)
-  const allPrices: number[] = []
-  if (!isEkoOkna && !isGealan && !isKochs) {
-    const pricePattern = /^(?:Deur|Element)\s*(?:(\d+)\s*x\s*€\s*([\d.,]+))?€\s*([\d.,]+)/gm
-    let priceMatch
-    while ((priceMatch = pricePattern.exec(text)) !== null) {
-      allPrices.push(parseFloat((priceMatch[2] || priceMatch[3]).replace(/\./g, '').replace(',', '.')))
-    }
-  }
-
-  const elementen: ParsedElement[] = []
-
-  for (let i = 0; i < headers.length; i++) {
-    const header = headers[i]
-
-    let specsText: string
-    let notesText: string
-    let searchText: string
-
-    if (isGealan) {
-      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
-      searchText = text.substring(header.endIdx, nextIdx)
-      specsText = searchText
-      notesText = searchText
-    } else if (isKochs) {
-      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
-      searchText = text.substring(header.endIdx, nextIdx)
-      specsText = searchText
-      notesText = searchText
-    } else if (isEkoOkna) {
-      const nextIdx = i + 1 < headers.length ? headers[i + 1].idx : text.length
-      searchText = text.substring(header.endIdx, nextIdx)
-      specsText = searchText
-      notesText = searchText
-    } else {
-      specsText = specsPositions[i] >= 0 ? text.substring(specsPositions[i], header.idx) : ''
-      let notesEnd: number
-      if (i + 1 < headers.length) {
-        notesEnd = specsPositions[i + 1] >= 0 ? specsPositions[i + 1] : headers[i + 1].idx
-      } else {
-        notesEnd = text.length
-      }
-      notesText = text.substring(header.endIdx, notesEnd)
-      searchText = specsText + '\n' + notesText
-    }
-
-    let prijs = 0
-    if (isGealan) {
-      const gealanPriceMatch = searchText.match(/Netto\s*prijs[\s\n]+\w+?\s*([\d.,]+)/)
-      if (gealanPriceMatch) {
-        prijs = parseFloat(gealanPriceMatch[1].replace(/\./g, '').replace(',', '.'))
-      }
-    } else if (isKochs) {
-      // Extract unit price from "Totaal elementen" row (only non-zero €-prices in section)
-      const sectionPrices = [...searchText.matchAll(/([\d.]+,\d{2})\s*€/g)]
-        .map(m => parseFloat(m[1].replace(/\./g, '').replace(',', '.')))
-        .filter(p => p > 0)
-      if (sectionPrices.length >= 2) {
-        prijs = Math.round(Math.min(...sectionPrices) * kochsTzMultiplier * 100) / 100
-      } else if (sectionPrices.length === 1) {
-        prijs = Math.round(sectionPrices[0] * kochsTzMultiplier * 100) / 100
-      }
-    } else if (isEkoOkna) {
-      // Try "N x unit_price" format first (unit price ends at comma + 2 digits)
-      let ekoPriceMatch = searchText.match(/Prijs van het element\s*\d+\s*x\s*([\d\s.]+,\d{2})/i)
-      // Fallback: single price before "E" (no "N x" prefix)
-      if (!ekoPriceMatch) ekoPriceMatch = searchText.match(/Prijs van het element\s*([\d\s.]+,\d{2})\s*E/i)
-      if (ekoPriceMatch) {
-        const prijsStr = ekoPriceMatch[1].trim()
-        prijs = parseFloat(prijsStr.replace(/\s/g, '').replace(/\./g, '').replace(',', '.'))
-      }
-    } else {
-      prijs = i < allPrices.length ? allPrices[i] : 0
-    }
-
-    let drapirichting = ''
-    let type = header.naam.startsWith('Deur') ? 'Deur' :
-               header.naam.toLowerCase().startsWith('gekoppeld') ? 'Koppelelement' : 'Raam'
-
-    if (isKochs) {
-      const beslagEntries = searchText.match(/Beslag\s+([^\n]+)/gi) || []
-      const hasDraaikiep = beslagEntries.some(b => /Draaikiep/i.test(b))
-      const hasVast = beslagEntries.some(b => /Vast/i.test(b))
-      if (hasDraaikiep) type = 'Draai-kiep raam'
-      else if (hasVast) type = 'Vast raam'
-    } else if (isGealan) {
-      const vleugelGealanMatches = searchText.match(/Vleugel\s+[^\n]+/g)
-      if (vleugelGealanMatches) {
-        for (const v of vleugelGealanMatches) {
-          if (/DK\s*Raam/i.test(v)) { type = 'Draai-kiep raam' }
-          else if (/Stolpdeur\s+buitendr/i.test(v)) { type = 'Stolpdeur'; drapirichting = 'Naar buiten draaiend' }
-          else if (/Deur\s+binnendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar binnen draaiend' }
-          else if (/Deur\s+buitendr/i.test(v)) { type = 'Deur'; drapirichting = 'Naar buiten draaiend' }
-        }
-      } else {
-        type = 'Vast raam'
-      }
-    }
-
-    const vleugelMatches = !isGealan ? specsText.match(/Vleugel\s*(?:\d\s*\n\s*)?(17\d{4}\s+[^\n]+|K\d{5,6}[,\s]+[^\n]+|COR-\d{4}[,\s]+[^\n]+|Vast raam in de kader)/g) : null
-    if (vleugelMatches) {
-      let allVast = true
-      for (const desc of vleugelMatches) {
-        if (/deur\s+vleugel\s+naar\s+binnen\s+opendraaiend/i.test(desc)) { drapirichting = 'Naar binnen draaiend'; type = 'Deur' }
-        else if (/deur\s+vleugel\s+naar\s+buiten\s+opendraaiend/i.test(desc)) { drapirichting = 'Naar buiten draaiend'; type = 'Deur' }
-        else if (/terras\s+vleugel\s+naar\s+binnen\s+opendraaiend/i.test(desc)) { drapirichting = 'Naar binnen draaiend'; type = 'Terrasraam' }
-        else if (/terras\s+vleugel\s+naar\s+buiten\s+opendraaiend/i.test(desc)) { drapirichting = 'Naar buiten draaiend'; type = 'Terrasraam' }
-        else if (/vleugel\s+RECHT/i.test(desc)) { allVast = false }
-        else if (!/Vast\s+raam/i.test(desc)) { allVast = false }
-      }
-      if (type !== 'Deur' && type !== 'Terrasraam' && allVast) { type = 'Vast raam' }
-    }
-    const beslagMatch = specsText.match(/Beslag\s*([A-Z][^\n]+)/)
-    const gealanBeslagMatch = isGealan ? searchText.match(/Raamkruk\s*\n\s*\n([^\n]+)/i) : null
-    let beslag = cleanField((beslagMatch ? beslagMatch[1].trim() : '') || (gealanBeslagMatch ? gealanBeslagMatch[1].trim() : ''))
-    if (isKochs) {
-      const allBeslag = [...searchText.matchAll(/Beslag\s+([^\n]+)/gi)].map(m => m[1].trim())
-      beslag = cleanField([...new Set(allBeslag)].join(' + '))
-    }
-    if (/Draai-kiep|Draai\s*-\s*kiep|Tilt\s*&\s*Turn/i.test(beslag) && type === 'Raam') type = 'Draai-kiep raam'
-    else if (/Draai\s*\+\s*Draai\s*-?\s*kiep/i.test(beslag) && type === 'Raam') type = 'Draai + draai-kiep raam'
-    else if (/Draai\s*\+\s*Draai\s*-?\s*deur/i.test(beslag) && drapirichting) type = 'Dubbele deur'
-    else if (/deur\s*beslag/i.test(beslag) && !type.includes('Deur') && !type.includes('deur')) type = 'Deur'
-    if (/STULP/i.test(specsText) && !type.includes('Dubbele')) type = type + ' (stulp)'
-    const afmMatch = searchText.match(/Afmetingen[\s\S]{0,30}?(\d+\s*mm\s*x\s*\d+\s*mm)/) ||
-                     searchText.match(/Afmeting\s*:\s*(\d+\s*x\s*\d+\s*mm)/)
-    if (/HST|hef.*schui|\bschuif/i.test(header.systeem) || /HST|hef.*schui|\bschuif/i.test(searchText)) type = 'Schuifpui'
-    const vulSpec = specsText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/)
-    const vulNotes = !vulSpec ? notesText.match(/(?:Vullingen|Glazing used)\s*\n?Afmetingen\n([\s\S]*?)(?=Prijs\b|$)/) : null
-    const vullingenMatch = vulSpec || vulNotes
-    let glasType = ''
-    if (vullingenMatch) {
-      const glasTypes: string[] = []
-      const glasPat = /\d+\.\d+\n([^\n]+\[Ug=[\d.,]+\][^\n]*)/g
-      let gm
-      while ((gm = glasPat.exec(vullingenMatch[1])) !== null) {
-        let gs = gm[1].trim()
-        const ui = gs.indexOf(' Zontoetredingsfactor')
-        if (ui > 0) gs = gs.substring(0, ui).trim()
-        if (!glasTypes.includes(gs)) glasTypes.push(gs)
-      }
-      glasType = cleanField(glasTypes.join(' / '))
-    }
-    if (!glasType) {
-      const glasTypes: string[] = []
-      const gevPat = /(?:Gevraagd glas|Glazing required)\s*([^\n]+)/g
-      let gm
-      while ((gm = gevPat.exec(searchText)) !== null) {
-        const gs = cleanField(gm[1].trim())
-        if (gs && !glasTypes.includes(gs)) glasTypes.push(gs)
-      }
-      glasType = glasTypes.join(' / ')
-    }
-    if (!glasType) {
-      const glasTypes: string[] = []
-      const ekoGlasPat = /(\d+[\w. ]*\/\d+\w*\/\d+[\w ]*\[Ug=[\d.,]+\])/g
-      let gm
-      while ((gm = ekoGlasPat.exec(searchText)) !== null) {
-        const gs = cleanField(gm[1].trim())
-        if (gs && !glasTypes.includes(gs)) glasTypes.push(gs)
-      }
-      glasType = glasTypes.join(' / ')
-    }
-    if (isGealan && !glasType) {
-      const glasSection = searchText.match(/Beglazingen & panelen[\s\S]*?(?=Netto prijs|$)/)
-      if (glasSection) {
-        const glasTypes = new Set<string>()
-        const glasPat = /(HR\+\+[^\n]+)/g
-        let gm
-        while ((gm = glasPat.exec(glasSection[0])) !== null) {
-          glasTypes.add(cleanField(gm[1].trim()))
-        }
-        glasType = Array.from(glasTypes).join(' / ')
-      }
-    }
-    if (isKochs && !glasType) {
-      const kochsGlasMatch = searchText.match(/(WS\s+[^\n]+?Ug[\d,]+)/i)
-      if (kochsGlasMatch) glasType = cleanField(kochsGlasMatch[1])
-    }
-
-    // Gealan helper: extract spec value from "  Label\n \nValue\n" format
-    const gealanSpec = isGealan ? (label: string) => {
-      const m = searchText.match(new RegExp(label + '\\s*\\n\\s*\\n([^\\n]+)', 'i'))
-      return m ? cleanField(m[1].trim()) : ''
-    } : () => ''
-
-    const dorpelMatch = searchText.match(/Deur\s*drempel\s*([^\n]+)/i) || searchText.match(/HST\s*dorpel\s*type\s*([^\n]+)/i) || searchText.match(/Dorpel\s*([^\n]+)/i)
-    const sluitingMatch = searchText.match(/Sluiting\s*([^\n]+)/) || searchText.match(/Slot\s*\n\s*\n([^\n]+)/i)
-    const scharnierenMatch = searchText.match(/Scharnieren\s*([A-Z][^\n]+)/) || searchText.match(/scharnieren\s+(\w[^\n]+)/i) || searchText.match(/Uitv\.\s*scharnieren\s*\n\s*\n([^\n]+)/i)
-    const uwMatch = searchText.match(/Uw\s*=\s*([\d,]+\s*W\/m.*?K)/)
-    const gewichtMatch = searchText.match(/Eenheidsgewicht\s*([\d.,]+\s*Kg)/i)
-    const omtrekMatch = searchText.match(/Eenheidsomtrek\s*([\d.,]+\s*mm)/i) || searchText.match(/\bOmtrek\s*([\d.,]+\s*m)\b/i)
-    const paneelMatch = searchText.match(/Paneel\s*([A-Z][^\n]+)/i)
-    const hoekverbindingMatch = searchText.match(/Hoekverbinding\s*([^\n]+)/i)
-    const montageGatenMatch = searchText.match(/Montage\s*gaten\([^)]+\):\s*(\w+)/i) || searchText.match(/Montage\s*gaten\s+(\w[^\n]*)/i)
-    const afwateringMatch = searchText.match(/Afwatering\s*([^\n]+)/i)
-    const scharnierenKleurMatch = searchText.match(/Kleur\s*scharnieren\s*\n\s*\n([^\n]+)/i) || searchText.match(/Kleur\s*scharnieren\s*([^\n]+)/i)
-    const lakKleurMatch = searchText.match(/Lak\s*kleur\s*([^\n]+)/i)
-    const sluitcilinderMatch = searchText.match(/sluitcilinder\s*([^\n]+)/i) || searchText.match(/Cilinder\s*\n\s*\n([^\n]+)/i)
-    const aantalSleutelsMatch = searchText.match(/Aantal\s*sleutels?\s*([^\n]+)/i)
-    const gelijksluitendMatch = searchText.match(/Gelijksluitend[e]?\s*(?:cilinder)?\s*([^\n]+)/i)
-    const krukBinnenMatch = searchText.match(/Kleur\s*kruk\s*binnen\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbinnen\n([^\n]+)/i) || searchText.match(/Kruk binnen\s*\n\s*\n([^\n]+)/i) || searchText.match(/Raamgreep\s+binnen\s+([^\n]+)/i)
-    const krukBuitenMatch = searchText.match(/Kleur\s*kruk\s*buiten\s*([^\n]+)/i) || searchText.match(/kruk\/trekker\/cilinderplaatje\nbuiten\n([^\n]+)/i) || searchText.match(/Kruk buiten\s*\n\s*\n([^\n]+)/i)
-    const commentaarMatch = notesText.match(/Commentaar(?:\s+op het product)?\n([^\n]+)/)
-
-    elementen.push({
-      naam: header.naam, hoeveelheid: header.hoeveelheid,
-      systeem: cleanField(header.systeem), kleur: cleanField(header.kleur),
-      afmetingen: afmMatch ? afmMatch[1] : '', type, prijs, glasType, beslag,
-      uwWaarde: uwMatch ? cleanField(uwMatch[1].trim()) : '',
-      drapirichting,
-      dorpel: (dorpelMatch ? cleanField(dorpelMatch[1].trim()) : '') || gealanSpec('Dorpel'),
-      sluiting: (sluitingMatch ? cleanField(sluitingMatch[1].trim()) : '') || gealanSpec('Slot'),
-      scharnieren: (scharnierenMatch ? cleanField(scharnierenMatch[1].trim()) : '') || gealanSpec('Uitv\\. scharnieren'),
-      gewicht: gewichtMatch ? gewichtMatch[1].trim() : '',
-      omtrek: omtrekMatch ? omtrekMatch[1].trim() : '',
-      paneel: paneelMatch ? cleanField(paneelMatch[1].trim()) : '',
-      commentaar: commentaarMatch ? cleanField(commentaarMatch[1].trim()) : '',
-      hoekverbinding: hoekverbindingMatch ? cleanField(hoekverbindingMatch[1].trim()) : '',
-      montageGaten: montageGatenMatch ? cleanField(montageGatenMatch[1].trim()) : '',
-      afwatering: afwateringMatch ? cleanField(afwateringMatch[1].trim()) : '',
-      scharnierenKleur: (scharnierenKleurMatch ? cleanField(scharnierenKleurMatch[1].trim()) : '') || gealanSpec('Kleur scharnieren'),
-      lakKleur: lakKleurMatch ? cleanField(lakKleurMatch[1].trim()) : '',
-      sluitcilinder: (sluitcilinderMatch ? cleanField(sluitcilinderMatch[1].trim()) : '') || gealanSpec('Cilinder'),
-      aantalSleutels: aantalSleutelsMatch ? cleanField(aantalSleutelsMatch[1].trim()) : '',
-      gelijksluitend: gelijksluitendMatch ? cleanField(gelijksluitendMatch[1].trim()) : '',
-      krukBinnen: (krukBinnenMatch ? cleanField(krukBinnenMatch[1].trim()) : '') || gealanSpec('Kruk binnen'),
-      krukBuiten: (krukBuitenMatch ? cleanField(krukBuitenMatch[1].trim()) : '') || gealanSpec('Kruk buiten'),
-    })
-  }
-
-  return elementen
-}
+// Verwijderde lokale parser: de tekeningen-PDF gebruikt nu dezelfde canonieke
+// parser als de rest van de app (parseLeverancierPdfText). Voorheen stond hier
+// een tweede, verouderde kopie die Schüco en Gealan-NL niet kende — die leverde
+// 0 elementen op (lege specs + €0 prijzen in de tekeningen-PDF). Door één parser
+// te gebruiken werkt élke leverancier die de hoofd-parser ondersteunt hier ook.
 
 export async function GET(
   _request: Request,
@@ -380,7 +73,33 @@ export async function GET(
     const marges: Record<string, number> = (!Array.isArray(rawMeta) && rawMeta.marges) ? rawMeta.marges : {}
     const globalMarge: number = (!Array.isArray(rawMeta) && rawMeta.margePercentage) ? rawMeta.margePercentage : 0
 
-    // Parse original PDF for element specs (no prices needed)
+    // Opgeslagen inkoopprijzen: eerst de (eventueel handmatig bijgestelde)
+    // prijzen uit de wizard ('offerte_leverancier_data'.prijzen), anders de bij
+    // upload geparste prijzen ('offerte_leverancier_parsed'). Deze zijn de
+    // betrouwbaarste bron — ze zijn met de juiste leverancier-hint geparst.
+    let savedPrijzen: Record<string, { prijs: number; hoeveelheid: number }> =
+      (!Array.isArray(rawMeta) && rawMeta.prijzen) ? rawMeta.prijzen : {}
+    if (Object.keys(savedPrijzen).length === 0) {
+      const { data: parsedDoc } = await supabaseAdmin
+        .from('documenten')
+        .select('*')
+        .eq('entiteit_type', 'offerte_leverancier_parsed')
+        .eq('entiteit_id', id)
+        .maybeSingle()
+      if (parsedDoc) {
+        try { savedPrijzen = JSON.parse(parsedDoc.storage_path).prijzen || {} } catch { /* ignore */ }
+      }
+    }
+    function findSavedPrijs(naam: string): { prijs: number; hoeveelheid: number } | null {
+      if (savedPrijzen[naam]) return savedPrijzen[naam]
+      const normalized = normalizeName(naam)
+      for (const [key, val] of Object.entries(savedPrijzen)) {
+        if (normalizeName(key) === normalized) return val
+      }
+      return null
+    }
+
+    // Parse original PDF for element specs via de canonieke parser (auto-detect).
     const { parsePdfBuffer: pdfParse } = await import('@/lib/pdf-extract')
     const { data: pdfFile } = await supabaseAdmin.storage
       .from('documenten')
@@ -390,7 +109,13 @@ export async function GET(
     if (pdfFile) {
       const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer())
       const parsed = await pdfParse(pdfBuffer)
-      elementData = parseElementsFromText(parsed.text)
+      elementData = parseLeverancierPdfText(parsed.text).elementen
+    }
+    function findParsedElement(naam: string): ParsedElement | undefined {
+      const exact = elementData.find(e => e.naam === naam)
+      if (exact) return exact
+      const normalized = normalizeName(naam)
+      return elementData.find(e => normalizeName(e.naam) === normalized)
     }
 
     // Group by element name to support multi-page elements
@@ -421,15 +146,20 @@ export async function GET(
 
     for (const naam of elementOrder) {
       const pages = elementTekeningen.get(naam)!
-      const matchingElement = elementData.find(e => e.naam === naam)
+      const matchingElement = findParsedElement(naam)
 
-      const inkoopPrijs = matchingElement?.prijs || 0
+      // Opgeslagen prijs wint van de her-geparste prijs (handmatige correcties
+      // uit de wizard blijven zo behouden), met de PDF-parse als fallback.
+      const saved = findSavedPrijs(naam)
+      const inkoopPrijs = saved?.prijs ?? matchingElement?.prijs ?? 0
       const margePerc = marges[naam] ?? globalMarge
-      const verkoopPrijs = inkoopPrijs * (1 + margePerc / 100)
+      const verkoopPrijs = margePerc > 0
+        ? Math.round(inkoopPrijs * (1 + margePerc / 100) * 100) / 100
+        : inkoopPrijs
 
       tekeningenElementen.push({
         naam: matchingElement?.naam || naam,
-        hoeveelheid: matchingElement?.hoeveelheid || 1,
+        hoeveelheid: saved?.hoeveelheid ?? matchingElement?.hoeveelheid ?? 1,
         prijs: verkoopPrijs,
         systeem: matchingElement?.systeem || '',
         kleur: matchingElement?.kleur || '',
