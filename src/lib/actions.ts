@@ -80,6 +80,36 @@ export async function getVolgendeNummer(type: string): Promise<string> {
   return data || ''
 }
 
+// Read-only "peek" naar het volgende nummer ZONDER de teller op te hogen.
+// Voor het vooraf invullen van bv. een factuurnummer in een nieuw formulier.
+// Het echte nummer wordt pas geclaimd (en de teller opgehoogd) bij opslaan
+// via volgende_nummer — anders zou elke keer dat het formulier opent een
+// nummer verbranden en gaten in de reeks veroorzaken.
+export async function getVolgendeNummerPreview(type: string): Promise<string> {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return ''
+
+  const { data } = await supabase
+    .from('nummering')
+    .select('prefix, volgend_nummer, padding')
+    .eq('administratie_id', adminId)
+    .eq('type', type)
+    .maybeSingle()
+
+  // Nog geen reeks aangemaakt: spiegel de defaults uit volgende_nummer().
+  if (!data) {
+    if (type === 'factuur') {
+      const jaar = new Date().getFullYear().toString()
+      return `F-${jaar}-${'1'.padStart(5, '0')}`
+    }
+    return ''
+  }
+
+  const padding = (data.padding as number) ?? 4
+  return `${data.prefix || ''}${String(data.volgend_nummer).padStart(padding, '0')}`
+}
+
 // Genereer volgend taaknummer (YYYY-NNNNN)
 async function getVolgendTaaknummer(supabaseClient: ReturnType<typeof createAdminClient>): Promise<string> {
   const jaar = new Date().getFullYear().toString()
@@ -1137,8 +1167,23 @@ export async function saveOfferte(formData: FormData) {
     // Filter ongeldige regels (lege omschrijving = NOT NULL violation) en
     // normaliseer numerieke velden zodat we nooit op een type-fout knappen.
     const regelRecords = regels
-      .map((r: { omschrijving?: string; aantal?: number | string; prijs?: number | string; btw_percentage?: number | string; product_id?: string }, i: number) => {
+      .map((r: { omschrijving?: string; aantal?: number | string | null; prijs?: number | string | null; btw_percentage?: number | string; product_id?: string; isTekst?: boolean }, i: number) => {
         const omschrijving = (r.omschrijving || '').trim() || '(geen omschrijving)'
+        // Vrije tekstregel: aantal/prijs = null zodat hij herkenbaar blijft en
+        // niet meetelt in totalen. Herken via expliciete vlag of null-waarden.
+        const isTekst = r.isTekst === true || (r.aantal == null && r.prijs == null)
+        if (isTekst) {
+          return {
+            offerte_id: offerteId,
+            product_id: null,
+            omschrijving,
+            aantal: null,
+            prijs: null,
+            btw_percentage: 0,
+            totaal: 0,
+            volgorde: i,
+          }
+        }
         const aantal = typeof r.aantal === 'number' ? r.aantal : parseFloat(String(r.aantal ?? 0)) || 0
         const prijs = typeof r.prijs === 'number' ? r.prijs : parseFloat(String(r.prijs ?? 0)) || 0
         const btw = typeof r.btw_percentage === 'number' ? r.btw_percentage : parseFloat(String(r.btw_percentage ?? 21)) || 21
@@ -1415,14 +1460,14 @@ export async function saveOrder(formData: FormData) {
   }
 
   if (regels.length > 0) {
-    const regelRecords = regels.map((r: { omschrijving: string; aantal: number; prijs: number; btw_percentage: number; product_id?: string }, i: number) => ({
+    const regelRecords = regels.map((r: { omschrijving: string; aantal: number | null; prijs: number | null; btw_percentage: number; product_id?: string }, i: number) => ({
       order_id: orderId,
       product_id: r.product_id || null,
       omschrijving: r.omschrijving,
-      aantal: r.aantal,
-      prijs: r.prijs,
+      aantal: r.aantal ?? 0,
+      prijs: r.prijs ?? 0,
       btw_percentage: r.btw_percentage,
-      totaal: r.aantal * r.prijs,
+      totaal: (r.aantal ?? 0) * (r.prijs ?? 0),
       volgorde: i,
     }))
     await supabase.from('order_regels').insert(regelRecords)
@@ -2022,11 +2067,26 @@ export async function saveFactuur(formData: FormData) {
   const datumInput = (formData.get('datum') as string) || null
   const vervaldatumInput = (formData.get('vervaldatum') as string) || null
   const geplandeDatumInput = (formData.get('geplande_datum') as string) || null
+
+  // Factuurnummer bepalen. Bij een nieuwe factuur met auto-nummering claimen we
+  // het echte nummer (hoogt de teller op) i.p.v. de getoonde preview blind over
+  // te nemen — anders advanceert de reeks niet en krijg je duplicaten.
+  let factuurnummer = (formData.get('factuurnummer') as string) || ''
+  const autoNummer = formData.get('auto_nummer') === '1'
+  if (!id && autoNummer) {
+    const { data: nieuwNummer } = await supabase.rpc('volgende_nummer', {
+      p_administratie_id: adminId,
+      p_type: 'factuur',
+    })
+    if (!nieuwNummer) return { error: 'Kon geen factuurnummer genereren' }
+    factuurnummer = nieuwNummer
+  }
+
   const record = {
     administratie_id: adminId,
     relatie_id: formData.get('relatie_id') as string || null,
     order_id: formData.get('order_id') as string || null,
-    factuurnummer: formData.get('factuurnummer') as string,
+    factuurnummer,
     // Concept-facturen krijgen pas een datum bij verzending (zie sendFactuurEmail).
     datum: status === 'concept' ? datumInput : (datumInput || new Date().toISOString().slice(0, 10)),
     vervaldatum: vervaldatumInput,
@@ -2053,14 +2113,14 @@ export async function saveFactuur(formData: FormData) {
   }
 
   if (regels.length > 0) {
-    const regelRecords = regels.map((r: { omschrijving: string; aantal: number; prijs: number; btw_percentage: number; product_id?: string }, i: number) => ({
+    const regelRecords = regels.map((r: { omschrijving: string; aantal: number | null; prijs: number | null; btw_percentage: number; product_id?: string }, i: number) => ({
       factuur_id: factuurId,
       product_id: r.product_id || null,
       omschrijving: r.omschrijving,
-      aantal: r.aantal,
-      prijs: r.prijs,
+      aantal: r.aantal ?? 0,
+      prijs: r.prijs ?? 0,
       btw_percentage: r.btw_percentage,
-      totaal: r.aantal * r.prijs,
+      totaal: (r.aantal ?? 0) * (r.prijs ?? 0),
       volgorde: i,
     }))
     await supabase.from('factuur_regels').insert(regelRecords)

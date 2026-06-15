@@ -23,16 +23,24 @@ interface Regel {
   product_id?: string
 }
 
-export function FactuurForm({ factuur, relaties, producten }: {
+export function FactuurForm({ factuur, relaties, producten, nummerPreview = '' }: {
   factuur: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
+  nummerPreview?: string
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !factuur
   const { navigateBack } = useBackNav(`factuur-${(factuur?.id as string) || 'nieuw'}`)
+
+  // Nieuwe factuur: toon het volgende nummer als preview. Zodra de gebruiker
+  // het veld aanpast schakelen we auto-nummering uit en wordt de getypte
+  // waarde gebruikt. Bij opslaan met auto-nummering claimt de server het echte
+  // nummer (zie saveFactuur) zodat de reeks netjes oploopt zonder gaten.
+  const [factuurnummer, setFactuurnummer] = useState((factuur?.factuurnummer as string) || nummerPreview)
+  const [autoNummer, setAutoNummer] = useState(isNew)
 
   const [regels, setRegels] = useState<Regel[]>(
     (factuur?.regels as Regel[]) || [{ omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }]
@@ -288,7 +296,20 @@ export function FactuurForm({ factuur, relaties, producten }: {
         <Card>
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input id="factuurnummer" name="factuurnummer" label="Factuurnummer *" defaultValue={(factuur?.factuurnummer as string) || ''} required />
+              <div>
+                <Input
+                  id="factuurnummer"
+                  name="factuurnummer"
+                  label="Factuurnummer *"
+                  value={factuurnummer}
+                  onChange={(e) => { setFactuurnummer(e.target.value); if (isNew) setAutoNummer(false) }}
+                  required
+                />
+                <input type="hidden" name="auto_nummer" value={autoNummer ? '1' : '0'} />
+                {isNew && autoNummer && (
+                  <p className="text-[11px] text-gray-400 mt-1">Automatisch volgend nummer — pas aan om handmatig te kiezen.</p>
+                )}
+              </div>
               <Input id="datum" name="datum" label={factuur?.datum ? 'Factuurdatum' : 'Factuurdatum (volgt bij verzending)'} type="date" defaultValue={(factuur?.datum as string) || ''} />
               <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || (factuur ? '' : new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10))} />
             </div>
