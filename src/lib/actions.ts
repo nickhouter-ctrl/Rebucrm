@@ -4703,6 +4703,80 @@ export async function getMaandOmzetAnalytics() {
   return { maanden }
 }
 
+// Offerte-conversie over het HUIDIGE kalenderjaar, geteld PER LOSSE OFFERTE
+// (per groep_id — revisies samengevoegd, maar niet gededupliceerd per
+// verkoopkans). Eén bron voor zowel de dashboard-kop als de "Conversie per
+// maand"-pop-up, zodat die twee altijd hetzelfde getal tonen.
+//
+// Definities (gelijk aan de bestaande pop-up): "verstuurd" = offertes met
+// status verzonden óf geaccepteerd; "doorgegaan" = daarvan de geaccepteerde.
+// Migratie-bulkrecords (april 2026 import) worden er net als elders uitgefilterd.
+export async function getOfferteConversieDitJaar() {
+  const sb = createAdminClient()
+  const adminId = await getAdministratieId()
+
+  const jaar = new Date().getFullYear()
+  const huidigeMaand = new Date().getMonth() + 1 // 1-12
+  const startStr = `${jaar}-01-01`
+  const eindStr = `${jaar}-12-31`
+
+  const maanden: { maand: string; verstuurdAantal: number; geaccepteerdAantal: number }[] = []
+  for (let m = 1; m <= huidigeMaand; m++) {
+    maanden.push({ maand: `${jaar}-${String(m).padStart(2, '0')}`, verstuurdAantal: 0, geaccepteerdAantal: 0 })
+  }
+
+  const leeg = { jaar, verstuurdAantal: 0, geaccepteerdAantal: 0, conversie: 0, maanden }
+  if (!adminId) return leeg
+
+  // Zelfde migratie-filter als getMaandOmzetAnalytics: alleen records die de
+  // april-bucket vervuilen (bulk-import-dagen mét datum in april) negeren.
+  const isMigratieRecord = (createdAt: string | null, datum: string) => {
+    if (!createdAt) return false
+    const cDag = createdAt.slice(0, 10)
+    const isBulkDag = cDag >= '2026-04-13' && cDag <= '2026-04-23'
+    if (!isBulkDag) return false
+    return datum >= '2026-04-01'
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offertesRaw = await fetchAllRows<any>((from, to) =>
+    sb.from('offertes')
+      .select('id, datum, created_at, status, versie_nummer, groep_id')
+      .eq('administratie_id', adminId)
+      .in('status', ['verzonden', 'geaccepteerd'])
+      .gte('datum', startStr)
+      .lte('datum', eindStr)
+      .range(from, to),
+  )
+
+  // Per groep_id (= losse offerte): datum van de EERSTE versie, status van de
+  // LAATSTE versie. Zo telt een offerte één keer, in zijn oorspronkelijke maand.
+  const groep = new Map<string, { datum: string | null; createdAt: string | null; status: string | null; vMin: number; vMax: number }>()
+  for (const o of offertesRaw) {
+    const key = o.groep_id || o.id
+    const v = o.versie_nummer || 1
+    let g = groep.get(key)
+    if (!g) { g = { datum: null, createdAt: null, status: null, vMin: Number.POSITIVE_INFINITY, vMax: 0 }; groep.set(key, g) }
+    if (v < g.vMin) { g.vMin = v; g.datum = o.datum; g.createdAt = o.created_at }
+    if (v >= g.vMax) { g.vMax = v; g.status = o.status }
+  }
+
+  for (const [, g] of groep) {
+    if (!g.datum) continue
+    if (isMigratieRecord(g.createdAt, g.datum)) continue
+    const m = g.datum.slice(0, 7)
+    const bucket = maanden.find(x => x.maand === m)
+    if (!bucket) continue
+    bucket.verstuurdAantal += 1
+    if (g.status === 'geaccepteerd') bucket.geaccepteerdAantal += 1
+  }
+
+  const verstuurdAantal = maanden.reduce((s, m) => s + m.verstuurdAantal, 0)
+  const geaccepteerdAantal = maanden.reduce((s, m) => s + m.geaccepteerdAantal, 0)
+  const conversie = verstuurdAantal > 0 ? Math.round((geaccepteerdAantal / verstuurdAantal) * 100) : 0
+  return { jaar, verstuurdAantal, geaccepteerdAantal, conversie, maanden }
+}
+
 
 export async function getDashboardData() {
   const supabase = await createClient()
@@ -5454,11 +5528,15 @@ export async function getDashboardData() {
     },
   }
 
+  // Conversie-kop: huidig jaar, per losse offerte — zelfde bron als de
+  // "Conversie per maand"-pop-up zodat kop en pop-up gelijk zijn.
+  const conversieDitJaar = await getOfferteConversieDitJaar()
+
   return {
     omzet, omzetVorigeMaand, openstaand, achterstallig, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
-    offertesPerMaand, totaalOffertes,
+    offertesPerMaand, totaalOffertes, conversieDitJaar,
     dezeWeek, funnel,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,

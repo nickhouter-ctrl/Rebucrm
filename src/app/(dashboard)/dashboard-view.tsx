@@ -61,6 +61,13 @@ interface DashboardData {
   totaalFacturen: number
   offertesPerMaand: { maand: string; aantal: number; bedrag: number }[]
   totaalOffertes: number
+  conversieDitJaar?: {
+    jaar: number
+    verstuurdAantal: number
+    geaccepteerdAantal: number
+    conversie: number
+    maanden: { maand: string; verstuurdAantal: number; geaccepteerdAantal: number }[]
+  }
   organisaties: { totaal: number; particulier: number; zakelijk: number }
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
   facturenPerFase: { status: string; aantal: number; bedrag: number }[]
@@ -518,9 +525,9 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     notifications.push({ label: 'verkoopkansen zonder offerte', href: '/projecten?filter=zonder_offerte', count: verkoopkansenZonderOfferte.length })
   }
 
-  const conversieGraad = data.totaalOffertes > 0
-    ? Math.round((data.offertesPerFase.find(f => f.status === 'geaccepteerd')?.aantal || 0) / data.totaalOffertes * 100)
-    : 0
+  // Conversie huidig jaar, per losse offerte — identiek aan de pop-up
+  // (zelfde bron: data.conversieDitJaar / getOfferteConversieDitJaar).
+  const conversieGraad = data.conversieDitJaar?.conversie ?? 0
   // Bedrag komt uit SnelStart sync (zelfde getal als SS UI); de lijst/teller blijft op
   // de CRM-lokale berekening voor de rijen.
   const achterstalligBedrag = data.achterstallig ?? achterstalligeFacturen.reduce((sum, f) => sum + f.openstaand_bedrag, 0)
@@ -693,7 +700,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               <div className="min-w-0">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Conversie</p>
                 <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2 tracking-tight">{conversieGraad}%</p>
-                <p className="text-xs text-gray-400 mt-2">{data.totaalOffertes} offertes (12 mnd)</p>
+                <p className="text-xs text-gray-400 mt-2">{data.conversieDitJaar?.geaccepteerdAantal ?? 0} van {data.conversieDitJaar?.verstuurdAantal ?? 0} offertes ({data.conversieDitJaar?.jaar ?? new Date().getFullYear()})</p>
               </div>
               <div className="h-12 w-12 rounded-full bg-violet-50 flex items-center justify-center shrink-0">
                 <TrendingUp className="h-5 w-5 text-violet-600" />
