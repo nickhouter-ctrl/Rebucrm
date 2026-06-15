@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { SearchSelect } from '@/components/ui/search-select'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { formatCurrency, handleNumberPaste } from '@/lib/utils'
@@ -23,11 +24,12 @@ interface Regel {
   product_id?: string
 }
 
-export function FactuurForm({ factuur, relaties, producten, nummerPreview = '' }: {
+export function FactuurForm({ factuur, relaties, producten, nummerPreview = '', initialRelatieId = '' }: {
   factuur: Record<string, unknown> | null
   relaties: { id: string; bedrijfsnaam: string }[]
   producten: { id: string; naam: string; prijs: number; btw_percentage: number }[]
   nummerPreview?: string
+  initialRelatieId?: string
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -41,6 +43,7 @@ export function FactuurForm({ factuur, relaties, producten, nummerPreview = '' }
   // nummer (zie saveFactuur) zodat de reeks netjes oploopt zonder gaten.
   const [factuurnummer, setFactuurnummer] = useState((factuur?.factuurnummer as string) || nummerPreview)
   const [autoNummer, setAutoNummer] = useState(isNew)
+  const [relatieId, setRelatieId] = useState((factuur?.relatie_id as string) || initialRelatieId)
 
   const [regels, setRegels] = useState<Regel[]>(
     (factuur?.regels as Regel[]) || [{ omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }]
@@ -326,7 +329,7 @@ export function FactuurForm({ factuur, relaties, producten, nummerPreview = '' }
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Select id="relatie_id" name="relatie_id" label="Relatie" defaultValue={(factuur?.relatie_id as string) || ''} placeholder="Selecteer relatie..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+              <SearchSelect id="relatie_id" name="relatie_id" label="Relatie" value={relatieId} onChange={setRelatieId} placeholder="Zoek relatie..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
               <Select id="status" name="status" label="Status" defaultValue={(factuur?.status as string) || 'concept'} options={[
                 { value: 'concept', label: 'Concept' }, { value: 'verzonden', label: 'Verzonden' },
                 { value: 'betaald', label: 'Betaald' }, { value: 'deels_betaald', label: 'Deels betaald' },

@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { SearchSelect } from '@/components/ui/search-select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, handleNumberPaste } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X } from 'lucide-react'
@@ -28,6 +29,7 @@ export function InkoopForm({ factuur, relaties }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !factuur
+  const [relatieId, setRelatieId] = useState((factuur?.relatie_id as string) || '')
 
   const [regels, setRegels] = useState<Regel[]>(
     (factuur?.regels as Regel[]) || [{ omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }]
@@ -72,7 +74,7 @@ export function InkoopForm({ factuur, relaties }: {
               <Input id="vervaldatum" name="vervaldatum" label="Vervaldatum" type="date" defaultValue={(factuur?.vervaldatum as string) || ''} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select id="relatie_id" name="relatie_id" label="Leverancier" defaultValue={(factuur?.relatie_id as string) || ''} placeholder="Selecteer leverancier..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+              <SearchSelect id="relatie_id" name="relatie_id" label="Leverancier" value={relatieId} onChange={setRelatieId} placeholder="Zoek leverancier..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
               <Select id="status" name="status" label="Status" defaultValue={(factuur?.status as string) || 'open'} options={[{ value: 'open', label: 'Open' }, { value: 'betaald', label: 'Betaald' }, { value: 'betwist', label: 'Betwist' }]} />
             </div>
           </CardContent>

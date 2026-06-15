@@ -469,6 +469,10 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
               <FileText className="h-4 w-4" />
               Offerte aanmaken
             </Button>
+            <Button variant="secondary" onClick={() => router.push(`/facturatie/nieuw?relatie_id=${relatie.id}`)}>
+              <Receipt className="h-4 w-4" />
+              Factuur aanmaken
+            </Button>
           </div>
         }
       />

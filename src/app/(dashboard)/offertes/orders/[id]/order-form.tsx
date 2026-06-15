@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { SearchSelect } from '@/components/ui/search-select'
 import { Button } from '@/components/ui/button'
 import { formatCurrency, formatDateShort, handleNumberPaste } from '@/lib/utils'
 import { Save, Trash2, ArrowLeft, Plus, X, UserPlus, Receipt, AlertTriangle, CheckCircle, Clock, ExternalLink } from 'lucide-react'
@@ -59,6 +60,7 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
   const [orderMedewerkers, setOrderMedewerkers] = useState(initialOrderMedewerkers)
   const [medDialogOpen, setMedDialogOpen] = useState(false)
   const [medSaving, setMedSaving] = useState(false)
+  const [relatieId, setRelatieId] = useState((order?.relatie_id as string) || '')
   const { navigateBack } = useBackNav(`order-${(order?.id as string) || 'nieuw'}`)
 
   const [regels, setRegels] = useState<Regel[]>(
@@ -140,7 +142,7 @@ export function OrderForm({ order, relaties, producten, medewerkers, orderMedewe
               <Input id="leverdatum" name="leverdatum" label="Leverdatum" type="date" defaultValue={(order?.leverdatum as string) || ''} />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Select id="relatie_id" name="relatie_id" label="Relatie" defaultValue={(order?.relatie_id as string) || ''} placeholder="Selecteer relatie..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+              <SearchSelect id="relatie_id" name="relatie_id" label="Relatie" value={relatieId} onChange={setRelatieId} placeholder="Zoek relatie..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
               <Select id="status" name="status" label="Status" defaultValue={(order?.status as string) || 'nieuw'} options={[
                 { value: 'nieuw', label: 'Nieuw' }, { value: 'in_behandeling', label: 'In behandeling' },
                 { value: 'geleverd', label: 'Geleverd' }, { value: 'gefactureerd', label: 'Gefactureerd' }, { value: 'geannuleerd', label: 'Geannuleerd' },

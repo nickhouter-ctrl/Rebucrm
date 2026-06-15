@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Card, CardContent, CardFooter } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { SearchSelect } from '@/components/ui/search-select'
 import { Button } from '@/components/ui/button'
 import { Save, Trash2, ArrowLeft } from 'lucide-react'
 
@@ -19,6 +20,7 @@ export function ProjectForm({ project, relaties }: {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const isNew = !project
+  const [relatieId, setRelatieId] = useState((project?.relatie_id as string) || '')
   const { navigateBack } = useBackNav(`project-${(project?.id as string) || 'nieuw'}`)
 
   async function handleSubmit(formData: FormData) {
@@ -45,7 +47,7 @@ export function ProjectForm({ project, relaties }: {
           <CardContent className="space-y-4 pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input id="naam" name="naam" label="Projectnaam *" defaultValue={(project?.naam as string) || ''} required />
-              <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={(project?.relatie_id as string) || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+              <SearchSelect id="relatie_id" name="relatie_id" label="Klant" value={relatieId} onChange={setRelatieId} placeholder="Zoek klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
               <Select id="status" name="status" label="Status" defaultValue={(project?.status as string) || 'actief'} options={[
                 { value: 'actief', label: 'Actief' }, { value: 'afgerond', label: 'Afgerond' },
                 { value: 'on_hold', label: 'On hold' }, { value: 'geannuleerd', label: 'Geannuleerd' },

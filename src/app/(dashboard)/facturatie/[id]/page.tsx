@@ -1,8 +1,12 @@
 import { getFactuur, getRelaties, getProducten, getVolgendeNummerPreview } from '@/lib/actions'
 import { FactuurForm } from './factuur-form'
 
-export default async function FactuurDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function FactuurDetailPage({ params, searchParams }: {
+  params: Promise<{ id: string }>
+  searchParams: Promise<{ relatie_id?: string }>
+}) {
   const { id } = await params
+  const { relatie_id: relatie } = await searchParams
   const isNew = id === 'nieuw'
   const [factuur, relaties, producten, nummerPreview] = await Promise.all([
     isNew ? null : getFactuur(id),
@@ -10,5 +14,5 @@ export default async function FactuurDetailPage({ params }: { params: Promise<{ 
     getProducten(),
     isNew ? getVolgendeNummerPreview('factuur') : Promise.resolve(''),
   ])
-  return <FactuurForm factuur={factuur} relaties={relaties} producten={producten} nummerPreview={nummerPreview} />
+  return <FactuurForm factuur={factuur} relaties={relaties} producten={producten} nummerPreview={nummerPreview} initialRelatieId={isNew ? (relatie || '') : ''} />
 }
