@@ -8760,7 +8760,11 @@ export async function processLeverancierPdf(offerteId: string, formData: FormDat
   // Store original PDF in Supabase Storage
   const supabaseAdmin = createAdminClient()
   const timestamp = Date.now()
-  const pdfPath = `leverancier-pdfs/${offerteId}/${timestamp}_${file.name}`
+  // Supabase Storage weigert keys met niet-ASCII tekens (bv. 'ü' in
+  // "Schüco ...pdf"), spaties of rare tekens → "Invalid key". Saneer de naam
+  // voor de storage-key (NFKD: ü→u); de originele naam blijft in 'bestandsnaam'.
+  const veiligeBestandsnaam = file.name.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '_')
+  const pdfPath = `leverancier-pdfs/${offerteId}/${timestamp}_${veiligeBestandsnaam}`
 
   const { error: uploadError } = await supabaseAdmin.storage
     .from('documenten')
