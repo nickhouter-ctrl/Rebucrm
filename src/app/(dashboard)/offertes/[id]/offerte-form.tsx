@@ -33,6 +33,8 @@ interface Regel {
   prijs: number | string
   btw_percentage: number
   product_id?: string
+  // Vrije tekstregel (bv. "Zie bijlage PDF"): geen prijs, telt niet mee in totaal.
+  isTekst?: boolean
 }
 
 const PARTICULIER_REGELS: Regel[] = [
@@ -84,7 +86,10 @@ export function OfferteForm({ offerte, relaties, producten, initialRelatieId, in
   const [selectedProjectName, setSelectedProjectName] = useState<string>('')
   const [offerteType, setOfferteType] = useState<'particulier' | 'zakelijk' | null>(isNew && !wizardMode ? null : isConceptWizard ? null : 'zakelijk')
   const [regels, setRegels] = useState<Regel[]>(() => {
-    const bestaandeRegels = (offerte?.regels as Regel[]) || []
+    // Reconstrueer tekstregels: in de DB hebben die aantal/prijs = null.
+    const bestaandeRegels = ((offerte?.regels as Regel[]) || []).map(r =>
+      (r.prijs == null || r.aantal == null) ? { ...r, isTekst: true } : r
+    )
     // Bij nieuwe versie wizard: als regels leeg zijn, vul met standaard regels
     if (bestaandeRegels.length === 0 && wizardMode) {
       return [...ZAKELIJK_REGELS]

@@ -5,8 +5,10 @@ import path from 'path'
 
 interface Regel {
   omschrijving: string
-  aantal: number
-  prijs: number
+  // Vrije tekstregels (bv. "Zie bijlage PDF") worden opgeslagen met aantal/prijs
+  // = null en tellen niet mee in totalen; ze tonen alleen de omschrijving.
+  aantal: number | null
+  prijs: number | null
   btw_percentage: number
   totaal: number
 }
@@ -81,7 +83,7 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
   // Bereken BTW groepen
   const btwGroepen: Record<number, number> = {}
   regels.forEach(r => {
-    const btwBedrag = (r.aantal * r.prijs * r.btw_percentage) / 100
+    const btwBedrag = ((r.aantal || 0) * (r.prijs || 0) * r.btw_percentage) / 100
     btwGroepen[r.btw_percentage] = (btwGroepen[r.btw_percentage] || 0) + btwBedrag
   })
 
@@ -221,16 +223,20 @@ export function OfferteDocument({ offerte, hidePrices }: { offerte: OfferteData;
             {!hidePrices && <View style={s.tableColKorting}><Text style={s.tableHeaderText}>Korting</Text></View>}
             {!hidePrices && <View style={s.tableColTotaal}><Text style={s.tableHeaderText}>Totaal</Text></View>}
           </View>
-          {regels.map((regel, i) => (
-            <View key={i} style={s.tableRow}>
-              <View style={s.tableColAantal}><Text style={s.tableCellText}>{regel.aantal}</Text></View>
-              <View style={s.tableColEenheid}><Text style={s.tableCellText}>Stuk</Text></View>
-              <View style={s.tableColDesc}><Text style={s.tableCellText}>{regel.omschrijving}</Text></View>
-              {!hidePrices && <View style={s.tableColBedrag}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.prijs)}</Text></View>}
-              {!hidePrices && <View style={s.tableColKorting}><Text style={s.tableCellText}>0%</Text></View>}
-              {!hidePrices && <View style={s.tableColTotaal}><Text style={s.tableCellText}>{formatCurrencyPdf(regel.aantal * regel.prijs)}</Text></View>}
-            </View>
-          ))}
+          {regels.map((regel, i) => {
+            // Vrije tekstregel: alleen omschrijving, geen aantal/eenheid/prijs.
+            const isTekst = regel.aantal == null || regel.prijs == null
+            return (
+              <View key={i} style={s.tableRow}>
+                <View style={s.tableColAantal}><Text style={s.tableCellText}>{isTekst ? '' : regel.aantal}</Text></View>
+                <View style={s.tableColEenheid}><Text style={s.tableCellText}>{isTekst ? '' : 'Stuk'}</Text></View>
+                <View style={s.tableColDesc}><Text style={s.tableCellText}>{regel.omschrijving}</Text></View>
+                {!hidePrices && <View style={s.tableColBedrag}><Text style={s.tableCellText}>{isTekst ? '' : formatCurrencyPdf(regel.prijs ?? 0)}</Text></View>}
+                {!hidePrices && <View style={s.tableColKorting}><Text style={s.tableCellText}>{isTekst ? '' : '0%'}</Text></View>}
+                {!hidePrices && <View style={s.tableColTotaal}><Text style={s.tableCellText}>{isTekst ? '' : formatCurrencyPdf((regel.aantal || 0) * (regel.prijs || 0))}</Text></View>}
+              </View>
+            )
+          })}
         </View>
 
         {!hidePrices && <View style={s.totalsSection}>

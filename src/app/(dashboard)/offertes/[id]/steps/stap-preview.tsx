@@ -40,6 +40,8 @@ interface Regel {
   prijs: number | string
   btw_percentage: number
   product_id?: string
+  // Vrije tekstregel (bv. "Zie bijlage PDF"): geen prijs, telt niet mee.
+  isTekst?: boolean
 }
 
 interface DetectedLev {
@@ -455,8 +457,8 @@ export function StapPreview({
         relatie: { bedrijfsnaam: relatieName || 'Klant' },
         regels: regels.map(r => ({
           omschrijving: r.omschrijving,
-          aantal: numVal(r.aantal),
-          prijs: numVal(r.prijs),
+          aantal: r.isTekst ? null : numVal(r.aantal),
+          prijs: r.isTekst ? null : numVal(r.prijs),
           btw_percentage: r.btw_percentage,
         })),
         elementen,
@@ -578,8 +580,8 @@ export function StapPreview({
           })),
         regels: regels.map(r => ({
           omschrijving: r.omschrijving,
-          aantal: numVal(r.aantal),
-          prijs: numVal(r.prijs),
+          aantal: r.isTekst ? null : numVal(r.aantal),
+          prijs: r.isTekst ? null : numVal(r.prijs),
           btw_percentage: r.btw_percentage,
         })),
         margePercentage,
@@ -868,7 +870,9 @@ export function StapPreview({
       fd.set('datum', isoDatum)
       fd.set('geldig_tot', isoGeldigTot)
       fd.set('status', (offerte?.status as string | undefined) || 'concept')
-      fd.set('regels', JSON.stringify(regels.map(r => ({ ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) }))))
+      fd.set('regels', JSON.stringify(regels.map(r => r.isTekst
+        ? { ...r, aantal: null, prijs: null }
+        : { ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) })))
       const result = await saveOfferte(fd)
       if (result.error) { setError(result.error); setSaving(false); return }
       const offerteId = result.id!

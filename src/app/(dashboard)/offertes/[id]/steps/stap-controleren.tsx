@@ -16,6 +16,9 @@ interface Regel {
   prijs: number | string
   btw_percentage: number
   product_id?: string
+  // Vrije tekstregel (bv. "Zie bijlage PDF"): alleen tekst, geen prijs, telt
+  // niet mee in het totaal. Opgeslagen met aantal/prijs = null.
+  isTekst?: boolean
 }
 
 // Bezorgkosten worden alleen automatisch toegevoegd als het orderbedrag (excl
@@ -175,6 +178,11 @@ export function StapControleren({
 
   function addRegel() {
     onRegelsChange([...regels, { omschrijving: '', aantal: 1, prijs: 0, btw_percentage: 21 }])
+  }
+
+  // Vrije tekstregel zonder prijs (telt niet mee in het totaal).
+  function addTekstRegel(omschrijving = '') {
+    onRegelsChange([...regels, { omschrijving, aantal: '', prijs: '', btw_percentage: 0, isTekst: true }])
   }
 
   function snelVulBedrag() {
@@ -656,7 +664,9 @@ export function StapControleren({
     setError('')
     if (offerte) formData.set('id', offerte.id as string)
     formData.set('relatie_id', selectedRelatieId)
-    formData.set('regels', JSON.stringify(regels.map(r => ({ ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) }))))
+    formData.set('regels', JSON.stringify(regels.map(r => r.isTekst
+      ? { ...r, aantal: null, prijs: null }
+      : { ...r, aantal: numVal(r.aantal), prijs: numVal(r.prijs) })))
     if (selectedProjectId) formData.set('project_id', selectedProjectId)
     const result = await saveOfferte(formData)
     if (result.error) {
@@ -777,6 +787,13 @@ export function StapControleren({
                 <Button type="button" variant="ghost" size="sm" onClick={bulkAanpassenPrijzen} title="Pas alle prijzen aan met een percentage (+5%, -10% etc.)">
                   ± %
                 </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => addTekstRegel('Zie bijlage PDF')} title="Voeg een vrije tekstregel 'Zie bijlage PDF' toe (zonder prijs)">
+                  Zie bijlage PDF
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => addTekstRegel()} title="Voeg een vrije tekstregel zonder prijs toe">
+                  <Plus className="h-3 w-3" />
+                  Tekstregel
+                </Button>
                 <Button type="button" variant="secondary" size="sm" onClick={addRegel}>
                   <Plus className="h-3 w-3" />
                   Regel toevoegen
@@ -797,6 +814,31 @@ export function StapControleren({
             <div className="space-y-3">
               {regels.map((regel, i) => {
                 const isBezorgkosten = regel.omschrijving === BEZORGKOSTEN_LABEL
+                if (regel.isTekst) {
+                  // Vrije tekstregel: omschrijving over de volle breedte, geen
+                  // product/aantal/prijs/btw/totaal-velden.
+                  return (
+                    <div key={i} className="grid grid-cols-12 gap-2 items-center bg-blue-50/50 -mx-2 px-2 py-1 rounded">
+                      <div className="col-span-1 text-[10px] text-gray-400 uppercase">Tekst</div>
+                      <div className="col-span-10">
+                        <input placeholder="Vrije tekst (bv. Zie bijlage PDF)" className="w-full px-2 py-2 border border-gray-300 rounded-md text-sm" value={regel.omschrijving} onChange={(e) => updateRegel(i, 'omschrijving', e.target.value)} />
+                      </div>
+                      <div className="col-span-1">
+                        <div className="flex items-center justify-end gap-0.5">
+                          <button type="button" onClick={() => moveRegel(i, -1)} disabled={i === 0} title="Omhoog" className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => moveRegel(i, 1)} disabled={i >= regels.length - 1 || regels[i + 1]?.omschrijving?.toLowerCase() === BEZORGKOSTEN_LABEL.toLowerCase()} title="Omlaag" className="p-1 text-gray-400 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed">
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
+                          <button type="button" onClick={() => removeRegel(i)} title="Verwijderen" className="p-1 text-gray-400 hover:text-red-500">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
                 return (
                   <div key={i} className={`grid grid-cols-12 gap-2 items-end ${isBezorgkosten ? 'bg-orange-50 -mx-2 px-2 py-1 rounded' : ''}`}>
                     <div className="col-span-1">
