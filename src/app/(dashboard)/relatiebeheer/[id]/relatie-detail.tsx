@@ -40,6 +40,7 @@ interface RelatieData {
   iban: string | null
   opmerkingen: string | null
   standaard_marge: number | null
+  actief?: boolean | null
 }
 
 interface Offerte {
@@ -442,6 +443,12 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
       />
       <PageHeader
         title={relatie.bedrijfsnaam}
+        titleBadge={relatie.actief === false ? (
+          <span title="Voormalige klant — niet meer benaderen" className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            Voormalig
+          </span>
+        ) : undefined}
         description={`${relatie.type.charAt(0).toUpperCase() + relatie.type.slice(1)} ${relatie.plaats ? `- ${relatie.plaats}` : ''}`}
         actions={
           <div className="flex gap-2">

@@ -60,7 +60,10 @@ const columns: ColumnDef<Relatie, unknown>[] = [
       <span className="flex items-center gap-2">
         <span className={row.original.actief === false ? 'text-gray-400' : ''}>{row.original.bedrijfsnaam}</span>
         {row.original.actief === false && (
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-200 text-gray-600 shrink-0">Voormalig</span>
+          <span title="Voormalige klant — niet meer benaderen" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 shrink-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            Voormalig
+          </span>
         )}
       </span>
     ),
