@@ -438,15 +438,11 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 variant="secondary"
                 disabled={loading}
                 onClick={async () => {
-                  const input = prompt('Factuurbedrag incl. BTW (laat leeg om offerte-totaal te gebruiken):')
-                  if (input === null) return
-                  const bedrag = input.trim() ? parseFloat(input.replace(',', '.')) : undefined
-                  if (input.trim() && (!bedrag || bedrag <= 0)) {
-                    alert('Ongeldig bedrag')
-                    return
-                  }
+                  // Geen popup: factureer altijd het totaal van de geaccepteerde
+                  // offerte (of anders de laatste versie). factureerVerkoopkans
+                  // bepaalt dat bedrag zelf wanneer er geen bedrag wordt meegegeven.
                   setLoading(true)
-                  const result = await factureerVerkoopkans(project.id as string, { bedrag })
+                  const result = await factureerVerkoopkans(project.id as string)
                   setLoading(false)
                   if (result?.error) { setError(result.error) }
                   else if (result?.factuurId) router.push(`/facturatie/${result.factuurId}`)

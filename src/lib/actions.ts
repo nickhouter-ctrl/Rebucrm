@@ -4778,6 +4778,104 @@ export async function getOfferteConversieDitJaar() {
 }
 
 
+// Gemiddelde factuurwaarde per gewonnen verkoopkans, huidig jaar.
+//   = totaal gefactureerd (subtotaal, excl. BTW) van de facturen die gekoppeld
+//     zijn aan gewonnen verkoopkansen van dit jaar
+//   ÷ aantal gewonnen verkoopkansen van dit jaar
+// De won-detectie (groep_id, laatste versie 'geaccepteerd') en het april-
+// migratiefilter zijn IDENTIEK aan getOfferteConversieDitJaar, zodat de noemer
+// hier exact gelijk is aan geaccepteerdAantal van de conversie-kop. Eén
+// verkoopkans kan meerdere facturen hebben (aanbetaling + restbetaling); die
+// tellen samen omdat ze allebei dezelfde offerte_id (→ groep) dragen.
+export async function getGemiddeldeFactuurwaardeDitJaar() {
+  const sb = createAdminClient()
+  const adminId = await getAdministratieId()
+
+  const jaar = new Date().getFullYear()
+  const huidigeMaand = new Date().getMonth() + 1 // 1-12
+  const startStr = `${jaar}-01-01`
+  const eindStr = `${jaar}-12-31`
+
+  const leeg = { jaar, gemiddelde: 0, totaalGefactureerd: 0, aantalVerkoopkansen: 0 }
+  if (!adminId) return leeg
+
+  // Maanden tot en met de huidige maand — zelfde venster als de conversie-kop.
+  const maandenSet = new Set<string>()
+  for (let m = 1; m <= huidigeMaand; m++) maandenSet.add(`${jaar}-${String(m).padStart(2, '0')}`)
+
+  // Zelfde migratie-filter als getOfferteConversieDitJaar.
+  const isMigratieRecord = (createdAt: string | null, datum: string) => {
+    if (!createdAt) return false
+    const cDag = createdAt.slice(0, 10)
+    const isBulkDag = cDag >= '2026-04-13' && cDag <= '2026-04-23'
+    if (!isBulkDag) return false
+    return datum >= '2026-04-01'
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const offertesRaw = await fetchAllRows<any>((from, to) =>
+    sb.from('offertes')
+      .select('id, datum, created_at, status, versie_nummer, groep_id')
+      .eq('administratie_id', adminId)
+      .in('status', ['verzonden', 'geaccepteerd'])
+      .gte('datum', startStr)
+      .lte('datum', eindStr)
+      .range(from, to),
+  )
+
+  // Per groep_id (= losse verkoopkans): datum van de EERSTE versie, status van de
+  // LAATSTE versie. Verzamel meteen alle offerte-id's per groep voor de koppeling
+  // factuur → verkoopkans.
+  const groep = new Map<string, { datum: string | null; createdAt: string | null; status: string | null; vMin: number; vMax: number; ids: string[] }>()
+  for (const o of offertesRaw) {
+    const key = o.groep_id || o.id
+    const v = o.versie_nummer || 1
+    let g = groep.get(key)
+    if (!g) { g = { datum: null, createdAt: null, status: null, vMin: Number.POSITIVE_INFINITY, vMax: 0, ids: [] }; groep.set(key, g) }
+    g.ids.push(o.id)
+    if (v < g.vMin) { g.vMin = v; g.datum = o.datum; g.createdAt = o.created_at }
+    if (v >= g.vMax) { g.vMax = v; g.status = o.status }
+  }
+
+  let aantalVerkoopkansen = 0
+  const gewonnenOfferteIds: string[] = []
+  for (const [, g] of groep) {
+    if (!g.datum) continue
+    if (isMigratieRecord(g.createdAt, g.datum)) continue
+    if (!maandenSet.has(g.datum.slice(0, 7))) continue
+    if (g.status !== 'geaccepteerd') continue
+    aantalVerkoopkansen += 1
+    gewonnenOfferteIds.push(...g.ids)
+  }
+
+  if (aantalVerkoopkansen === 0 || gewonnenOfferteIds.length === 0) return leeg
+
+  // Totaal gefactureerd (excl. BTW) van facturen gekoppeld aan deze verkoopkansen.
+  // Concept/gecrediteerd tellen niet mee (gelijk aan totaalGefactureerd elders).
+  const UITGESLOTEN_STATUSSEN = ['concept', 'gecrediteerd']
+  let totaalGefactureerd = 0
+  const chunkSize = 150 // .in()-lijst beperken i.v.m. URL-lengte
+  for (let i = 0; i < gewonnenOfferteIds.length; i += chunkSize) {
+    const chunk = gewonnenOfferteIds.slice(i, i + chunkSize)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const facturen = await fetchAllRows<any>((from, to) =>
+      sb.from('facturen')
+        .select('subtotaal, status, offerte_id')
+        .eq('administratie_id', adminId)
+        .in('offerte_id', chunk)
+        .range(from, to),
+    )
+    for (const f of facturen) {
+      if (UITGESLOTEN_STATUSSEN.includes(f.status)) continue
+      totaalGefactureerd += f.subtotaal || 0
+    }
+  }
+
+  const gemiddelde = totaalGefactureerd / aantalVerkoopkansen
+  return { jaar, gemiddelde, totaalGefactureerd, aantalVerkoopkansen }
+}
+
+
 export async function getDashboardData() {
   const supabase = await createClient()
   const adminId = await getAdministratieId()
@@ -5528,21 +5626,34 @@ export async function getDashboardData() {
     },
   }
 
-  // Conversie-kop: huidig jaar, per losse offerte — zelfde bron als de
-  // "Conversie per maand"-pop-up zodat kop en pop-up gelijk zijn.
-  const conversieDitJaar = await getOfferteConversieDitJaar()
+  // Conversie-kop + gem. factuurwaarde: huidig jaar, per losse verkoopkans —
+  // zelfde bron/won-detectie zodat kop, pop-up en gem. factuurwaarde gelijk zijn.
+  const [conversieDitJaar, gemFactuurwaardeDitJaar] = await Promise.all([
+    getOfferteConversieDitJaar(),
+    getGemiddeldeFactuurwaardeDitJaar(),
+  ])
+
+  // Voormalige (inactieve) relaties — id's zodat het dashboard klantnamen
+  // direct als "voormalig" kan markeren in alle lijsten (via KlantNaam).
+  const { data: voormaligeRelaties } = await supabaseAdmin
+    .from('relaties')
+    .select('id')
+    .eq('administratie_id', adminId)
+    .eq('actief', false)
+  const voormaligeRelatieIds = (voormaligeRelaties || []).map(r => r.id)
 
   return {
     omzet, omzetVorigeMaand, openstaand, achterstallig, openOffertes, openTaken,
     ongelezenBerichten: ongelezenBerichtenRes.count || 0,
     maandOmzet, gefactureerdPerMaand, totaalGefactureerd, totaalFacturen,
-    offertesPerMaand, totaalOffertes, conversieDitJaar,
+    offertesPerMaand, totaalOffertes, conversieDitJaar, gemFactuurwaardeDitJaar,
     dezeWeek, funnel,
     organisaties, offertesPerFase, facturenPerFase, takenPerCollega, mijnTaken, openOffertesList, tePlannenOrders, geplandeLeveringen, geaccepteerdeOffertes, openstaandeFacturen,
     topKlanten, omzetdoelen, triageEmails, openAanvragen, recenteOffertes, moetBesteldOrders, openVerkoopkansen,
     recenteNotities,
     restbetalingTeVersturen,
     conceptFacturenGepland,
+    voormaligeRelatieIds,
   }
 }
 

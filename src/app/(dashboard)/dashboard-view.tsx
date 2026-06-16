@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, createContext, useContext } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
-import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send, EyeOff } from 'lucide-react'
+import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send, EyeOff, Calculator } from 'lucide-react'
 import { format } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
@@ -54,6 +54,7 @@ interface DashboardData {
   }
   funnel: FunnelData
   recenteNotities?: RecenteNotitie[]
+  voormaligeRelatieIds?: string[]
   ongelezenBerichten: number
   maandOmzet: { maand: string; bedrag: number }[]
   gefactureerdPerMaand: { maand: string; bedrag: number; aantal: number }[]
@@ -67,6 +68,12 @@ interface DashboardData {
     geaccepteerdAantal: number
     conversie: number
     maanden: { maand: string; verstuurdAantal: number; geaccepteerdAantal: number }[]
+  }
+  gemFactuurwaardeDitJaar?: {
+    jaar: number
+    gemiddelde: number
+    totaalGefactureerd: number
+    aantalVerkoopkansen: number
   }
   organisaties: { totaal: number; particulier: number; zakelijk: number }
   offertesPerFase: { status: string; aantal: number; bedrag: number }[]
@@ -228,13 +235,41 @@ function DagenPill({ dagen, isOver }: { dagen: number; isOver: boolean }) {
   )
 }
 
-// Klant-naam: link naar /relatiebeheer/[id] als id bekend, anders gewone tekst.
-function KlantNaam({ id, naam, className = '' }: { id: string | null | undefined; naam: string; className?: string }) {
-  if (!id) return <span className={className}>{naam}</span>
+// Set met id's van voormalige (inactieve) relaties — gevuld door DashboardView.
+// Zo kan KlantNaam overal op het dashboard direct de "voormalig"-markering tonen
+// zonder dat elke lijst-query het actief-veld hoeft mee te geven.
+const VoormaligeRelatiesContext = createContext<Set<string>>(new Set())
+
+// Markering "voormalig": rond bolletje + label, meteen zichtbaar naast de naam.
+function VoormaligMarker() {
   return (
-    <Link href={`/relatiebeheer/${id}`} className={`hover:text-[#00a66e] hover:underline ${className}`}>
-      {naam}
-    </Link>
+    <span title="Voormalige klant — niet meer benaderen" className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 shrink-0">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+      voormalig
+    </span>
+  )
+}
+
+// Klant-naam: link naar /relatiebeheer/[id] als id bekend, anders gewone tekst.
+// Toont een "voormalig"-markering als de relatie inactief is.
+function KlantNaam({ id, naam, className = '' }: { id: string | null | undefined; naam: string; className?: string }) {
+  const voormaligeIds = useContext(VoormaligeRelatiesContext)
+  const isVoormalig = id ? voormaligeIds.has(id) : false
+  if (!id) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 ${className}`}>
+        {naam}
+        {isVoormalig && <VoormaligMarker />}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Link href={`/relatiebeheer/${id}`} className={`hover:text-[#00a66e] hover:underline ${isVoormalig ? 'text-gray-400' : ''} ${className}`}>
+        {naam}
+      </Link>
+      {isVoormalig && <VoormaligMarker />}
+    </span>
   )
 }
 
@@ -606,7 +641,10 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
     </div>
   )
 
+  const voormaligeSet = new Set(data.voormaligeRelatieIds || [])
+
   return (
+    <VoormaligeRelatiesContext.Provider value={voormaligeSet}>
     <div className="space-y-6 sm:space-y-8">
       {/* Header — strakker, datum als ondertitel */}
       <div className="flex items-center justify-between gap-3">
@@ -646,7 +684,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       )}
 
       {/* KPI rij — moderner, royaler, icoon RECHTS in pastel cirkel (Houter-stijl) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {/* Omzet */}
         <Link href="/facturatie" className="block group">
           <div className="relative bg-white rounded-2xl border border-gray-100 p-6 group-hover:border-gray-200 group-hover:shadow-sm transition-all overflow-hidden">
@@ -708,6 +746,24 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             </div>
           </div>
         </button>
+        {/* Gemiddelde factuurwaarde per gewonnen verkoopkans — huidig jaar, excl. BTW */}
+        <div className="relative bg-white rounded-2xl border border-gray-100 p-6 overflow-hidden">
+          <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-teal-500 to-cyan-400" />
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Gem. factuurwaarde</p>
+              <p className="text-2xl sm:text-3xl font-bold text-gray-900 mt-2 tracking-tight">{formatCurrency(data.gemFactuurwaardeDitJaar?.gemiddelde ?? 0)}</p>
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-400">
+                <span>excl. BTW</span>
+                <span>·</span>
+                <span>{data.gemFactuurwaardeDitJaar?.aantalVerkoopkansen ?? 0} verkoopkans{(data.gemFactuurwaardeDitJaar?.aantalVerkoopkansen ?? 0) === 1 ? '' : 'en'} ({data.gemFactuurwaardeDitJaar?.jaar ?? new Date().getFullYear()})</span>
+              </div>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-teal-50 flex items-center justify-center shrink-0">
+              <Calculator className="h-5 w-5 text-teal-600" />
+            </div>
+          </div>
+        </div>
         {/* Achterstallig */}
         <Link href="/facturatie?tab=openstaand&vervallen=1" className="block group">
           <div className={`relative bg-white rounded-2xl border p-6 group-hover:shadow-sm transition-all overflow-hidden ${achterstalligBedrag > 0 ? 'border-red-200' : 'border-gray-100 group-hover:border-gray-200'}`}>
@@ -1651,5 +1707,6 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
         </div>
       )}
     </div>
+    </VoormaligeRelatiesContext.Provider>
   )
 }
