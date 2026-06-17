@@ -21,6 +21,7 @@ interface Project {
   budget: number | null
   uurtarief: number | null
   relatie: { bedrijfsnaam: string } | null
+  medewerker: { naam: string } | null
   aantal_offertes: number
   laatste_offerte_id: string | null
   laatste_offerte_nummer: string | null
@@ -66,6 +67,7 @@ export function ProjectList({ projecten }: { projecten: Project[] }) {
   const columns: ColumnDef<Project, unknown>[] = [
     { accessorKey: 'naam', header: 'Verkoopkans' },
     { id: 'relatie', header: 'Klant', accessorFn: (row) => row.relatie?.bedrijfsnaam || '-' },
+    { id: 'medewerker', header: 'Toegewezen aan', accessorFn: (row) => row.medewerker?.naam || '', cell: ({ row }) => row.original.medewerker?.naam ? <span className="text-gray-700">{row.original.medewerker.naam}</span> : <span className="text-gray-400">-</span> },
     { id: 'datum', header: 'Datum', accessorFn: (row) => row.created_at, cell: ({ row }) => <span className="text-gray-500">{formatDate(row.original.created_at)}</span> },
     { accessorKey: 'status', header: 'Status', cell: ({ getValue }) => <Badge status={getValue() as string} /> },
     {

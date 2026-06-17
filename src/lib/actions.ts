@@ -3429,7 +3429,7 @@ export async function getProjecten() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('*, relatie:relaties(bedrijfsnaam), offertes:offertes(id, offertenummer, status, datum, versie_nummer, subtotaal, totaal, facturen:facturen(id, status, totaal, betaald_bedrag, factuur_type))')
+      .select('*, relatie:relaties(bedrijfsnaam), medewerker:medewerkers(naam), offertes:offertes(id, offertenummer, status, datum, versie_nummer, subtotaal, totaal, facturen:facturen(id, status, totaal, betaald_bedrag, factuur_type))')
       .order('created_at', { ascending: false })
       .range(from, to)
   )
@@ -4126,6 +4126,7 @@ export async function saveProject(formData: FormData) {
     naam: formData.get('naam') as string,
     omschrijving: formData.get('omschrijving') as string || null,
     relatie_id: formData.get('relatie_id') as string || null,
+    medewerker_id: formData.get('medewerker_id') as string || null,
     status: formData.get('status') as string || 'actief',
     startdatum: formData.get('startdatum') as string || null,
     einddatum: formData.get('einddatum') as string || null,
@@ -4173,8 +4174,19 @@ export async function saveProject(formData: FormData) {
     // wordt de verkoopkans alsnog gewoon opgeslagen.
     try {
       const { data: { user } } = await supabase.auth.getUser()
+      // Toewijzing van de auto-taak: voorkeur = de aan de verkoopkans gekoppelde
+      // medewerker; anders de medewerker die hoort bij de ingelogde gebruiker.
       let medewerkerId: string | null = null
-      if (user?.id) {
+      let toegewezenAan: string | null = user?.id || null
+      if (record.medewerker_id) {
+        const { data: mw } = await supabase
+          .from('medewerkers')
+          .select('id, profiel_id')
+          .eq('id', record.medewerker_id)
+          .eq('administratie_id', adminId)
+          .maybeSingle()
+        if (mw) { medewerkerId = mw.id; toegewezenAan = mw.profiel_id || toegewezenAan }
+      } else if (user?.id) {
         const { data: mw } = await supabase
           .from('medewerkers')
           .select('id')
@@ -4193,7 +4205,7 @@ export async function saveProject(formData: FormData) {
         relatie_id: record.relatie_id,
         status: 'open',
         prioriteit: 'normaal',
-        toegewezen_aan: user?.id || null,
+        toegewezen_aan: toegewezenAan,
         medewerker_id: medewerkerId,
       })
       revalidatePath('/taken')
@@ -4210,6 +4222,23 @@ export async function deleteProject(id: string) {
   const supabase = await createClient()
   const { error } = await supabase.from('projecten').delete().eq('id', id)
   if (error) return { error: error.message }
+  revalidatePath('/projecten')
+  return { success: true }
+}
+
+// Lichte action om de verantwoordelijke medewerker van een verkoopkans inline
+// (zonder het hele formulier) bij te werken vanuit de detail-zijbalk.
+export async function updateProjectMedewerker(id: string, medewerkerId: string | null) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  const { error } = await supabase
+    .from('projecten')
+    .update({ medewerker_id: medewerkerId })
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath(`/projecten/${id}`)
   revalidatePath('/projecten')
   return { success: true }
 }
@@ -4464,6 +4493,34 @@ export async function updateTaakDeadline(id: string, deadline: string | null) {
   if (error) return { error: error.message }
   revalidatePath('/taken')
   return { success: true }
+}
+
+// Lichte action voor inline (her)toewijzen van een taak aan een medewerker
+// direct vanuit de takenlijst. We zetten zowel medewerker_id (medewerkers-tabel)
+// als toegewezen_aan (profiel_id / login-user) — net als saveTaak — zodat de
+// zichtbaarheid en het medewerker-filter in getTaken blijven kloppen.
+export async function updateTaakMedewerker(id: string, medewerkerId: string | null) {
+  const supabase = await createClient()
+  const adminId = await getAdministratieId()
+  if (!adminId) return { error: 'Niet ingelogd' }
+  let toegewezenAan: string | null = null
+  if (medewerkerId) {
+    const { data: mw } = await supabase
+      .from('medewerkers')
+      .select('profiel_id')
+      .eq('id', medewerkerId)
+      .eq('administratie_id', adminId)
+      .maybeSingle()
+    toegewezenAan = mw?.profiel_id || null
+  }
+  const { error } = await supabase
+    .from('taken')
+    .update({ medewerker_id: medewerkerId, toegewezen_aan: toegewezenAan })
+    .eq('id', id)
+    .eq('administratie_id', adminId)
+  if (error) return { error: error.message }
+  revalidatePath('/taken')
+  return { success: true, toegewezenAan }
 }
 
 export async function deleteTaak(id: string) {
@@ -8687,7 +8744,7 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
   const [projectRes, offertesRes, takenRes, afsprakenRes] = await Promise.all([
     supabase
       .from('projecten')
-      .select('*, relatie:relaties(id, bedrijfsnaam, email)')
+      .select('*, relatie:relaties(id, bedrijfsnaam, email), medewerker:medewerkers(id, naam)')
       .eq('id', projectId)
       .single(),
     supabase

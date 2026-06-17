@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 import { formatDateShort, formatCurrency } from '@/lib/utils'
-import { completeTaak, uncompleteTaak, updateTaakDeadline, acceptOfferte, rejectOfferte, convertToFactuur } from '@/lib/actions'
+import { completeTaak, uncompleteTaak, updateTaakDeadline, updateTaakMedewerker, acceptOfferte, rejectOfferte, convertToFactuur } from '@/lib/actions'
 import { Dialog } from '@/components/ui/dialog'
 import { showToast } from '@/components/ui/toast'
 import { Plus, CheckSquare, X, Phone, FileText, ListTodo, ThumbsUp, ThumbsDown, ArrowRight } from 'lucide-react'
@@ -64,10 +64,14 @@ function categorieTaak(taak: { titel: string; status: string; categorie?: string
   return 'alle'
 }
 
+type MedewerkerOptie = { id: string; naam: string; profiel_id: string | null }
+
 function getColumns(
   isAdmin: boolean,
   onToggle: (id: string, currentStatus: string) => void,
   onDeadlineChange: (id: string, newDeadline: string | null) => void,
+  alleMedewerkers: MedewerkerOptie[],
+  onMedewerkerChange: (id: string, medewerkerId: string | null) => void,
 ): ColumnDef<Taak, unknown>[] {
   const cols: ColumnDef<Taak, unknown>[] = [
     {
@@ -136,12 +140,44 @@ function getColumns(
     } },
   ]
   if (isAdmin) {
-    cols.push({ id: 'toegewezen', header: 'Toegewezen aan', accessorFn: (row) => row.medewerker?.naam || row.toegewezen?.naam || '-' })
+    // Map profiel_id → medewerker_id zodat oudere taken (alleen toegewezen_aan
+    // gezet, geen medewerker_id) toch de juiste medewerker voorselecteren.
+    const profielNaarMw = new Map(
+      alleMedewerkers.filter(m => m.profiel_id).map(m => [m.profiel_id as string, m.id]),
+    )
+    cols.push({
+      id: 'toegewezen',
+      header: 'Toegewezen aan',
+      // accessorFn levert de naam voor sorteren + zoeken; de cel rendert de dropdown.
+      accessorFn: (row) => row.medewerker?.naam || row.toegewezen?.naam || '',
+      cell: ({ row }) => {
+        const huidigeId =
+          row.original.medewerker_id ||
+          (row.original.toegewezen_aan ? profielNaarMw.get(row.original.toegewezen_aan) : '') ||
+          ''
+        // Inline (her)toewijzen: klik direct op de naam in de lijst en kies een
+        // collega. onClick stopt propagation zodat de row-click niet activeert.
+        return (
+          <span className="relative inline-flex items-center" onClick={(e) => e.stopPropagation()}>
+            <select
+              value={huidigeId}
+              onChange={(e) => onMedewerkerChange(row.original.id, e.target.value || null)}
+              className={`bg-transparent border-0 p-0 pr-1 text-sm rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#00a66e] hover:text-[#00a66e] ${huidigeId ? 'text-gray-700' : 'text-gray-400'}`}
+            >
+              <option value="">– Niemand –</option>
+              {alleMedewerkers.map(m => (
+                <option key={m.id} value={m.id}>{m.naam}</option>
+              ))}
+            </select>
+          </span>
+        )
+      },
+    })
   }
   return cols
 }
 
-export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; isAdmin: boolean; currentUserId?: string | null }) {
+export function TakenView({ taken, isAdmin, currentUserId, alleMedewerkers = [] }: { taken: Taak[]; isAdmin: boolean; currentUserId?: string | null; alleMedewerkers?: MedewerkerOptie[] }) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const filterCollega = searchParams.get('collega')
@@ -343,6 +379,35 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
     }
   }
 
+  async function handleMedewerkerChange(id: string, medewerkerId: string | null) {
+    const mw = medewerkerId ? alleMedewerkers.find(m => m.id === medewerkerId) : null
+    const origineel = takenLijst.find(t => t.id === id) || taken.find(t => t.id === id)
+    // Optimistic: werk de toewijzing direct bij. Valt de taak buiten een actief
+    // medewerker-filter (toegewezen aan iemand anders)? Dan verdwijnt 'ie uit beeld.
+    setTakenLijst(prev => prev
+      .map(t => t.id === id ? {
+        ...t,
+        medewerker_id: medewerkerId,
+        medewerker: mw ? { naam: mw.naam } : null,
+        toegewezen_aan: mw?.profiel_id ?? null,
+        toegewezen: mw?.profiel_id ? { naam: mw.naam } : null,
+      } : t)
+      .filter(t => {
+        if (!filterMedewerkerNaam) return true
+        const naam = t.medewerker?.naam || t.toegewezen?.naam
+        return naam === filterMedewerkerNaam
+      }))
+    const result = await updateTaakMedewerker(id, medewerkerId)
+    if (result?.error) {
+      // Rollback bij fout
+      setTakenLijst(prev => prev.map(t => t.id === id && origineel ? origineel : t))
+      showToast(`Toewijzen mislukt: ${result.error}`, 'error')
+    } else {
+      showToast(mw ? `Toegewezen aan ${mw.naam}` : 'Toewijzing verwijderd', 'success')
+      router.refresh()
+    }
+  }
+
   async function handleDeadlineChange(id: string, newDeadline: string | null) {
     // Optimistic update — direct UI bijwerken zodat het responsief voelt.
     setTakenLijst(prev => prev.map(t => t.id === id ? { ...t, deadline: newDeadline } : t))
@@ -434,7 +499,7 @@ export function TakenView({ taken, isAdmin, currentUserId }: { taken: Taak[]; is
         <EmptyState icon={CheckSquare} title="Geen taken" description={activeTab === 'afgerond' ? 'Geen afgeronde taken.' : 'Geen taken in deze categorie.'} action={<Button onClick={() => router.push('/taken/nieuw')}><Plus className="h-4 w-4" />Taak aanmaken</Button>} />
       ) : (
         <DataTable
-          columns={getColumns(isAdmin, handleToggle, handleDeadlineChange)}
+          columns={getColumns(isAdmin, handleToggle, handleDeadlineChange, alleMedewerkers, handleMedewerkerChange)}
           data={takenLijst}
           searchPlaceholder="Zoek taak..."
           onRowClick={(row) => {

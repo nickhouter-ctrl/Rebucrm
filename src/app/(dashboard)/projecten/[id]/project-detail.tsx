@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
-import { saveProject, deleteProject, duplicateOfferte, deleteOfferte, deleteTaak, deleteFactuur, deleteEmailLog, updateOfferteOnderwerp, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans } from '@/lib/actions'
+import { saveProject, deleteProject, duplicateOfferte, deleteOfferte, deleteTaak, deleteFactuur, deleteEmailLog, updateOfferteOnderwerp, getEmailBody, getDocumentUrl, setProjectStatus, factureerVerkoopkans, updateProjectMedewerker } from '@/lib/actions'
 import type { TimelineItem } from '@/lib/actions'
 import { useBackNav } from '@/lib/hooks/use-back-nav'
 import { EmailLogDialog } from '@/components/email-log-dialog'
@@ -20,7 +20,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Pipeline } from '@/components/verkoopkans/pipeline'
 import { Timeline } from '@/components/verkoopkans/timeline'
 import { formatCurrency, formatDateShort } from '@/lib/utils'
-import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight, FileText, Download } from 'lucide-react'
+import { Save, Trash2, ArrowLeft, Plus, Pencil, X, User, UserCog, CalendarDays, Banknote, TrendingUp, Mail, Paperclip, ArrowDownLeft, ArrowUpRight, FileText, Download } from 'lucide-react'
 import { RecentTracker } from '@/components/layout/recent-tracker'
 
 interface ProjectEmail {
@@ -88,16 +88,18 @@ function FactuurGegevensFieldset({ project }: { project?: Record<string, unknown
   )
 }
 
-export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [], verstuurdeEmails = [] }: {
+export function ProjectDetail({ timeline, relaties, isNew, emails = [], documenten = [], verstuurdeEmails = [], medewerkers = [] }: {
   timeline: ProjectTimeline | null
   relaties: { id: string; bedrijfsnaam: string }[]
   isNew: boolean
   emails?: ProjectEmail[]
   documenten?: ProjectDocument[]
   verstuurdeEmails?: VerstuurdeEmail[]
+  medewerkers?: { id: string; naam: string }[]
 }) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [medewerkerBezig, setMedewerkerBezig] = useState(false)
   const [error, setError] = useState('')
   const [editing, setEditing] = useState(false)
   const { navigateBack } = useBackNav(`project-${(timeline?.project?.id as string) || 'nieuw'}`)
@@ -188,6 +190,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Input id="naam" name="naam" label="Naam verkoopkans *" required />
                 <Select id="relatie_id" name="relatie_id" label="Klant" placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+                <Select id="medewerker_id" name="medewerker_id" label="Toegewezen aan" placeholder="Niemand toegewezen" options={medewerkers.map(m => ({ value: m.id, label: m.naam }))} />
                 <Select id="status" name="status" label="Status" defaultValue="actief" options={[
                   { value: 'actief', label: 'Actief' },
                   { value: 'gewonnen', label: 'Gewonnen' },
@@ -292,6 +295,7 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                 <form action={handleSubmit} className="space-y-3">
                   <Input id="naam" name="naam" label="Naam verkoopkans *" defaultValue={project.naam as string} required />
                   <Select id="relatie_id" name="relatie_id" label="Klant" defaultValue={relatieId || ''} placeholder="Selecteer klant..." options={relaties.map(r => ({ value: r.id, label: r.bedrijfsnaam }))} />
+                  <Select id="medewerker_id" name="medewerker_id" label="Toegewezen aan" defaultValue={(project.medewerker_id as string) || ''} placeholder="Niemand toegewezen" options={medewerkers.map(m => ({ value: m.id, label: m.naam }))} />
                   <Select id="status" name="status" label="Status" defaultValue={projectStatus} options={[
                     { value: 'actief', label: 'Actief' },
                     { value: 'gewonnen', label: 'Gewonnen' },
@@ -342,6 +346,29 @@ export function ProjectDetail({ timeline, relaties, isNew, emails = [], document
                     ) : (
                       <span className="text-gray-500">Geen klant</span>
                     )}
+                  </div>
+
+                  {/* Toegewezen aan — inline aanpasbaar zonder edit-modus */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <UserCog className="h-4 w-4 text-gray-400 shrink-0" />
+                    <select
+                      value={(project.medewerker_id as string) || ''}
+                      disabled={medewerkerBezig}
+                      onChange={async (e) => {
+                        const v = e.target.value || null
+                        setMedewerkerBezig(true)
+                        const res = await updateProjectMedewerker(project.id as string, v)
+                        setMedewerkerBezig(false)
+                        if (res?.error) showToast(res.error, 'error')
+                        else { showToast('Toegewezen aan bijgewerkt'); router.refresh() }
+                      }}
+                      className={`flex-1 min-w-0 bg-transparent border-0 p-0 text-sm rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary hover:text-primary disabled:opacity-50 ${project.medewerker_id ? 'text-gray-700' : 'text-gray-500'}`}
+                    >
+                      <option value="">Niemand toegewezen</option>
+                      {medewerkers.map(m => (
+                        <option key={m.id} value={m.id}>{m.naam}</option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Afwijkend factuuradres */}
