@@ -95,6 +95,7 @@ interface ProjectWithOffertes {
     status: string
     subtotaal: number
     totaal: number
+    created_at?: string | null
     facturen?: { id: string; factuur_type: string; status: string }[]
   }[]
   notities?: ProjectNotitie[]
@@ -958,7 +959,14 @@ export function RelatieDetail({ detail, notities: initialNotities, klantAccounts
                 const da = a.datum ? new Date(a.datum).getTime() : 0
                 const db = b.datum ? new Date(b.datum).getTime() : 0
                 if (db !== da) return db - da
-                return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+                if ((b.versie_nummer || 0) !== (a.versie_nummer || 0)) return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+                // Beslissende tiebreaker: meest recent aangemaakte revisie bovenaan.
+                // Cruciaal wanneer meerdere revisies dezelfde datum én versie_nummer
+                // hebben (revisies worden niet altijd opgehoogd) — anders blijft een
+                // oudere revisie onterecht bovenaan i.p.v. de laatst aangepaste/verstuurde.
+                const ca = a.created_at ? new Date(a.created_at).getTime() : 0
+                const cb = b.created_at ? new Date(b.created_at).getTime() : 0
+                return cb - ca
               })
               const laatsteOfferte = sortedOffertes[0]
               const oudereVersies = sortedOffertes.slice(1)

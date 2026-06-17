@@ -3429,19 +3429,23 @@ export async function getProjecten() {
   const data = await fetchAllRows<any>((from, to) =>
     supabase
       .from('projecten')
-      .select('*, relatie:relaties(bedrijfsnaam), medewerker:medewerkers(naam), offertes:offertes(id, offertenummer, status, datum, versie_nummer, subtotaal, totaal, facturen:facturen(id, status, totaal, betaald_bedrag, factuur_type))')
+      .select('*, relatie:relaties(bedrijfsnaam), medewerker:medewerkers(naam), offertes:offertes(id, offertenummer, status, datum, versie_nummer, subtotaal, totaal, created_at, facturen:facturen(id, status, totaal, betaald_bedrag, factuur_type))')
       .order('created_at', { ascending: false })
       .range(from, to)
   )
   // Per project de meest recente offerte tonen (offerte-datum desc, versie_nummer als tiebreaker).
   // Bedrag is excl BTW (subtotaal) — niet het totaal incl BTW.
   return (data || []).map(p => {
-    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; datum: string | null; versie_nummer: number; subtotaal: number; totaal: number; facturen?: { id: string; status: string; totaal: number; betaald_bedrag: number | null; factuur_type: string | null }[] }[]
+    const offertes = (p.offertes || []) as { id: string; offertenummer: string; status: string; datum: string | null; versie_nummer: number; subtotaal: number; totaal: number; created_at?: string | null; facturen?: { id: string; status: string; totaal: number; betaald_bedrag: number | null; factuur_type: string | null }[] }[]
     const laatsteOfferte = [...offertes].sort((a, b) => {
       const da = a.datum ? new Date(a.datum).getTime() : 0
       const db = b.datum ? new Date(b.datum).getTime() : 0
       if (db !== da) return db - da
-      return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+      if ((b.versie_nummer || 0) !== (a.versie_nummer || 0)) return (b.versie_nummer || 0) - (a.versie_nummer || 0)
+      // Beslissende tiebreaker: meest recent aangemaakte revisie (zelfde datum + versie).
+      const ca = a.created_at ? new Date(a.created_at).getTime() : 0
+      const cb = b.created_at ? new Date(b.created_at).getTime() : 0
+      return cb - ca
     })[0]
     // Betaal-status afleiden uit alle facturen onder dit project.
     // Concept-facturen en credit-facturen tellen niet mee.
@@ -4962,8 +4966,8 @@ export async function getDashboardData() {
     // zodat sidebar en sectie identieke aantallen tonen. Oudere 'verzonden' offertes
     // uit historische imports zijn praktisch dood en horen niet in deze actie-lijst.
     supabase.from('offertes').select('id, offertenummer, datum, totaal, relatie:relaties(id, bedrijfsnaam), project:projecten(naam)').eq('administratie_id', adminId).eq('status', 'verzonden').gte('datum', new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer, project:projecten(id, naam))').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).order('datum', { ascending: true }),
-    supabase.from('orders').select('id, ordernummer, leverdatum, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam, adres, postcode, plaats), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).not('leverdatum', 'is', null).in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam, contactpersoon, email), offerte:offertes(offertenummer, project:projecten(id, naam))').eq('administratie_id', adminId).eq('status', 'nieuw').is('leverdatum', null).is('leverweek', null).order('datum', { ascending: true }),
+    supabase.from('orders').select('id, ordernummer, leverdatum, leverweek, totaal, onderwerp, status, relatie:relaties(id, bedrijfsnaam, adres, postcode, plaats), facturen:facturen(id, factuurnummer, status, factuur_type, totaal)').eq('administratie_id', adminId).or('leverdatum.not.is.null,leverweek.not.is.null').in('status', ['in_behandeling', 'nieuw', 'besteld']).order('leverdatum', { ascending: true }),
     supabaseAdmin.from('berichten').select('id, offerte_id', { count: 'exact', head: true }).eq('administratie_id', adminId).eq('afzender_type', 'klant').eq('gelezen', false),
     supabase.from('offertes').select('id, offertenummer, datum, totaal, onderwerp, relatie:relaties(id, bedrijfsnaam), facturen:facturen(id)').eq('administratie_id', adminId).eq('status', 'geaccepteerd').or('gearchiveerd.is.null,gearchiveerd.eq.false').order('datum', { ascending: false }),
     supabase.from('facturen').select('id, factuurnummer, totaal, subtotaal, btw_totaal, betaald_bedrag, vervaldatum, geplande_datum, status, factuur_type, order_id, onderwerp, relatie_id, relatie:relaties(id, bedrijfsnaam), order:orders(id, ordernummer, onderwerp, totaal, subtotaal, offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))), offerte:offertes(id, totaal, subtotaal, project:projecten(id, naam))').eq('administratie_id', adminId).in('status', ['concept', 'verzonden', 'deels_betaald', 'vervallen']).order('factuurnummer', { ascending: false }),
@@ -5277,7 +5281,8 @@ export async function getDashboardData() {
     }
   })
 
-  // Geplande leveringen (orders met leverdatum, nog niet afgeleverd)
+  // Geplande leveringen: orders met een definitieve leverdatum OF een indicatieve
+  // leverweek (twee-fasen planning), nog niet afgeleverd.
   const geplandeLeveringen = (geplandeLeveringenRes.data || []).map(o => {
     const facturen = (o.facturen || []) as { id: string; factuurnummer: string; status: string; factuur_type: string; totaal: number }[]
     const restbetaling = facturen.find(f => f.factuur_type === 'restbetaling')
@@ -5286,6 +5291,9 @@ export async function getDashboardData() {
       id: o.id,
       ordernummer: o.ordernummer,
       leverdatum: o.leverdatum,
+      leverweek: o.leverweek || null,
+      // Definitief = exacte leverdatum bekend; anders nog indicatief (alleen week).
+      definitief: !!o.leverdatum,
       status: o.status,
       onderwerp: o.onderwerp,
       totaal: o.totaal || 0,
@@ -5297,6 +5305,8 @@ export async function getDashboardData() {
       restbetaling: restbetaling ? { id: restbetaling.id, factuurnummer: restbetaling.factuurnummer, status: restbetaling.status, totaal: restbetaling.totaal } : null,
     }
   })
+  // Sorteer op effectieve leverdatum (definitieve datum, anders de indicatieve week).
+  geplandeLeveringen.sort((a, b) => (a.leverdatum || a.leverweek || '9999').localeCompare(b.leverdatum || b.leverweek || '9999'))
 
   // Restbetalingen te versturen: orders waarvan de leverdatum binnen 3 dagen is,
   // mét een concept-restbetaling-factuur die nog verstuurd moet worden. Schuift
@@ -6875,7 +6885,7 @@ export async function getRelatieDetail(id: string) {
     supabase.from('relaties').select('*').eq('id', id).single(),
     supabase.from('offertes').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
     supabase.from('facturen').select('*').eq('relatie_id', id).order('datum', { ascending: false }),
-    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, facturen:facturen(id, factuur_type, status))').eq('relatie_id', id).order('created_at', { ascending: false }),
+    supabase.from('projecten').select('id, naam, status, offertes:offertes(id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, created_at, facturen:facturen(id, factuur_type, status))').eq('relatie_id', id).order('created_at', { ascending: false }),
   ])
 
   const relatie = relatieRes.data
@@ -7921,54 +7931,102 @@ export async function getDeliveryEmailDefaults(orderId: string) {
 
   if (!order) return { error: 'Order niet gevonden' }
 
+  const rel = order.relatie as { email?: string; contactpersoon?: string; bedrijfsnaam?: string; adres?: string; postcode?: string; plaats?: string } | null
+
   const { data: { user } } = await supabase.auth.getUser()
   let medewerkerNaam = 'Rebu Kozijnen'
+  let medewerkerEmail: string | null = null
   if (user) {
     const adminClient = createAdminClient()
     const { data: profiel } = await adminClient
       .from('profielen')
-      .select('naam')
+      .select('naam, email')
       .eq('id', user.id)
       .single()
     if (profiel?.naam) medewerkerNaam = profiel.naam
+    medewerkerEmail = profiel?.email || null
   }
 
+  // Adres samenstellen voor de "controleer uw leveringsadres"-regel.
+  const adresRegel = [rel?.adres, [rel?.postcode, rel?.plaats].filter(Boolean).join(' ')]
+    .filter(Boolean).join(', ')
+
   return {
-    to: (order.relatie as { email?: string } | null)?.email || '',
+    to: rel?.email || '',
     subject: `Leverplanning ${order.ordernummer} - Rebu Kozijnen`,
-    klantNaam: (order.relatie as { contactpersoon?: string; bedrijfsnaam?: string } | null)?.contactpersoon
-      || (order.relatie as { bedrijfsnaam?: string } | null)?.bedrijfsnaam || '',
+    klantNaam: rel?.contactpersoon || rel?.bedrijfsnaam || '',
+    ordernummer: order.ordernummer as string,
+    adresRegel,
+    leverweek: (order.leverweek as string | null) || null,
+    leverdatum: (order.leverdatum as string | null) || null,
     medewerkerNaam,
+    medewerkerEmail,
   }
 }
 
-export async function planDelivery(orderId: string, options: {
-  leverdatum: string
+// Fase 1 — indicatief plannen: zet de verwachte leverweek (maandag van de
+// ISO-week) en stuur de klant de indicatie-mail. Order schuift naar "geplande
+// leveringen" met een indicatief-label; de exacte leverdatum volgt later.
+export async function planLeveringIndicatief(orderId: string, options: {
+  leverweek: string // YYYY-MM-DD (maandag van de ISO-week)
   emailTo: string
   emailSubject: string
   emailBody: string
 }) {
   const supabase = await createClient()
-
   const { error: updateError } = await supabase
     .from('orders')
-    .update({ leverdatum: options.leverdatum, status: 'in_behandeling' })
+    .update({ leverweek: options.leverweek, leverdatum: null, status: 'in_behandeling' })
     .eq('id', orderId)
-
   if (updateError) return { error: updateError.message }
 
-  // Send email via SMTP
-  const emailHtml = buildRebuEmailHtml(options.emailBody)
+  if (options.emailTo) {
+    try {
+      await sendEmail({
+        to: options.emailTo,
+        subject: options.emailSubject,
+        html: buildRebuEmailHtml(options.emailBody),
+      })
+    } catch (err) {
+      console.error('Indicatieve levering-mail verzenden mislukt:', err)
+      return { error: 'E-mail verzenden mislukt (de leverweek is wel opgeslagen)' }
+    }
+  }
 
-  try {
-    await sendEmail({
-      to: options.emailTo,
-      subject: options.emailSubject,
-      html: emailHtml,
-    })
-  } catch (err) {
-    console.error('Levering e-mail verzenden mislukt:', err)
-    return { error: 'E-mail verzenden mislukt' }
+  revalidatePath('/')
+  revalidatePath('/offertes/orders')
+  return { success: true }
+}
+
+// Fase 2 — definitief plannen: zet de exacte leverdatum (zodra de fabriek een
+// vaste dag bevestigt) en stuur de definitieve bevestigingsmail.
+export async function planLeveringDefinitief(orderId: string, options: {
+  leverdatum: string // YYYY-MM-DD
+  leverweek?: string | null // maandag van de ISO-week; houdt de week-weergave in sync
+  emailTo: string
+  emailSubject: string
+  emailBody: string
+}) {
+  const supabase = await createClient()
+  const update: Record<string, unknown> = { leverdatum: options.leverdatum, status: 'in_behandeling' }
+  if (options.leverweek) update.leverweek = options.leverweek
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update(update)
+    .eq('id', orderId)
+  if (updateError) return { error: updateError.message }
+
+  if (options.emailTo) {
+    try {
+      await sendEmail({
+        to: options.emailTo,
+        subject: options.emailSubject,
+        html: buildRebuEmailHtml(options.emailBody),
+      })
+    } catch (err) {
+      console.error('Definitieve levering-mail verzenden mislukt:', err)
+      return { error: 'E-mail verzenden mislukt (de leverdatum is wel opgeslagen)' }
+    }
   }
 
   revalidatePath('/')
@@ -8751,11 +8809,13 @@ export async function getProjectTimeline(projectId: string): Promise<ProjectTime
       .from('offertes')
       .select('id, offertenummer, versie_nummer, datum, status, subtotaal, totaal, onderwerp, created_at, facturen:facturen(id, factuurnummer, datum, status, subtotaal, totaal, betaald_bedrag, factuur_type, created_at), email_log:email_log(id, aan, onderwerp, verstuurd_op), berichten:berichten(id, tekst, afzender_type, afzender_naam, created_at)')
       .eq('project_id', projectId)
-      // Eerst op datum (laatst verstuurde offerte bovenaan), dan versie_nummer
-      // als tie-breaker. Zo krijgt de sidebar "Geoffreerd" altijd de meest
-      // recente offerte, ook als er meerdere offerte-groepen in dit project zijn.
+      // Eerst op datum (laatst verstuurde offerte bovenaan), dan versie_nummer,
+      // en als laatste created_at — beslissend wanneer revisies dezelfde datum +
+      // versie_nummer hebben. Zo krijgt de sidebar "Geoffreerd" altijd de meest
+      // recent aangemaakte/verstuurde offerte, ook bij meerdere offerte-groepen.
       .order('datum', { ascending: false })
-      .order('versie_nummer', { ascending: false }),
+      .order('versie_nummer', { ascending: false })
+      .order('created_at', { ascending: false }),
     supabase
       .from('taken')
       .select('id, titel, status, prioriteit, deadline, created_at')

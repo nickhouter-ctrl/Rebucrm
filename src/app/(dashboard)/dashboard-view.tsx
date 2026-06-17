@@ -7,11 +7,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { formatCurrency } from '@/lib/utils'
 import { FileText, Truck, Receipt, Target, ChevronDown, ChevronUp, Pencil, AlertTriangle, ArrowRight, DollarSign, TrendingUp, CheckSquare, Bell, ShoppingCart, Clock, Calendar, Users, FolderKanban, Mail, Trash2, MessageCircle, ArrowUpRight, ArrowDownRight, Send, EyeOff, Calculator } from 'lucide-react'
-import { format } from 'date-fns'
+import { format, getISOWeek } from 'date-fns'
 import { nl } from 'date-fns/locale'
 import { useRouter } from 'next/navigation'
 import { convertToFactuur, saveOmzetdoelen, markOrderBesteld, completeTaak, deleteTaak, saveNotitie, deleteNotitie, verstuurFactuurSnel, archiveerOfferte } from '@/lib/actions'
-import { DeliveryPlanningDialog } from './delivery-planning-dialog'
+import { DeliveryPlanningDialog, type PlanOrder } from './delivery-planning-dialog'
 import { type FunnelData } from '@/components/dashboard/conversie-funnel-dashboard'
 import { ConversiePerMaandDialog } from '@/components/dashboard/conversie-per-maand-dialog'
 
@@ -94,7 +94,9 @@ interface DashboardData {
   geplandeLeveringen: {
     id: string
     ordernummer: string
-    leverdatum: string
+    leverdatum: string | null
+    leverweek: string | null
+    definitief: boolean
     status: string
     onderwerp: string | null
     totaal: number
@@ -224,6 +226,11 @@ function dagenVerschil(d: string) {
   const now = new Date()
   const target = new Date(d)
   return Math.ceil((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+// Indicatieve leverweek (maandag-datum) → "Week 12".
+function leverweekLabel(d: string) {
+  try { return `Week ${getISOWeek(new Date(d))}` } catch { return d }
 }
 
 function DagenPill({ dagen, isOver }: { dagen: number; isOver: boolean }) {
@@ -397,7 +404,7 @@ function TakenPerCollegaSection({ data }: { data: DashboardData['takenPerCollega
 
 export function DashboardView({ data }: { data: DashboardData | null }) {
   const router = useRouter()
-  const [planningOrder, setPlanningOrder] = useState<TePlannenOrder | null>(null)
+  const [planning, setPlanning] = useState<{ order: PlanOrder; mode: 'indicatief' | 'definitief' } | null>(null)
   const [conversieDialogOpen, setConversieDialogOpen] = useState(false)
   const [factuurLoading, setFactuurLoading] = useState<string | null>(null)
   const [factuurDialogOfferte, setFactuurDialogOfferte] = useState<{ id: string; totaal: number } | null>(null)
@@ -1277,14 +1284,30 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
               </thead>
               <tbody>
                 {data.geplandeLeveringen.map(l => {
-                  const dagen = dagenVerschil(l.leverdatum)
+                  const dagen = l.leverdatum ? dagenVerschil(l.leverdatum) : null
                   return (
                     <tr key={l.id} className="border-t border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="px-5 py-3 text-sm font-medium text-gray-900"><KlantNaam id={l.relatie_id} naam={l.relatie_bedrijfsnaam} /></td>
                       <td className="px-3 py-3"><Link href={`/orders/${l.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{l.ordernummer}</Link></td>
                       <td className="px-3 py-3">
-                        <div className="text-sm text-gray-600">{formatDateShort(l.leverdatum)}</div>
-                        <div className="mt-1"><DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} /></div>
+                        {l.definitief && l.leverdatum ? (
+                          <>
+                            <div className="text-sm text-gray-600">{formatDateShort(l.leverdatum)}</div>
+                            <div className="mt-1 flex items-center gap-1.5">
+                              {dagen !== null && <DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} />}
+                              <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-600">Definitief</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="text-sm text-gray-600">{l.leverweek ? leverweekLabel(l.leverweek) : '—'} <span className="text-xs text-gray-400">(indicatief)</span></div>
+                            <div className="mt-1">
+                              <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setPlanning({ order: { id: l.id, ordernummer: l.ordernummer, relatie_bedrijfsnaam: l.relatie_bedrijfsnaam, onderwerp: l.onderwerp, leverweek: l.leverweek, leverdatum: l.leverdatum }, mode: 'definitief' })}>
+                                <Truck className="h-3 w-3 mr-1" />Definitief plannen
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         {l.restbetaling ? (
@@ -1311,34 +1334,47 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
             </table>
             <div className="md:hidden divide-y divide-gray-50">
               {data.geplandeLeveringen.map(l => {
-                const dagen = dagenVerschil(l.leverdatum)
+                const dagen = l.leverdatum ? dagenVerschil(l.leverdatum) : null
                 return (
-                  <Link key={l.id} href={`/orders/${l.id}`} className="block px-4 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{l.relatie_bedrijfsnaam}</p>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                          <span className="text-xs text-[#00a66e] font-medium">{l.ordernummer}</span>
-                          <span className="text-xs text-gray-400">{formatDateShort(l.leverdatum)}</span>
-                          <DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} />
-                        </div>
-                        {l.restbetaling && (
-                          <div className="flex items-center gap-1.5 mt-1">
-                            <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                              l.restbetaling.status === 'concept' ? 'bg-gray-100 text-gray-600' :
-                              l.restbetaling.status === 'verzonden' ? 'bg-orange-50 text-orange-600' :
-                              l.restbetaling.status === 'betaald' ? 'bg-green-50 text-green-600' :
-                              'bg-red-50 text-red-600'
-                            }`}>
-                              Rest: {l.restbetaling.status === 'concept' ? 'Nog versturen' : l.restbetaling.status}
-                            </span>
-                            <span className="text-xs text-gray-400">{formatCurrency(l.restbetaling.totaal)}</span>
+                  <div key={l.id} className="px-4 py-3">
+                    <Link href={`/orders/${l.id}`} className="block">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{l.relatie_bedrijfsnaam}</p>
+                          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span className="text-xs text-[#00a66e] font-medium">{l.ordernummer}</span>
+                            {l.definitief && l.leverdatum ? (
+                              <>
+                                <span className="text-xs text-gray-400">{formatDateShort(l.leverdatum)}</span>
+                                {dagen !== null && <DagenPill dagen={Math.abs(dagen)} isOver={dagen < 0} />}
+                              </>
+                            ) : (
+                              <span className="inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700">{l.leverweek ? leverweekLabel(l.leverweek) : 'Week ?'} · indicatief</span>
+                            )}
                           </div>
-                        )}
+                          {l.restbetaling && (
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                l.restbetaling.status === 'concept' ? 'bg-gray-100 text-gray-600' :
+                                l.restbetaling.status === 'verzonden' ? 'bg-orange-50 text-orange-600' :
+                                l.restbetaling.status === 'betaald' ? 'bg-green-50 text-green-600' :
+                                'bg-red-50 text-red-600'
+                              }`}>
+                                Rest: {l.restbetaling.status === 'concept' ? 'Nog versturen' : l.restbetaling.status}
+                              </span>
+                              <span className="text-xs text-gray-400">{formatCurrency(l.restbetaling.totaal)}</span>
+                            </div>
+                          )}
+                        </div>
+                        <Badge status={l.status} />
                       </div>
-                      <Badge status={l.status} />
-                    </div>
-                  </Link>
+                    </Link>
+                    {!l.definitief && (
+                      <Button size="sm" variant="secondary" className="w-full h-8 text-xs mt-2" onClick={() => setPlanning({ order: { id: l.id, ordernummer: l.ordernummer, relatie_bedrijfsnaam: l.relatie_bedrijfsnaam, onderwerp: l.onderwerp, leverweek: l.leverweek, leverdatum: l.leverdatum }, mode: 'definitief' })}>
+                        <Truck className="h-3 w-3 mr-1" />Definitief plannen
+                      </Button>
+                    )}
+                  </div>
                 )
               })}
             </div>
@@ -1375,7 +1411,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       <td className="px-3 py-3"><Link href={`/orders/${o.id}`} className="text-sm text-[#00a66e] hover:underline font-medium">{o.ordernummer}</Link></td>
                       <td className="px-3 py-3 text-sm text-right font-semibold text-gray-900">{formatCurrency(o.totaal)}</td>
                       <td className="px-5 py-3 text-right">
-                        <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setPlanningOrder(o)}>
+                        <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setPlanning({ order: o, mode: 'indicatief' })}>
                           <Truck className="h-3 w-3 mr-1" />Plannen
                         </Button>
                       </td>
@@ -1396,7 +1432,7 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
                       </div>
                       <p className="text-sm font-semibold text-gray-900 shrink-0">{formatCurrency(o.totaal)}</p>
                     </div>
-                    <Button size="sm" variant="secondary" className="w-full h-8 text-xs" onClick={() => setPlanningOrder(o)}>
+                    <Button size="sm" variant="secondary" className="w-full h-8 text-xs" onClick={() => setPlanning({ order: o, mode: 'indicatief' })}>
                       <Truck className="h-3 w-3 mr-1" />Levering plannen
                     </Button>
                   </div>
@@ -1608,8 +1644,8 @@ export function DashboardView({ data }: { data: DashboardData | null }) {
       </div>
 
       {/* Delivery planning dialog */}
-      {planningOrder && (
-        <DeliveryPlanningDialog open={!!planningOrder} onClose={() => setPlanningOrder(null)} order={planningOrder} />
+      {planning && (
+        <DeliveryPlanningDialog open={!!planning} onClose={() => setPlanning(null)} order={planning.order} mode={planning.mode} />
       )}
 
       {/* Conversie per maand (verstuurd vs doorgegaan) */}
